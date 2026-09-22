@@ -86,6 +86,15 @@ The bridge (`apps/whatsapp/manager.go`) holds live whatsmeow clients, one per ch
 
 `apps/web/lib/api.ts` is the single fetch wrapper (cookie auth, `NEXT_PUBLIC_API_URL`); `apps/web/lib/providers.ts` holds per-provider model presets. `apps/web/AGENTS.md` warns that Next.js 16 has breaking changes vs. training data — check `node_modules/next/dist/docs/` before writing non-trivial Next.js code.
 
+### Subagents
+
+`.claude/agents/` holds domain-scoped subagents for the Claude Code `Agent`
+tool: `backend-api` (apps/api only) and `frontend-web` (apps/web only). Each
+file carries its own non-negotiable rules pulled from this document, so a
+session can delegate a clearly single-domain task to one of them directly, or
+run both in parallel once an API contract is settled. Prefer the general
+session for anything that spans domains or needs judgment about scope.
+
 ## Environment gotchas
 
 - `ENCRYPTION_KEY` must never change after secrets are stored — it decrypts AI API keys and WhatsApp sessions.
