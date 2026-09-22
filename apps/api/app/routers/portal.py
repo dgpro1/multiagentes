@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import get_settings
 from ..database import get_db
 from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTag, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
-from ..portal_permissions import CANNED_MANAGE, CONTACTS_MANAGE, INBOX_DELETE, REPORTS_VIEW, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
+from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CONTACTS_MANAGE, INBOX_DELETE, REPORTS_VIEW, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
 from ..ratelimit import login_rate_limit, public_asset_rate_limit
 from ..schemas import (
     ContactBlockUpdate,
@@ -61,6 +61,8 @@ from ..schemas import (
     TeamUpsert,
 )
 from ..security import create_portal_token, decode_portal_token, verify_password
+from ..schemas_calendar import CalendarEventsOut, CalendarMemberCreate, CalendarMemberOut, CalendarMemberUpdate, CalendarOverviewOut
+from ..services import calendar as calendar_service
 from ..services import channel_accounts
 from ..services.contacts import display_name, merge_contacts, normalize_phone, rename_conversations
 from ..services.tags import create_tag, delete_tag, get_tag, list_tags, rename_tag, tag_count, tag_out
@@ -375,6 +377,52 @@ def portal_delete_team(
     slug: str, team_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
     delete_team(db, client, team_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{slug}/calendar", response_model=CalendarOverviewOut)
+def portal_calendar(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return calendar_service.overview(db, client)
+
+
+@router.get("/{slug}/calendar/events", response_model=CalendarEventsOut)
+async def portal_calendar_events(
+    slug: str, start: datetime = Query(...), end: datetime = Query(...),
+    client: Client = Depends(_portal_client), db: Session = Depends(get_db),
+):
+    return await calendar_service.events(db, client, start, end)
+
+
+@router.post("/{slug}/calendar/members", response_model=CalendarMemberOut, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_permission(CALENDAR_MANAGE))])
+def portal_create_calendar_member(slug: str, payload: CalendarMemberCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return calendar_service.member_out(calendar_service.create_member(db, client, payload))
+
+
+@router.patch("/{slug}/calendar/members/{member_id}", response_model=CalendarMemberOut,
+              dependencies=[Depends(require_permission(CALENDAR_MANAGE))])
+def portal_update_calendar_member(
+    slug: str, member_id: uuid.UUID, payload: CalendarMemberUpdate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    return calendar_service.member_out(calendar_service.update_member(db, client, member_id, payload))
+
+
+@router.post("/{slug}/calendar/members/{member_id}/renew-link", response_model=CalendarMemberOut,
+             dependencies=[Depends(require_permission(CALENDAR_MANAGE))])
+def portal_renew_calendar_link(slug: str, member_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return calendar_service.member_out(calendar_service.renew_link(db, client, member_id))
+
+
+@router.post("/{slug}/calendar/members/{member_id}/disconnect", response_model=CalendarMemberOut,
+             dependencies=[Depends(require_permission(CALENDAR_MANAGE))])
+async def portal_disconnect_calendar_member(slug: str, member_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return calendar_service.member_out(await calendar_service.disconnect(db, client, member_id))
+
+
+@router.delete("/{slug}/calendar/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT,
+               dependencies=[Depends(require_permission(CALENDAR_MANAGE))])
+async def portal_delete_calendar_member(slug: str, member_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    await calendar_service.delete_member(db, client, member_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -28,6 +28,9 @@ CANNED_MANAGE = "canned.manage"
 TEAMS_MANAGE = "teams.manage"
 # The reports tab.
 REPORTS_VIEW = "reports.view"
+# Add, rename, recolor, delete and reconnect calendar members. Viewing the
+# calendar tab and its events is free.
+CALENDAR_MANAGE = "calendar.manage"
 
 PERMISSIONS: tuple[str, ...] = (
     INBOX_DELETE,
@@ -37,6 +40,7 @@ PERMISSIONS: tuple[str, ...] = (
     CANNED_MANAGE,
     TEAMS_MANAGE,
     REPORTS_VIEW,
+    CALENDAR_MANAGE,
 )
 
 ROLES: dict[str, frozenset[str]] = {

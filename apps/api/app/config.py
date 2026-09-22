@@ -59,6 +59,17 @@ class Settings(BaseSettings):
     social_public_url: str = ""
     social_oauth_state_minutes: int = 10
 
+    # Google Calendar. One OAuth client (a "Web application" in Google Cloud)
+    # serves the whole installation; each person on a client's team authorizes
+    # their own calendar through it. The redirect URI must be registered on
+    # that OAuth client exactly as used; empty means
+    # {frontend_url}/api/calendar/oauth/callback, which is right behind the
+    # gateway. Connection links stay valid for calendar_link_days.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = ""
+    calendar_link_days: int = 7
+
     # Conversations the AI is answering resolve themselves after this many
     # hours without a message from either side. Conversations a person took
     # over are never closed automatically: only that person decides. 0 disables.

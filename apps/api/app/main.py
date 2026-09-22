@@ -13,6 +13,7 @@ from .routers import (
     agent_tools,
     agents,
     auth,
+    calendar,
     catalog,
     clients,
     conversations,
@@ -109,4 +110,5 @@ app.include_router(whatsapp_cloud_webhook.public_router, prefix="/api")
 app.include_router(widget.router, prefix="/api")
 app.include_router(domains.public_router, prefix="/api")
 app.include_router(social.router, prefix="/api")
+app.include_router(calendar.router, prefix="/api")
 app.include_router(social_webhook.public_router, prefix="/api")
