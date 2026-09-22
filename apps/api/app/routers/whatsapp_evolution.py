@@ -268,8 +268,8 @@ async def _handle_message(db: Session, channel: WhatsAppChannel, payload: dict) 
         conversation_channel="whatsapp",
         channel_fk_field="whatsapp_channel_id",
     )
-    # Unlike the bridge endpoint (which delivers result.reply itself), the
-    # webhook has nobody to hand the reply to: send it through the channel.
+    # Unlike the internal /inbound endpoint (whose caller delivers result.reply
+    # itself), the webhook has nobody to hand the reply to: send it through the channel.
     conversation = db.get(Conversation, result.conversation_id) if result.conversation_id else None
     if result.reply and conversation:
         try:

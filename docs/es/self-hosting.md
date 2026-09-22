@@ -16,11 +16,13 @@ comparten un mismo origen.
 | `web` | Next.js | Panel de la agencia, portal del cliente, playground y widget (interno). |
 | `api` | FastAPI | API REST, modelos, servicios de IA, conocimiento y proveedores (interno). |
 | `db` | PostgreSQL | Todos los datos, con los secretos cifrados en reposo (interno). |
-| `whatsapp` | Go + whatsmeow | Puente con WhatsApp Web (interno). |
+| `evolution` | Evolution API | Driver de WhatsApp QR (Baileys, interno; con su propio Postgres y Redis). |
 
 Solo el gateway está pensado para ser público. Para HTTPS, pon tu propio proxy
 inverso delante (mira [Pasar a producción](#pasar-a-producción-https)). Una
 instancia = **una agencia** (el primer usuario registrado es su administrador).
+WhatsApp QR es opcional: sin `EVOLUTION_API_URL`/`EVOLUTION_API_KEY`, el resto
+de la app funciona y WhatsApp QR simplemente no está disponible.
 
 > **¿Por qué Caddy como gateway?** El enrutado es deliberadamente simple, dos
 > destinos y una regla (`/api/*` → backend, todo lo demás → frontend), y la
@@ -46,7 +48,7 @@ instancia = **una agencia** (el primer usuario registrado es su administrador).
 - [Correr sin Docker](#correr-sin-docker)
 - [Conectar WhatsApp](#conectar-whatsapp)
 - [Tests](#tests)
-- [Advertencias de WhatsApp / whatsmeow](#advertencias-de-whatsapp--whatsmeow)
+- [Advertencias de WhatsApp / Evolution API](#advertencias-de-whatsapp--evolution-api)
 - [Resolución de problemas](#resolución-de-problemas)
 
 ## Antes de empezar
@@ -112,16 +114,16 @@ tienes que construir el frontend tú mismo con `NEXT_PUBLIC_API_URL` definida.
 
 En la primera pantalla elige **Crear agencia**; esa cuenta es la administradora.
 Solo el gateway está pensado para ser alcanzable públicamente; el web, la API, la
-base de datos y el puente de WhatsApp se quedan en la red privada de Compose.
+base de datos y Evolution API se quedan en la red privada de Compose.
 
 ## Asegurar tu instalación
 
 Haz esto antes de exponer OpenLivery a alguien más.
 
 - **Secretos.** `generate-docker-env.sh` rellena `SECRET_KEY`, `ENCRYPTION_KEY`,
-  `WHATSAPP_BRIDGE_TOKEN` y `POSTGRES_PASSWORD` con valores aleatorios. Si los
-  pones a mano, usa cadenas largas y aleatorias, y nunca las reutilices entre
-  instalaciones.
+  `WHATSAPP_BRIDGE_TOKEN`, `EVOLUTION_API_KEY` y `POSTGRES_PASSWORD` con valores
+  aleatorios. Si los pones a mano, usa cadenas largas y aleatorias, y nunca las
+  reutilices entre instalaciones.
 - ⚠️ **`ENCRYPTION_KEY` no debe cambiar nunca** una vez que hay secretos
   guardados: es la que descifra las claves de los proveedores y los marcadores
   de sesión de WhatsApp. Perderla o cambiarla los vuelve irrecuperables.
@@ -134,8 +136,8 @@ Haz esto antes de exponer OpenLivery a alguien más.
   contenga; guárdalo en un gestor de secretos.
 - Las claves de los proveedores se cifran en reposo y nunca se devuelven enteras
   al navegador; el marcador de sesión de WhatsApp y el QR también van
-  cifrados. `WHATSAPP_BRIDGE_TOKEN` autentica las llamadas privadas entre el
-  backend y el puente: no lo reutilices como contraseña ni como clave.
+  cifrados. `WHATSAPP_BRIDGE_TOKEN` autentica los endpoints internos de la API
+  bajo `/internal/whatsapp`: no lo reutilices como contraseña ni como clave.
 - **Límite de peticiones.** Los endpoints públicos sin autenticar están limitados
   por IP del cliente: inicio de sesión y registro (de agencia y de portal) para
   frenar la fuerza bruta, y el endpoint de mensajes del widget web porque cada
@@ -167,7 +169,7 @@ agency.example.com {
 }
 ```
 
-Mantén privados la base de datos, la API y el puente de WhatsApp
+Mantén privados la base de datos, la API y Evolution API
 (`BIND_HOST=127.0.0.1`, el valor por defecto); solo tu proxy inverso debería dar
 la cara a internet.
 
@@ -232,14 +234,14 @@ copia `.env.docker.example` a `.env.docker` y reemplaza cada `CHANGE_*`.
 | `POSTGRES_TEST_DB` | Red privada | Base de datos aislada para `pytest`. |
 | `SECRET_KEY` | Backend | Firma las sesiones de agencia y de portal. |
 | `ENCRYPTION_KEY` | Backend / datos persistidos | Cifra las claves de API, el QR y el marcador de sesión de WhatsApp. **No debe cambiar** una vez guardados los secretos. |
-| `WHATSAPP_BRIDGE_TOKEN` | Backend y puente | Autentica las llamadas privadas entre backend y puente. |
-| `WHATSAPP_STORE_URL` | Puente | Dónde guarda whatsmeow las claves de sesión: un archivo SQLite local (`file:whatsmeow.db`) por defecto, o una URL `postgres://`. Compose la apunta al PostgreSQL incluido con `?search_path=whatsmeow` para que sus tablas vivan en un esquema dedicado. |
+| `WHATSAPP_BRIDGE_TOKEN` | Backend | Autentica los endpoints internos de la API bajo `/internal/whatsapp`. |
+| `EVOLUTION_API_URL`, `EVOLUTION_API_KEY` | Backend y Evolution | Driver de WhatsApp QR. Sin ambas, WhatsApp QR simplemente no está disponible. |
+| `EVOLUTION_WEBHOOK_SECRET`, `EVOLUTION_WEBHOOK_URL` | Backend y Evolution | Autentica y enruta el webhook de eventos de Evolution. |
 | `FRONTEND_URL` | Backend | Origen permitido por CORS (solo hace falta si sirves la API en otro origen). |
 | `NEXT_PUBLIC_API_URL` | Navegador / build del frontend | Déjala vacía (por defecto): el navegador llama a la API por el gateway con un `/api` relativo. Ponla solo para apuntar el frontend a una API en otro origen (se fija en tiempo de build). |
 | `COOKIE_SECURE` | Backend | `true` detrás de HTTPS, para que la cookie de sesión solo viaje por TLS. |
 | `COOKIE_SAMESITE` | Backend | `lax` (por defecto); `none` cuando frontend y API están en sitios distintos (exige `COOKIE_SECURE=true`). |
 | `ACCESS_TOKEN_MINUTES` | Backend | Duración de la sesión. |
-| `WHATSAPP_LOG_LEVEL` | Puente | Nivel de log; `silent` evita exponer datos sensibles. |
 | `API_PORT`, `WEB_PORT`, `DB_PORT` | Host | Puertos del host (por defecto `8000` / `3000` / `5432`). |
 | `BIND_HOST` | Host | Dirección de escucha: `127.0.0.1` (local) o `0.0.0.0` (exposición directa). |
 
@@ -266,8 +268,9 @@ actualizaciones lo conservan:
 
 | Volumen | Contenido |
 | --- | --- |
-| `postgres_data` | La base de datos PostgreSQL: agencias, agentes, conversaciones, claves de proveedores cifradas, los marcadores de sesión de WhatsApp cifrados y el almacén de sesiones de whatsmeow (su propio esquema `whatsmeow`). |
+| `postgres_data` | La base de datos PostgreSQL: agencias, agentes, conversaciones, claves de proveedores cifradas y los marcadores de sesión de WhatsApp cifrados. |
 | `backend_storage` | Archivos subidos (por ejemplo los PDF de la base de conocimiento). |
+| `evolution_postgres_data`, `evolution_redis_data`, `evolution_instances` | Base de datos, caché e instancias propias de Evolution API (estado de sesión de WhatsApp QR). |
 
 `ENCRYPTION_KEY` descifra las claves de los proveedores y los marcadores de
 sesión de WhatsApp. **No la cambies nunca** una vez que hay secretos guardados,
@@ -285,15 +288,18 @@ docker compose --env-file .env.docker exec -T db \
 
 Guarda también `.env.docker` en un gestor de secretos: una copia con claves de
 API o una sesión de WhatsApp necesita la misma `ENCRYPTION_KEY` para poder
-descifrarse.
+descifrarse. El estado propio de Evolution API (`evolution-db`,
+`evolution-redis`, el volumen `evolution_instances`) guarda las sesiones de
+WhatsApp QR y necesita su propia copia si quieres que las líneas QR
+sobrevivan a una restauración sin volver a escanear.
 
 Restaurar (reemplaza los datos de la base de destino, haz copia antes):
 
 ```bash
-docker compose --env-file .env.docker stop api whatsapp
+docker compose --env-file .env.docker stop api
 docker compose --env-file .env.docker exec -T db \
   sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner' < backups/openlivery.dump
-docker compose --env-file .env.docker start api whatsapp
+docker compose --env-file .env.docker start api
 ```
 
 ## Actualizar
@@ -307,8 +313,9 @@ Se construyen las imágenes nuevas y el backend ejecuta `alembic upgrade head` a
 arrancar, así que los cambios de esquema se aplican solos. Haz una copia de
 seguridad antes.
 
-Si actualizas desde una versión cuyo puente estaba construido sobre Baileys, las
-sesiones antiguas de WhatsApp no se pueden migrar: vuelve a conectar cada canal
+Si actualizas desde una versión que usaba el puente local Go/whatsmeow, las
+sesiones antiguas de WhatsApp no se pueden migrar a Evolution API: configura
+`EVOLUTION_API_URL`/`EVOLUTION_API_KEY` y vuelve a conectar cada canal
 escaneando su QR una vez más.
 
 ## Desinstalar
@@ -341,17 +348,12 @@ cd apps/api && alembic upgrade head && uvicorn app.main:app --reload --port 8000
 
 # 4) frontend (new terminal)
 cd apps/web && npm install && npm run dev
-
-# 5) WhatsApp bridge (new terminal)
-cd apps/whatsapp && go run .
 ```
 
-El puente escucha solo en `127.0.0.1:3101` y tiene que quedarse corriendo junto
-al backend. Guarda las claves de sesión en el almacén configurado con
-`WHATSAPP_STORE_URL` (un archivo SQLite local, `file:whatsmeow.db`, por defecto;
-una URL `postgres://` también funciona). Mira `.env.example` para la lista
-completa de variables (`DATABASE_URL`, `BACKEND_URL`, `WHATSAPP_BRIDGE_URL`,
-`WHATSAPP_BRIDGE_PORT`…).
+Para las líneas de WhatsApp QR, levanta una instancia local de Evolution API
+(mira su [documentación](https://docs.evolutionfoundation.com.br)) y configura
+`EVOLUTION_API_URL`/`EVOLUTION_API_KEY` en `.env` — el resto de la app funciona
+sin ella. Mira `.env.example` para la lista completa de variables.
 
 ## Conectar WhatsApp
 
@@ -362,24 +364,22 @@ completa de variables (`DATABASE_URL`, `BACKEND_URL`, `WHATSAPP_BRIDGE_URL`,
 
 Los mensajes entrantes aparecen en el **Inbox** de la agencia y en el portal del
 cliente. Pulsa **Tomar la conversación** para responder como persona (la IA se
-pausa) y **Devolver a la IA** para continuar. Al reiniciar, el puente recarga las
-sesiones activas desde su almacén de sesiones y se reconecta automáticamente: no
-hace falta un QR nuevo salvo que WhatsApp termine la sesión, se desvincule el
-dispositivo o cambie `ENCRYPTION_KEY`.
+pausa) y **Devolver a la IA** para continuar. Las líneas se reconectan solas
+tras un reinicio: no hace falta un QR nuevo salvo que WhatsApp termine la
+sesión, se desvincule el dispositivo o cambie `ENCRYPTION_KEY`.
 
 ## Tests
 
 Dentro de Docker:
 
 ```bash
-make test   # backend pytest + rebuild the web/whatsapp validation stages
+make test   # backend pytest + rebuild the web validation stage
 ```
 
 En local:
 
 ```bash
 cd apps/api && ../../.venv/bin/pytest -q     # backend (needs the openlivery_test DB)
-cd apps/whatsapp && go test ./... && go vet ./...
 cd apps/web && npm run lint && npm run build
 ```
 
@@ -389,12 +389,12 @@ Volver a probar las migraciones desde cero:
 cd apps/api && alembic downgrade base && alembic upgrade head
 ```
 
-## Advertencias de WhatsApp / whatsmeow
+## Advertencias de WhatsApp / Evolution API
 
-whatsmeow se conecta al protocolo multidispositivo de **WhatsApp Web**; el número
-se vincula como un dispositivo más mediante QR. **No** es la API oficial de
-WhatsApp Business Cloud, y este proyecto no está afiliado ni respaldado por
-WhatsApp ni por Meta.
+Evolution API (con Baileys por debajo) se conecta al protocolo multidispositivo
+de **WhatsApp Web**; el número se vincula como un dispositivo más mediante QR.
+**No** es la API oficial de WhatsApp Business Cloud, y este proyecto no está
+afiliado ni respaldado por WhatsApp ni por Meta.
 
 - WhatsApp puede cambiar su protocolo o revocar una sesión o un dispositivo sin
   avisar.
@@ -403,23 +403,25 @@ WhatsApp ni por Meta.
   los términos de WhatsApp.
 - El QR vincula la cuenta mientras es válido: nunca lo compartas ni publiques una
   captura.
-- La integración maneja conversaciones uno a uno (texto, más notas de voz
-  transcritas e imágenes descritas cuando las capacidades del agente están
-  activas). Ignora grupos, estados, canales, documentos, ubicaciones, reacciones
-  y llamadas.
+- La integración maneja conversaciones uno a uno (texto, medios, documentos,
+  ubicaciones y reacciones, más notas de voz transcritas e imágenes descritas
+  cuando las capacidades del agente están activas). Los grupos necesitan el
+  interruptor de la línea activado (el agente responde solo si lo mencionan o
+  responden a uno de sus mensajes); las llamadas siempre se rechazan,
+  opcionalmente con un mensaje de explicación. Ignora estados y canales.
 - Una cuenta de WhatsApp pertenece a un cliente; otro cliente necesita otro
-  número. `apps/whatsapp/go.mod` fija una versión exacta de whatsmeow.
+  número.
 
 ## Resolución de problemas
 
 - **Puertos ocupados.** Sobrescríbelos en la misma línea:
   `API_PORT=8001 WEB_PORT=3001 DB_PORT=5433 make up`.
 - **Un servicio no está sano.** Revisa sus logs con `make logs SERVICE=api` (o
-  `web`, `whatsapp`, `db`) y `make ps` para ver el estado.
+  `web`, `evolution`, `db`) y `make ps` para ver el estado.
 - **La sesión no persiste, o el login entra en bucle detrás de HTTPS.** Asegúrate
   de tener `COOKIE_SECURE=true` y de estar llegando a la app por TLS.
 - **Las claves de proveedor o la sesión de WhatsApp dejaron de descifrarse.**
   Cambió `ENCRYPTION_KEY`: restaura el valor original desde tu copia.
 - **WhatsApp pide un QR nuevo tras reiniciar.** Solo es normal si WhatsApp
   terminó la sesión, se desvinculó el dispositivo o cambió `ENCRYPTION_KEY`; si
-  no, el puente recarga solo las sesiones activas desde su almacén de sesiones.
+  no, las líneas se reconectan solas a su instancia de Evolution.

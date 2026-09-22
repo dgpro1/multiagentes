@@ -1,16 +1,14 @@
 import base64
 import uuid
 
-import httpx
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from sqlalchemy import select
 
-from ..config import get_settings
 from ..models import Conversation, Message, WhatsAppChannel, WhatsAppCloudChannel
 from . import evolution as evolution_driver
-from .audio import audio_duration_seconds, to_whatsapp_voice
+from .audio import to_whatsapp_voice
 from .whatsapp_cloud import (
     mark_read,
     mark_read_with_typing,
@@ -46,32 +44,6 @@ async def _ensure_cloud_thread(db: Session, conversation: Conversation, text: st
     return account_id, thread_id, opened.get("messageId")
 
 
-async def bridge_command(method: str, path: str, payload: dict | None = None, timeout: float = 20) -> dict:
-    settings = get_settings()
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.request(
-                method,
-                f"{settings.whatsapp_bridge_url.rstrip('/')}{path}",
-                headers={"X-Bridge-Token": settings.whatsapp_bridge_token},
-                json=payload,
-            )
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="The local WhatsApp service is not available. Start it with go run . inside apps/whatsapp/.",
-        ) from exc
-    if response.status_code >= 400:
-        try:
-            detail = response.json().get("error")
-        except ValueError:
-            detail = None
-        raise HTTPException(status_code=502, detail=detail or "WhatsApp could not complete the operation")
-    if response.status_code == 204:
-        return {}
-    return response.json()
-
-
 async def send_channel_message(
     db: Session, conversation: Conversation, content: str, *, quoted_external_id: str | None = None
 ) -> str | None:
@@ -82,22 +54,12 @@ async def send_channel_message(
     if conversation.channel == "whatsapp":
         if not conversation.whatsapp_channel_id or not conversation.external_chat_id:
             raise HTTPException(status_code=409, detail="This conversation does not have a valid WhatsApp destination")
-        if evolution_driver.enabled():
-            channel = db.get(WhatsAppChannel, conversation.whatsapp_channel_id)
-            if not channel:
-                raise HTTPException(status_code=409, detail="The WhatsApp line no longer exists")
-            return await evolution_driver.send_text(
-                channel, conversation.external_chat_id, content, quoted_external_id=quoted_external_id
-            )
-        payload = {"remote_jid": conversation.external_chat_id, "text": markdown_to_whatsapp(content)}
-        if quoted_external_id:
-            payload["quote_external_id"] = quoted_external_id
-        result = await bridge_command(
-            "POST",
-            f"/channels/{conversation.whatsapp_channel_id}/send",
-            payload,
+        channel = db.get(WhatsAppChannel, conversation.whatsapp_channel_id)
+        if not channel:
+            raise HTTPException(status_code=409, detail="The WhatsApp line no longer exists")
+        return await evolution_driver.send_text(
+            channel, conversation.external_chat_id, content, quoted_external_id=quoted_external_id
         )
-        return result.get("external_message_id")
     if conversation.channel == "whatsapp_cloud":
         if not conversation.whatsapp_cloud_channel_id or not conversation.external_chat_id:
             raise HTTPException(status_code=409, detail="This conversation does not have a valid WhatsApp destination")
@@ -131,11 +93,9 @@ async def send_channel_media(
     conversation's channel. Returns the external message id, or None for
     channels without outbound delivery (playground, widget)."""
     caption = markdown_to_whatsapp(caption)
-    seconds = None
     if kind == "audio" and conversation.channel in ("whatsapp", "whatsapp_cloud"):
         # WhatsApp only plays ogg/opus voice notes; browsers record webm/mp4.
         data, mime = await to_whatsapp_voice(data, mime)
-        seconds = await audio_duration_seconds(data)
         if mime == "audio/ogg":
             # The filename must match the transcoded bytes: WhatsApp classifies the
             # upload by extension, and an ogg named .mp4/.webm comes out as
@@ -144,34 +104,18 @@ async def send_channel_media(
     if conversation.channel == "whatsapp":
         if not conversation.whatsapp_channel_id or not conversation.external_chat_id:
             raise HTTPException(status_code=409, detail="This conversation does not have a valid WhatsApp destination")
-        if evolution_driver.enabled():
-            channel = db.get(WhatsAppChannel, conversation.whatsapp_channel_id)
-            if not channel:
-                raise HTTPException(status_code=409, detail="The WhatsApp line no longer exists")
-            return await evolution_driver.send_media(
-                channel,
-                conversation.external_chat_id,
-                kind=kind,
-                data=data,
-                mime=mime,
-                filename=filename,
-                caption=caption,
-            )
-        result = await bridge_command(
-            "POST",
-            f"/channels/{conversation.whatsapp_channel_id}/send",
-            {
-                "remote_jid": conversation.external_chat_id,
-                "text": caption,
-                "media_kind": kind,
-                "media_mime": mime,
-                "media_base64": base64.b64encode(data).decode(),
-                "media_seconds": seconds,
-                "filename": filename,
-            },
-            timeout=90,
+        channel = db.get(WhatsAppChannel, conversation.whatsapp_channel_id)
+        if not channel:
+            raise HTTPException(status_code=409, detail="The WhatsApp line no longer exists")
+        return await evolution_driver.send_media(
+            channel,
+            conversation.external_chat_id,
+            kind=kind,
+            data=data,
+            mime=mime,
+            filename=filename,
+            caption=caption,
         )
-        return result.get("external_message_id")
     if conversation.channel == "whatsapp_cloud":
         if not conversation.whatsapp_cloud_channel_id or not conversation.external_chat_id:
             raise HTTPException(status_code=409, detail="This conversation does not have a valid WhatsApp destination")
@@ -209,13 +153,11 @@ async def send_channel_location(
 ) -> str | None:
     """Deliver an operator-sent location through the conversation's channel.
     Returns the external message id, or None for channels without outbound
-    delivery. Only the Evolution driver carries real pins today."""
+    delivery."""
     if conversation.channel != "whatsapp":
         raise HTTPException(status_code=409, detail="This channel does not support locations")
     if not conversation.whatsapp_channel_id or not conversation.external_chat_id:
         raise HTTPException(status_code=409, detail="This conversation does not have a valid WhatsApp destination")
-    if not evolution_driver.enabled():
-        raise HTTPException(status_code=409, detail="Locations need the Evolution API driver")
     channel = db.get(WhatsAppChannel, conversation.whatsapp_channel_id)
     if not channel:
         raise HTTPException(status_code=409, detail="The WhatsApp line no longer exists")
@@ -269,22 +211,12 @@ async def signal_channel_read(
                 pass
         return
     if conversation.channel == "whatsapp" and conversation.whatsapp_channel_id:
-        if evolution_driver.enabled():
-            channel = db.get(WhatsAppChannel, conversation.whatsapp_channel_id)
-            if channel:
-                try:
-                    await evolution_driver.mark_read(channel, conversation.external_chat_id, ids, typing=typing)
-                except HTTPException:
-                    pass
-            return
-        try:
-            await bridge_command(
-                "POST",
-                f"/channels/{conversation.whatsapp_channel_id}/read",
-                {"remote_jid": conversation.external_chat_id, "message_ids": ids, "typing": typing},
-            )
-        except HTTPException:
-            pass
+        channel = db.get(WhatsAppChannel, conversation.whatsapp_channel_id)
+        if channel:
+            try:
+                await evolution_driver.mark_read(channel, conversation.external_chat_id, ids, typing=typing)
+            except HTTPException:
+                pass
         return
     if conversation.channel == "whatsapp_cloud" and conversation.whatsapp_cloud_channel_id:
         channel = db.get(WhatsAppCloudChannel, conversation.whatsapp_cloud_channel_id)
@@ -319,27 +251,15 @@ async def deliver_reaction(db: Session, conversation: Conversation, target, emoj
     if conversation.channel == "whatsapp":
         if not conversation.whatsapp_channel_id:
             raise HTTPException(status_code=409, detail="This conversation does not have a valid WhatsApp destination")
-        if evolution_driver.enabled():
-            channel = db.get(WhatsAppChannel, conversation.whatsapp_channel_id)
-            if not channel:
-                raise HTTPException(status_code=409, detail="The WhatsApp line no longer exists")
-            await evolution_driver.send_reaction(
-                channel,
-                conversation.external_chat_id,
-                target.external_message_id,
-                emoji,
-                target_from_me=target.role != "user",
-            )
-            return
-        await bridge_command(
-            "POST",
-            f"/channels/{conversation.whatsapp_channel_id}/react",
-            {
-                "remote_jid": conversation.external_chat_id,
-                "external_message_id": target.external_message_id,
-                "emoji": emoji,
-                "target_from_me": target.role != "user",
-            },
+        channel = db.get(WhatsAppChannel, conversation.whatsapp_channel_id)
+        if not channel:
+            raise HTTPException(status_code=409, detail="The WhatsApp line no longer exists")
+        await evolution_driver.send_reaction(
+            channel,
+            conversation.external_chat_id,
+            target.external_message_id,
+            emoji,
+            target_from_me=target.role != "user",
         )
         return
     if conversation.channel == "whatsapp_cloud":

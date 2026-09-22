@@ -141,8 +141,6 @@ def test_single_line_shows_no_badge_and_removing_a_line_keeps_history(authentica
     ).json()["conversation_id"]
     assert client.get(f"/api/conversations/{conversation_id}").json()["account_label"] is None
 
-    from app.routers import whatsapp as whatsapp_router
-    monkeypatch.setattr(whatsapp_router, "bridge_command", AsyncMock(return_value={}))
     assert client.delete(f"/api/whatsapp/channels/{line['id']}").status_code == 204
     assert client.get(f"/api/whatsapp/clients/{customer['id']}/channels").json() == []
     kept = client.get(f"/api/conversations/{conversation_id}")

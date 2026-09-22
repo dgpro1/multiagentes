@@ -28,7 +28,8 @@ For a non-Docker local setup, the same variables go in a `.env` at the repo root
 | `COOKIE_SAMESITE` | Cookie SameSite policy. Use `none` when the frontend and API are on different sites (requires `COOKIE_SECURE=true`) | `lax` |
 | `RATE_LIMIT_ENABLED` | Per-IP rate limiting on public endpoints (auth, portal login, widget) | `true` |
 | `FRONTEND_URL` | Origin allowed by CORS | `http://localhost:3000` |
-| `WHATSAPP_BRIDGE_TOKEN` | Shared secret authenticating backend ↔ WhatsApp bridge calls. Use the same value on both | random |
+| `WHATSAPP_BRIDGE_TOKEN` | Auth token for the API's internal `/internal/whatsapp` endpoints | random |
+| `EVOLUTION_API_URL`, `EVOLUTION_API_KEY` | WhatsApp QR driver (self-hosted Evolution API). Without both, WhatsApp QR is simply unavailable | — |
 | `NEXT_PUBLIC_API_URL` | Public API origin baked into the frontend at build time. Leave empty to use the same origin via the gateway | empty |
 | `BACKEND_INTERNAL_URL` | How the web container reaches the API server-side (used by `proxy.ts` for custom portal domains) | `http://api:8000` |
 
@@ -63,7 +64,7 @@ API_PORT=8001 WEB_PORT=3001 DB_PORT=5433 make up
 | `DB_PORT` | PostgreSQL | `5432` |
 | `BIND_HOST` | Interface to bind to: `127.0.0.1` for local only, `0.0.0.0` to expose on a server | `127.0.0.1` |
 
-The WhatsApp bridge listens on `3101` but is not published to the host in Docker.
+Evolution API and its Postgres/Redis are not published to the host in Docker.
 
 ## The single-origin gateway
 

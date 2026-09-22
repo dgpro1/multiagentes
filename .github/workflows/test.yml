@@ -1,8 +1,8 @@
 name: Tests
 
 # The checks the contributing guide asks for, run on every pull request: the
-# API suite, the migrations applied to a real database, the web lint and build,
-# and the bridge's vet and tests. No secrets are used, so it is safe on forks.
+# API suite, the migrations applied to a real database, and the web lint and
+# build. No secrets are used, so it is safe on forks.
 on:
   pull_request:
   push:
@@ -99,20 +99,3 @@ jobs:
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1
-
-  whatsapp:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: apps/whatsapp
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: apps/whatsapp/go.mod
-          cache-dependency-path: apps/whatsapp/go.sum
-      - run: go vet ./...
-      - run: go test ./...

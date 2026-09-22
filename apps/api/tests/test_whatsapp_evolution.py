@@ -1,5 +1,5 @@
-"""The Evolution API QR driver: driver selection, instance lifecycle, webhook
-events, the outbound seams, and bridge fallback."""
+"""The Evolution API QR driver: configuration, instance lifecycle, webhook
+events, and the outbound seams."""
 
 import asyncio
 import base64
@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 from app.models import WhatsAppChannel
 from app.services import ai as ai_service
 from app.services import evolution as evolution_driver
-from app.services import whatsapp as whatsapp_service
 from app.services import whatsapp_inbound as whatsapp_inbound_service
 
 
@@ -23,7 +22,6 @@ def _env(monkeypatch, **overrides):
         "EVOLUTION_API_URL": "http://127.0.0.1:9",
         "EVOLUTION_API_KEY": "test-evolution-key",
         "EVOLUTION_WEBHOOK_SECRET": "test-evolution-webhook-secret",
-        "WHATSAPP_QR_DRIVER": "auto",
     }
     values.update(overrides)
     for key, value in values.items():
@@ -111,14 +109,12 @@ def evolution_client(authenticated_client, monkeypatch):
 
 
 def test_driver_selection(monkeypatch):
-    _env(monkeypatch)  # url+key set -> auto picks Evolution
+    _env(monkeypatch)  # url+key set
     assert evolution_driver.enabled() is True
     _env(monkeypatch, EVOLUTION_API_KEY="")
-    assert evolution_driver.enabled() is False  # auto falls back to the bridge
-    _env(monkeypatch, EVOLUTION_API_KEY="", WHATSAPP_QR_DRIVER="evolution")
-    assert evolution_driver.enabled() is True  # forced selection beats the empty key
-    _env(monkeypatch, WHATSAPP_QR_DRIVER="bridge")
-    assert evolution_driver.enabled() is False  # forced, even with keys set
+    assert evolution_driver.enabled() is False  # missing key -> WhatsApp QR unavailable
+    _env(monkeypatch, EVOLUTION_API_URL="")
+    assert evolution_driver.enabled() is False  # missing url -> WhatsApp QR unavailable
 
 
 def test_connect_creates_instance_and_returns_qr(evolution_client, monkeypatch):
@@ -200,7 +196,6 @@ def test_webhook_inbound_message_replies(authenticated_client, monkeypatch):
     client = authenticated_client
     _env(monkeypatch)
     _customer, line = _setup_line(client)
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion",
                         AsyncMock(return_value=ai_service.Completion(text="¡Hola! Sí, tenemos turnos.")))
     send_text = AsyncMock(return_value="wamid-evolution-reply-1")
@@ -250,7 +245,6 @@ def test_webhook_inbound_media_message(authenticated_client, monkeypatch):
     client = authenticated_client
     _env(monkeypatch)
     _customer, line = _setup_line(client)
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion",
                         AsyncMock(return_value=ai_service.Completion(text="Recibido.")))
     monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wamid-1"))
@@ -299,18 +293,13 @@ def test_disconnect_line_logs_out(evolution_client, monkeypatch):
     assert any(path == f"/instance/logout/openlivery-{line['id']}" for _, path in calls)
 
 
-def test_bridge_still_works_without_evolution(authenticated_client, monkeypatch):
-    """Driver auto without Evolution keys: the route falls back to the bridge."""
+def test_connect_without_evolution_configured_fails(authenticated_client, monkeypatch):
+    """No Evolution config: WhatsApp QR has no driver, so connecting fails clearly."""
     client = authenticated_client
     _env(monkeypatch, EVOLUTION_API_URL="", EVOLUTION_API_KEY="")
     _customer, line = _setup_line(client)
-    from app.routers import whatsapp as whatsapp_router
-
-    fake_bridge = AsyncMock(return_value={})
-    monkeypatch.setattr(whatsapp_router, "bridge_command", fake_bridge)
     response = client.post(f"/api/whatsapp/channels/{line['id']}/connect")
-    assert response.status_code == 200
-    fake_bridge.assert_awaited_once()
+    assert response.status_code == 409
 
 
 def test_send_media_voice_note_uses_ptv(monkeypatch):
@@ -375,7 +364,6 @@ def test_group_message_with_mention_creates_group_conversation(authenticated_cli
     calls = _stub_http(monkeypatch)
     _customer, line = _setup_line(client)
     client.put(f"/api/whatsapp/channels/{line['id']}", json={"agent_id": line["agent_id"], "groups_enabled": True})
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion",
                         AsyncMock(return_value=ai_service.Completion(text="Hola grupo!")))
     monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wamid-g-reply"))
@@ -410,7 +398,6 @@ def test_location_message_stores_attachment_and_coordinates(authenticated_client
     client = authenticated_client
     _env(monkeypatch)
     _customer, line = _setup_line(client)
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion",
                         AsyncMock(return_value=ai_service.Completion(text="Ya vamos!")))
     monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wamid-loc-reply"))
@@ -437,7 +424,6 @@ def test_document_message_stores_file_attachment(authenticated_client, monkeypat
     client = authenticated_client
     _env(monkeypatch)
     _customer, line = _setup_line(client)
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion",
                         AsyncMock(return_value=ai_service.Completion(text="Recibido, gracias.")))
     monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wamid-doc-reply"))
@@ -462,7 +448,6 @@ def test_send_location_endpoint_delivers_and_stores(authenticated_client, monkey
     client = authenticated_client
     _env(monkeypatch)
     _customer, line = _setup_line(client)
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
     send_location_mock = AsyncMock(return_value="wamid-loc-out-1")
     monkeypatch.setattr(evolution_driver, "send_location", send_location_mock)
     # A visitor conversation to reply into.
@@ -489,7 +474,6 @@ def test_send_location_requires_evolution(authenticated_client, monkeypatch):
     client = authenticated_client
     _env(monkeypatch, EVOLUTION_API_KEY="")
     _customer, line = _setup_line(client)
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
     _webhook(client, _event(
         f"openlivery-{line['id']}",
         {"key": {"remoteJid": "573001112233@s.whatsapp.net", "fromMe": False, "id": "wamid-seed-2"},

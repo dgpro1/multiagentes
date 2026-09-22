@@ -13,7 +13,7 @@ umask 077
 postgres_password=$(openssl rand -hex 24)
 secret_key=$(openssl rand -hex 32)
 encryption_key=$(openssl rand -hex 32)
-bridge_token=$(openssl rand -hex 32)
+internal_token=$(openssl rand -hex 32)
 webhook_secret=$(openssl rand -hex 32)
 evolution_api_key=$(openssl rand -hex 24)
 evolution_webhook_secret=$(openssl rand -hex 32)
@@ -27,7 +27,7 @@ evolution_db_password=$(openssl rand -hex 24)
   echo
   echo "SECRET_KEY=$secret_key"
   echo "ENCRYPTION_KEY=$encryption_key"
-  echo "WHATSAPP_BRIDGE_TOKEN=$bridge_token"
+  echo "WHATSAPP_BRIDGE_TOKEN=$internal_token"
   echo "MESSAGING_PROVIDER_WEBHOOK_SECRET=$webhook_secret"
   echo
   echo "# WhatsApp QR lines run through Evolution API (https://docs.evolutionfoundation.com.br)."
@@ -37,7 +37,6 @@ evolution_db_password=$(openssl rand -hex 24)
   echo
   echo "FRONTEND_URL=http://localhost:3000"
   echo "ACCESS_TOKEN_MINUTES=10080"
-  echo "WHATSAPP_LOG_LEVEL=silent"
   echo "COOKIE_SECURE=false"
   echo "COOKIE_SAMESITE=lax"
   echo

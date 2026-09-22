@@ -72,7 +72,7 @@ export default function WhatsAppChannelPage() {
       .catch((err) => setError(messageFrom(err))).finally(() => setLoading(false));
   }, [id, show, startAdding]);
 
-  // The selected line is polled while it exists: the QR and the connection state come from the QR driver (local bridge or Evolution API).
+  // The selected line is polled while it exists: the QR and the connection state come from Evolution API.
   const channelId = channel?.id ?? null;
   useEffect(() => {
     if (!channelId) return;

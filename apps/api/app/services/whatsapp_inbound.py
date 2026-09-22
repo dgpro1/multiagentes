@@ -1,6 +1,6 @@
 """Channel-agnostic inbound WhatsApp pipeline.
 
-Shared by the Baileys bridge endpoint and the Cloud API webhook: dedupe by
+Shared by the Evolution webhook and the Cloud API webhook: dedupe by
 external message id, find or create the conversation, resolve media into text,
 store the visitor message, and produce the AI reply unless a human operator has
 taken over. The caller is responsible for actually delivering the reply.

@@ -4,8 +4,8 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-The three services (`apps/api`, `apps/web`, `apps/whatsapp`) share a single version
-and are released together.
+The services (`apps/api`, `apps/web`) share a single version and are released
+together.
 
 ## [Unreleased]
 
@@ -15,7 +15,7 @@ Docker stack; run `alembic upgrade head` on local setups).
 ### Added
 
 - WhatsApp QR lines on the Evolution driver gain per-line toggles and full media coverage: **groups** (each group becomes its own conversation; the agent answers only when mentioned or replied to) and **calls** (calls are always declined, but the caller can receive an explanation message) switch from the line's panel; **locations** work both ways — an incoming WhatsApp pin shows as a map card with "open in Maps"/"directions" links and the agent receives the exact coordinates, and an operator can send a pin from the Inbox composer (with a "use my location" shortcut); documents keep their file name, stickers and video voice notes attach to the message. Migration `0050` adds `groups_enabled`, `calls_enabled` and `calls_message` to `whatsapp_channels`.
-- WhatsApp QR lines can run through a self-hosted **Evolution API** (Node, Baileys) instead of the local Go bridge: with `EVOLUTION_API_URL` and `EVOLUTION_API_KEY` set, every QR line becomes one deterministic Evolution instance (`openlivery-{line-id}`) created with its own event webhook, so pairing, reconnects, inbound messages (text, media, captions, quotes) and mirrored phone messages flow through the same pipeline. The docker stack starts Evolution with its own Postgres and Redis, no ports exposed. `WHATSAPP_QR_DRIVER` (`auto`/`evolution`/`bridge`) picks the driver; `auto` keeps the bridge until Evolution is configured, and the bridge keeps working unchanged for installations that stay with it. Lines deleted in the app drop their Evolution instance; lines reconnect themselves after a restart.
+- WhatsApp QR lines run through a self-hosted **Evolution API** (Node, Baileys): with `EVOLUTION_API_URL` and `EVOLUTION_API_KEY` set, every QR line becomes one deterministic Evolution instance (`openlivery-{line-id}`) created with its own event webhook, so pairing, reconnects, inbound messages (text, media, captions, quotes) and mirrored phone messages flow through the same pipeline. The docker stack starts Evolution with its own Postgres and Redis, no ports exposed. Without Evolution configured, WhatsApp QR is simply unavailable (other channels are unaffected). Lines deleted in the app drop their Evolution instance; lines reconnect themselves after a restart.
 - A client can connect several WhatsApp numbers (QR and API) and several Instagram accounts and Facebook Pages, each answered by the agent you pick; the same agent may answer more than one. Each account takes an optional name, and the Inbox and portal show it (or the number's last digits, or the handle) once a client has more than one on a channel. Lines can be removed, keeping their conversations as history. The channel routes gain per-client collections (`/whatsapp/clients/{id}/channels` and the like) and address an account by its own id; the client-id form keeps working for the first account. Migration `0047` drops the one-per-client constraints and adds `label` to the three channel tables.
 - WhatsApp API webhook: traffic for another number of the same agency delivered to the shared callback is handed to the channel that holds that number instead of being dropped, so one subscription serves several numbers.
 - The sidebar links to the GitHub repository next to Discord, as logos, with the live star count from GitHub's public API. `NEXT_PUBLIC_COMMUNITY_LINKS` picks which logos a build shows (`discord,github` by default, `none` hides the row).
@@ -57,6 +57,10 @@ Docker stack; run `alembic upgrade head` on local setups).
   drops the stored OpenAI and Anthropic keys, which OpenRouter cannot use:
   **after upgrading, add an OpenRouter key in Settings or agents stop
   replying.** Agent routes reject any `provider` other than `openrouter`.
+
+### Removed
+
+- The local Go/whatsmeow WhatsApp bridge (`apps/whatsapp`). WhatsApp QR lines run only through the self-hosted Evolution API driver now; installations that relied on the bridge need Evolution configured (`EVOLUTION_API_URL`/`EVOLUTION_API_KEY`) before upgrading, or WhatsApp QR lines stop working.
 
 ### Added
 - **Reports.** A new page and API (`GET /api/reports/costs`,

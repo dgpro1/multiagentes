@@ -26,7 +26,6 @@ from ..schemas import (
 )
 from ..security import decrypt_secret, encrypt_secret
 from ..services import evolution as evolution_driver
-from ..services.whatsapp import bridge_command
 from ..services.whatsapp_inbound import InboundMessage, process_inbound, send_reply_attachments
 
 
@@ -214,11 +213,6 @@ async def remove_channel(channel_id: uuid.UUID, db: Session = Depends(get_db), u
             await evolution_driver.delete_instance(channel)
         except HTTPException:
             pass  # the local line goes away regardless
-    elif channel.encrypted_auth_state:
-        try:
-            await bridge_command("POST", f"/channels/{channel.id}/disconnect")
-        except HTTPException:
-            pass
     db.delete(channel)
     db.commit()
 
@@ -231,10 +225,7 @@ async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: U
     channel.is_enabled = True
     db.commit()
     try:
-        if evolution_driver.enabled():
-            await evolution_driver.connect(channel)
-        else:
-            await bridge_command("POST", f"/channels/{channel.id}/connect")
+        await evolution_driver.connect(channel)
     except HTTPException as exc:
         channel.status = "error"
         channel.last_error = exc.detail
@@ -248,11 +239,8 @@ async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: U
 @router.post("/channels/{ref}/disconnect", response_model=WhatsAppChannelOut)
 async def disconnect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     channel = _channel_for_user(db, user, ref)
-    if evolution_driver.enabled():
-        await evolution_driver.disconnect(channel)
-        db.commit()
-    else:
-        await bridge_command("POST", f"/channels/{channel.id}/disconnect")
+    await evolution_driver.disconnect(channel)
+    db.commit()
     db.refresh(channel)
     return _public_channel(channel)
 

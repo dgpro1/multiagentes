@@ -33,8 +33,8 @@ from ..schemas import (
 from ..security import hash_password
 from ..services.attachments import logo_response
 from ..services.tags import create_tag, delete_tag, get_tag, list_tags, rename_tag, tag_count, tag_out
+from ..services import evolution as evolution_driver
 from ..services.teams import create_team, delete_team, list_teams, members_out, team_out, update_team
-from ..services.whatsapp import bridge_command
 from ..services.whatsapp_templates import (
     create_template,
     delete_template,
@@ -245,14 +245,14 @@ async def delete_client(client_id: uuid.UUID, db: Session = Depends(get_db), use
     client's name before calling this.
 
     A linked WhatsApp device is logged out first so the phone does not keep a
-    session to a channel that no longer exists. Best-effort: a bridge that is
+    session to a channel that no longer exists. Best-effort: Evolution being
     down must not keep a client from being deleted.
     """
     client = _client(db, user, client_id)
-    for whatsapp in client.whatsapp_channels:
-        if whatsapp.encrypted_auth_state:
+    if evolution_driver.enabled():
+        for whatsapp in client.whatsapp_channels:
             try:
-                await bridge_command("POST", f"/channels/{whatsapp.id}/disconnect")
+                await evolution_driver.delete_instance(whatsapp)
             except Exception:  # noqa: BLE001 - the deletion goes ahead regardless
                 pass
     from ..models import SocialChannel

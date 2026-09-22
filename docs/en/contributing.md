@@ -2,7 +2,7 @@
 
 > Leer en español: [contributing.md](../es/contributing.md)
 
-Docker is the fastest way to run OpenLivery, but for day-to-day development you usually want each service running on the host with hot reload. This guide covers running the backend, frontend and WhatsApp bridge locally, the test suites, migrations and the project conventions.
+Docker is the fastest way to run OpenLivery, but for day-to-day development you usually want each service running on the host with hot reload. This guide covers running the backend and frontend locally, the test suites, migrations and the project conventions.
 
 ## Installation scope
 
@@ -46,14 +46,7 @@ npm run dev                     # http://localhost:3000
 
 Use `npm run lint` before committing and `npm run build` to verify a production build. Note that this is Next.js 16 (App Router) — check the docs bundled under `node_modules/next/dist/docs/` before writing non-trivial Next.js code, as several APIs differ from earlier versions.
 
-## WhatsApp bridge (apps/whatsapp)
-
-```bash
-cd apps/whatsapp
-go run .                        # listens on :3101
-```
-
-The bridge is a single Go binary (Go 1.27+); there is no install step. Run `go test ./...` for the test suite and `go vet ./...` to check the build.
+WhatsApp QR lines need a running Evolution API instance — either `docker compose up evolution evolution-db evolution-redis`, or any instance reachable at `EVOLUTION_API_URL`/`EVOLUTION_API_KEY`. Everything else works without it.
 
 ## Tests
 
@@ -85,7 +78,7 @@ A migration runs on installs that already hold data and are serving traffic, so 
 - **Removing data is a written decision.** Dropping a table or column, changing a column type or deleting rows needs a `# contract: reviewed` line saying why the previous release keeps working, or what the operator must do first. Prefer removing in a later release than the one that stops reading it.
 - **A merged migration is never edited.** Installs that ran it will not run it again; add a new revision.
 
-Every pull request runs the `Tests` workflow: the API suite, the migrations applied to an empty database and the newest ones reverted and applied again, the web lint and build, and the bridge's `go vet` and `go test`.
+Every pull request runs the `Tests` workflow: the API suite, the migrations applied to an empty database and the newest ones reverted and applied again, and the web lint and build.
 
 ## Conventions
 
@@ -103,9 +96,6 @@ All code, identifiers, comments, commit messages and docs are written in **Engli
 | Frontend | `npm run dev` | Run the dev server on :3000 |
 | Frontend | `npm run lint` | Lint with ESLint |
 | Frontend | `npm run build` | Production build |
-| WhatsApp | `go run .` | Run the bridge on :3101 |
-| WhatsApp | `go test ./...` | Run the test suite |
-| WhatsApp | `go vet ./...` | Check the build |
 
 ## Next steps
 

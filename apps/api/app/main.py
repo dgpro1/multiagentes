@@ -87,9 +87,9 @@ async def _ensure_messaging_webhook() -> None:
 
 
 async def _restore_evolution_channels() -> None:
-    """Reconnect the WhatsApp QR lines driven by Evolution after a boot — the
-    counterpart of the bridge's restorable-channels call. Best-effort: a down
-    Evolution only logs, the lines keep their stored state."""
+    """Reconnect the WhatsApp QR lines driven by Evolution after a boot.
+    Best-effort: a down Evolution only logs, the lines keep their stored
+    state."""
     from .services import evolution as evolution_driver
 
     if not evolution_driver.enabled():

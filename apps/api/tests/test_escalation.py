@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.services import ai as ai_service
+from app.services import evolution as evolution_driver
 from app.services import whatsapp_inbound as whatsapp_inbound_service
-from app.services import whatsapp as whatsapp_service
 
 
 def _setup(client: TestClient, company: str, member_names: list[str]):
@@ -64,7 +64,8 @@ def test_builtin_trigger_lands_in_the_general_destination(authenticated_client: 
     ).json()
     client.put(f"/api/agents/{agent['id']}/escalation-rules", json={"default_team_id": team["id"], "rules": []})
 
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
+    monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wa-generated"))
+    monkeypatch.setattr(evolution_driver, "mark_read", AsyncMock())
     captured: dict = {}
     monkeypatch.setattr(
         whatsapp_inbound_service,
@@ -106,7 +107,8 @@ def test_business_rule_routes_to_its_own_destination(authenticated_client: TestC
         json={"rules": [{"condition": "Quiere cotizar o comprar planes corporativos", "team_id": ventas["id"]}]},
     )
 
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
+    monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wa-generated"))
+    monkeypatch.setattr(evolution_driver, "mark_read", AsyncMock())
     captured: dict = {}
     monkeypatch.setattr(
         whatsapp_inbound_service,
@@ -125,7 +127,8 @@ def test_without_anywhere_to_land_the_tool_is_not_offered(authenticated_client: 
     client = authenticated_client
     customer, slug, members, agent, channel = _setup(client, "SinEquipos Co", ["Ana"])
 
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
+    monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wa-generated"))
+    monkeypatch.setattr(evolution_driver, "mark_read", AsyncMock())
     captured: dict = {}
 
     async def fake(db, agent_row, base_url, api_key, messages, temperature=None, max_tokens=None, extra_specs=None):
@@ -167,7 +170,8 @@ def test_builtin_triggers_can_be_switched_off(authenticated_client: TestClient, 
 
     # Off with no business rules: the tool disappears from the prompt entirely.
     assert client.put(base, json={"builtin_enabled": False, "rules": []}).json()["builtin_enabled"] is False
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
+    monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wa-generated"))
+    monkeypatch.setattr(evolution_driver, "mark_read", AsyncMock())
     captured: dict = {}
 
     async def fake(db, agent_row, base_url, api_key, messages, temperature=None, max_tokens=None, extra_specs=None):

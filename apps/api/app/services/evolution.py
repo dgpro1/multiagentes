@@ -1,10 +1,10 @@
 """Evolution API v2 driver for WhatsApp QR lines.
 
-Implements the same behaviours the local Go bridge offered — QR pairing,
-connection state, text/media/voice delivery, read receipts and reactions —
-against a self-hosted Evolution API (https://docs.evolutionfoundation.com.br).
-Every endpoint used here is taken from the official documentation and source
-(see apps/api/tests/test_whatsapp_evolution.py for the exercised paths).
+QR pairing, connection state, text/media/voice delivery, read receipts and
+reactions against a self-hosted Evolution API
+(https://docs.evolutionfoundation.com.br). Every endpoint used here is taken
+from the official documentation and source (see
+apps/api/tests/test_whatsapp_evolution.py for the exercised paths).
 """
 
 import base64
@@ -33,12 +33,9 @@ def configured() -> bool:
 
 
 def enabled() -> bool:
-    """Whether the QR driver in charge is Evolution (forced or auto-selected)."""
-    driver = get_settings().whatsapp_qr_driver.strip().lower()
-    if driver == "evolution":
-        return True
-    if driver == "bridge":
-        return False
+    """Whether the Evolution API driver is configured and in charge of WhatsApp
+    QR lines. There is no other driver — an unconfigured deployment simply has
+    no WhatsApp QR channel available."""
     return configured()
 
 
@@ -58,11 +55,11 @@ def _headers() -> dict[str, str]:
 
 
 async def request(method: str, path: str, *, json: dict | None = None, timeout: float = 30) -> Any:
-    """Call the Evolution API, mapping failures like ``bridge_command`` does."""
+    """Call the Evolution API, mapping connection/HTTP failures to HTTPException."""
+    if not configured():
+        raise HTTPException(status_code=409, detail="The Evolution API is not configured")
     settings = get_settings()
     base = settings.evolution_api_url.strip().rstrip("/")
-    if not base:
-        raise HTTPException(status_code=409, detail="The Evolution API is not configured")
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.request(method, f"{base}{path}", headers=_headers(), json=json)
