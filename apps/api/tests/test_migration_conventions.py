@@ -39,7 +39,7 @@ _CONVERSATIONS = re.compile(r"""["']conversations["']""")
 class Migration:
     def __init__(self, path: pathlib.Path):
         self.path = path
-        self.source = path.read_text()
+        self.source = path.read_text(encoding="utf-8")
         tree = ast.parse(self.source)
         constants = {
             node.targets[0].id: node.value.value

@@ -40,7 +40,7 @@ from ..services.whatsapp_templates import (
     delete_template,
     list_templates,
     read_sample,
-    template_credentials,
+    template_account,
     upload_sample,
     validate_template_name,
 )
@@ -256,9 +256,13 @@ async def delete_client(client_id: uuid.UUID, db: Session = Depends(get_db), use
             except Exception:  # noqa: BLE001 - the deletion goes ahead regardless
                 pass
     from ..models import SocialChannel
+    from ..services.messaging_profiles import release_channel_profile, release_client_profile
     from ..services.social_connections import disconnect_channel
     for channel in db.scalars(select(SocialChannel).where(SocialChannel.client_id == client.id)).all():
         await disconnect_channel(db, channel)
+    for channel in client.whatsapp_cloud_channels:
+        await release_channel_profile(channel)
+    await release_client_profile(client)
     db.delete(client)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -362,18 +366,15 @@ def client_delete_team(client_id: uuid.UUID, team_id: uuid.UUID, db: Session = D
 
 @router.get("/{client_id}/templates", response_model=list[TemplateOut])
 async def client_templates(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    token, waba_id = template_credentials(db, _client(db, user, client_id))
-    return await list_templates(token, waba_id)
+    return await list_templates(template_account(db, _client(db, user, client_id)))
 
 
 @router.post("/{client_id}/templates", response_model=TemplateOut, status_code=status.HTTP_201_CREATED)
 async def client_create_template(
     client_id: uuid.UUID, payload: TemplateCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    token, waba_id = template_credentials(db, _client(db, user, client_id))
     return await create_template(
-        token,
-        waba_id,
+        template_account(db, _client(db, user, client_id)),
         name=validate_template_name(payload.name),
         language=payload.language.strip(),
         category=payload.category,
@@ -389,9 +390,9 @@ async def client_create_template(
 async def client_upload_template_sample(
     client_id: uuid.UUID, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    token, _waba_id = template_credentials(db, _client(db, user, client_id))
+    account_id = template_account(db, _client(db, user, client_id))
     data, mime, filename = await read_sample(file)
-    return {"handle": await upload_sample(token, data=data, mime=mime, filename=filename)}
+    return {"handle": await upload_sample(account_id, data=data, mime=mime, filename=filename)}
 
 
 @router.delete("/{client_id}/templates/{name}", status_code=status.HTTP_204_NO_CONTENT)
@@ -402,8 +403,7 @@ async def client_delete_template(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    token, waba_id = template_credentials(db, _client(db, user, client_id))
-    await delete_template(token, waba_id, name=validate_template_name(name), hsm_id=hsm_id)
+    await delete_template(template_account(db, _client(db, user, client_id)), name=validate_template_name(name), hsm_id=hsm_id)
 
 
 @router.get("/{client_id}/contact-tags", response_model=list[ContactTagOut])

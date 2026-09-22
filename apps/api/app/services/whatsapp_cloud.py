@@ -1,187 +1,137 @@
-"""Thin client for the WhatsApp Business Cloud API (Meta Graph API).
+"""WhatsApp numbers served through the unified messaging provider.
 
-Each channel brings its own Meta app credentials; the access token is decrypted
-by the caller and never logged. Errors surface as HTTPException with safe
-messages (Meta's error detail, never the credentials).
+Each channel keeps only its provider-side account id; the server key lives
+in the environment. Sends address the provider conversation stored on each
+case, falling back to opening by phone number when no thread is known yet.
+Errors surface as HTTPException with safe messages (never credentials).
 """
 
-import httpx
 from fastapi import HTTPException
 
-from ..config import get_settings
-from .whatsapp_identity import recipient_fields
+from . import messaging_provider as provider
+from .whatsapp_format import markdown_to_whatsapp
 
 MAX_MEDIA_BYTES = 20 * 1024 * 1024
-# Hard limit of the Cloud API for a text message body.
+# Hard limit of WhatsApp for a text message body.
 MAX_TEXT_LENGTH = 4096
-GRAPH_TIMEOUT = 30
 
 
-def _graph_url(path: str) -> str:
-    return f"{get_settings().meta_graph_base_url.rstrip('/')}/{path.lstrip('/')}"
-
-
-def _graph_error(response: httpx.Response) -> str:
-    try:
-        message = response.json().get("error", {}).get("message")
-    except ValueError:
-        message = None
-    return message or f"Meta API returned status {response.status_code}"
-
-
-async def _graph_request(method: str, url: str, access_token: str, **kwargs) -> httpx.Response:
-    headers = {"Authorization": f"Bearer {access_token}"}
-    try:
-        async with httpx.AsyncClient(timeout=GRAPH_TIMEOUT) as client:
-            return await client.request(method, url, headers=headers, **kwargs)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="Could not reach the Meta API.") from exc
-
-
-async def verify_phone_number(access_token: str, phone_number_id: str) -> dict:
-    """Validate the credentials and return the number's public profile."""
-    response = await _graph_request(
-        "GET",
-        _graph_url(f"{phone_number_id}?fields=display_phone_number,verified_name"),
-        access_token,
-    )
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Credential check failed: {_graph_error(response)}")
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail="Invalid response from the Meta API.") from exc
+async def verify_account(account_id: str, profile_id: str | None = None) -> dict:
+    """Confirm the number is connected and return its public profile."""
+    account = await provider.require_account(account_id, profile_id)
+    raw = account.get("raw") or {}
+    phone = account.get("phone_number") or raw.get("phoneNumber") or raw.get("username") or ""
+    return {
+        "display_phone_number": phone,
+        "verified_name": account.get("display_name") or phone,
+        "quality_rating": raw.get("qualityRating"),
+        "messaging_limit": raw.get("messagingLimitTier") or raw.get("messaging_limit"),
+        "username": phone,
+    }
 
 
 async def send_text(
-    access_token: str, phone_number_id: str, to: str, body: str, context_message_id: str | None = None
+    account_id: str, conversation_id: str, body: str, context_message_id: str | None = None
 ) -> str | None:
-    """Send a text message; returns the outbound message id (wamid).
+    """Send a text message; returns the provider message id.
 
     ``context_message_id`` makes it a quoted reply (the swipe-to-reply look)
-    on the referenced message."""
-    payload = {
-        "messaging_product": "whatsapp",
-        **recipient_fields(to),
-        "type": "text",
-        "text": {"body": body[:MAX_TEXT_LENGTH]},
-    }
-    if context_message_id:
-        payload["context"] = {"message_id": context_message_id}
-    response = await _graph_request("POST", _graph_url(f"{phone_number_id}/messages"), access_token, json=payload)
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"WhatsApp could not send the message: {_graph_error(response)}")
-    try:
-        messages = response.json().get("messages") or []
-        return messages[0].get("id") if messages else None
-    except ValueError:
-        return None
+    on the referenced platform message."""
+    data = await provider.send_message(
+        account_id, conversation_id,
+        message=markdown_to_whatsapp(body)[:MAX_TEXT_LENGTH],
+        reply_to=context_message_id,
+    )
+    return data.get("messageId")
 
 
-async def send_reaction(access_token: str, phone_number_id: str, to: str, message_id: str, emoji: str) -> None:
+async def open_conversation(
+    account_id: str, phone: str, *, message: str = "",
+    template_name: str | None = None, template_language: str | None = None,
+    template_params: list | None = None,
+) -> dict:
+    """Start (or reuse) the thread with a phone number, by template or, when
+    the window allows it, by text. Returns the provider conversation payload."""
+    digits = "".join(char for char in (phone or "") if char.isdigit())
+    if not digits:
+        raise HTTPException(status_code=409, detail="This conversation does not have a valid WhatsApp destination")
+    return await provider.create_conversation(
+        account_id, digits, message=message[:MAX_TEXT_LENGTH] if message else "",
+        template_name=template_name, template_language=template_language,
+        template_params=template_params,
+    )
+
+
+async def send_reaction(account_id: str, conversation_id: str, message_id: str, emoji: str) -> None:
     """React with an emoji to a message; an empty emoji removes the reaction.
     Raises on failure so the caller decides whether the gesture matters."""
-    payload = {
-        "messaging_product": "whatsapp",
-        **recipient_fields(to),
-        "type": "reaction",
-        "reaction": {"message_id": message_id, "emoji": emoji},
-    }
-    response = await _graph_request("POST", _graph_url(f"{phone_number_id}/messages"), access_token, json=payload)
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"WhatsApp could not send the reaction: {_graph_error(response)}")
+    if emoji:
+        await provider.send_reaction(account_id, conversation_id, message_id, emoji)
+    else:
+        await provider.remove_reaction(account_id, conversation_id, message_id)
 
 
-async def mark_read(access_token: str, phone_number_id: str, message_id: str) -> None:
-    """Mark the conversation as read up to ``message_id`` (blue ticks) without
-    the typing indicator. Best-effort, like the fused variant below."""
-    payload = {
-        "messaging_product": "whatsapp",
-        "status": "read",
-        "message_id": message_id,
-    }
+async def mark_read(account_id: str, conversation_id: str, message_id: str | None = None) -> None:
+    """Mark the conversation as read (blue ticks). Best-effort, like the
+    fused variant below."""
     try:
-        await _graph_request("POST", _graph_url(f"{phone_number_id}/messages"), access_token, json=payload)
+        await provider.mark_read(account_id, conversation_id)
     except HTTPException:
         pass
 
 
-async def mark_read_with_typing(access_token: str, phone_number_id: str, message_id: str) -> None:
-    """Mark the conversation as read up to ``message_id`` (blue ticks) and show
-    the typing indicator while the reply is being generated. Meta dismisses the
-    indicator when a message is sent, or after ~25 seconds. Best-effort: the
-    reply must never depend on this call."""
-    payload = {
-        "messaging_product": "whatsapp",
-        "status": "read",
-        "message_id": message_id,
-        "typing_indicator": {"type": "text"},
-    }
+async def mark_read_with_typing(account_id: str, conversation_id: str, message_id: str | None = None) -> None:
+    """Mark the conversation as read and show the typing indicator while the
+    reply is being generated. Best-effort: the reply must never depend on it."""
     try:
-        await _graph_request("POST", _graph_url(f"{phone_number_id}/messages"), access_token, json=payload)
+        await provider.mark_read(account_id, conversation_id)
     except HTTPException:
         pass
-
-
-async def upload_media(access_token: str, phone_number_id: str, data: bytes, mime: str, filename: str) -> str:
-    """Upload a media file to Meta and return its media id (required before
-    sending any outbound media message)."""
-    response = await _graph_request(
-        "POST",
-        _graph_url(f"{phone_number_id}/media"),
-        access_token,
-        data={"messaging_product": "whatsapp", "type": mime},
-        files={"file": (filename, data, mime)},
-    )
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"WhatsApp could not upload the file: {_graph_error(response)}")
-    try:
-        media_id = response.json().get("id")
-    except ValueError:
-        media_id = None
-    if not media_id:
-        raise HTTPException(status_code=502, detail="Invalid media upload response from the Meta API.")
-    return media_id
+    await provider.send_typing(account_id, conversation_id)
 
 
 async def send_media(
-    access_token: str,
-    phone_number_id: str,
-    to: str,
-    kind: str,
-    media_id: str,
+    account_id: str,
+    conversation_id: str,
+    *,
+    data: bytes,
+    mime: str,
+    filename: str,
     caption: str = "",
-    filename: str | None = None,
+    voice_note: bool = False,
+    reply_to: str | None = None,
 ) -> str | None:
-    """Send an image/audio/document message; returns the outbound message id."""
-    media_object: dict = {"id": media_id}
-    if caption and kind in {"image", "video", "document"}:
-        media_object["caption"] = caption[:1024]
-    if filename and kind == "document":
-        media_object["filename"] = filename
-    payload = {"messaging_product": "whatsapp", **recipient_fields(to), "type": kind, kind: media_object}
-    response = await _graph_request("POST", _graph_url(f"{phone_number_id}/messages"), access_token, json=payload)
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"WhatsApp could not send the file: {_graph_error(response)}")
-    try:
-        messages = response.json().get("messages") or []
-        return messages[0].get("id") if messages else None
-    except ValueError:
-        return None
+    """Send an image/audio/video/file message from bytes; returns the provider
+    message id. Audio captions ride as a follow-up text, which has no caption
+    field of its own."""
+    is_audio = (mime or "").lower().startswith("audio/")
+    data_body = await provider.send_media_upload(
+        account_id, conversation_id, data=data, mime=mime, filename=filename or "file.bin",
+        message="" if is_audio else markdown_to_whatsapp(caption)[:1024],
+        voice_note=voice_note and is_audio,
+        reply_to=reply_to,
+    )
+    external_id = data_body.get("messageId")
+    if caption and is_audio:
+        await provider.send_message(account_id, conversation_id, message=markdown_to_whatsapp(caption)[:MAX_TEXT_LENGTH])
+    return external_id
 
 
-async def fetch_media(access_token: str, media_id: str) -> tuple[bytes, str]:
-    """Download an inbound media file: resolve the short-lived URL, then fetch
-    it with the same token. Returns (data, mime_type)."""
-    lookup = await _graph_request("GET", _graph_url(media_id), access_token)
-    if lookup.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Could not resolve the media file: {_graph_error(lookup)}")
-    try:
-        info = lookup.json()
-        url, mime = info["url"], info.get("mime_type") or "application/octet-stream"
-    except (ValueError, KeyError) as exc:
-        raise HTTPException(status_code=502, detail="Invalid media response from the Meta API.") from exc
-    download = await _graph_request("GET", url, access_token)
-    if download.status_code >= 400 or len(download.content) > MAX_MEDIA_BYTES:
+async def send_template(
+    account_id: str, conversation_id: str, *, name: str, language: str, components: list[dict]
+) -> str | None:
+    """Send an approved template inside its conversation (re-engagement after
+    the 24-hour window closed). Returns the provider message id."""
+    data = await provider.send_message(
+        account_id, conversation_id,
+        template={"elements": [{"name": name, "language": language, "components": components or []}]},
+    )
+    return data.get("messageId")
+
+
+async def fetch_media(url: str) -> tuple[bytes, str]:
+    """Download an inbound media file from its provider URL."""
+    data, mime = await provider.fetch_media(url)
+    if len(data) > MAX_MEDIA_BYTES:
         raise HTTPException(status_code=502, detail="Could not download the media file.")
-    return download.content, mime
+    return data, mime

@@ -5,12 +5,13 @@ from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.models import Message, now_utc
+from app.models import Message, WhatsAppCloudChannel, now_utc
 from app.routers import portal as portal_router
 from app.services.whatsapp_templates import normalize
+from conftest import TestingSession
 
 
-# As Meta returns them, so the tests read what the portal reads.
+# As the provider returns them, so the tests read what the portal reads.
 APPROVED = normalize({
     "id": "1", "name": "saludo_inicial", "language": "es", "category": "UTILITY", "status": "APPROVED",
     "parameter_format": "NAMED",
@@ -25,7 +26,7 @@ PENDING = normalize({
 })
 
 
-def _portal_with_cloud_line(client: TestClient):
+def _portal_with_cloud_line(client: TestClient, account_id: str = "acct-1"):
     customer = client.post(
         "/api/clients",
         json={"name": "Outbound Co", "is_active": True},
@@ -38,9 +39,15 @@ def _portal_with_cloud_line(client: TestClient):
     ).json()
     created = client.put(
         f"/api/whatsapp-cloud/channels/{customer['id']}",
-        json={"agent_id": agent["id"], "phone_number_id": "PN1", "waba_id": "WABA1", "access_token": "tok", "app_secret": "sec"},
+        json={"agent_id": agent["id"]},
     )
     assert created.status_code in (200, 201), created.text
+    with TestingSession() as db:
+        row = db.get(WhatsAppCloudChannel, uuid.UUID(created.json()["id"]))
+        row.external_account_id = account_id
+        row.provider_profile_id = "prof-1"
+        row.status = "connected"
+        db.commit()
     client.post(f"/api/portal/{customer['portal_slug']}/login", json={"email": "ana@outbound.com", "password": "secure-portal"})
     return customer
 
@@ -53,7 +60,7 @@ def test_a_template_is_deleted_through_the_business_account(authenticated_client
     monkeypatch.setattr(portal_router, "delete_template", deleted)
 
     assert client.delete(f"/api/portal/{slug}/templates/saludo_inicial?hsm_id=1").status_code == 204
-    assert deleted.call_args.args == ("tok", "WABA1")
+    assert deleted.call_args.args == ("acct-1",)
     assert deleted.call_args.kwargs == {"name": "saludo_inicial", "hsm_id": "1"}
     # Without an hsm_id the whole name goes, every language of it.
     assert client.delete(f"/api/portal/{slug}/templates/promo").status_code == 204
@@ -106,7 +113,7 @@ def test_templates_are_read_and_submitted_through_the_business_account(authentic
 
     rows = client.get(f"/api/portal/{slug}/templates").json()
     assert [r["name"] for r in rows] == ["saludo_inicial", "promo"]
-    assert listed.call_args.args == ("tok", "WABA1")
+    assert listed.call_args.args == ("acct-1",)
 
     bad = client.post(f"/api/portal/{slug}/templates", json={"name": "Bad Name", "body": "x"})
     assert bad.status_code == 422
@@ -115,15 +122,16 @@ def test_templates_are_read_and_submitted_through_the_business_account(authentic
         json={"name": "bienvenida", "language": "es", "category": "UTILITY", "body": "Bienvenido {{nombre}}, hola", "examples": {"nombre": "Sam"}},
     )
     assert ok.status_code == 201 and ok.json()["status"] == "PENDING"
+    assert created.call_args.args == ("acct-1",)
     assert created.call_args.kwargs["examples"] == {"nombre": "Sam"}
     assert created.call_args.kwargs["header"] is None and created.call_args.kwargs["buttons"] == []
 
-    # A media header sample goes up through the business token and comes back as a handle.
-    uploaded = AsyncMock(return_value="4:handle")
+    # A media header sample is hosted and comes back as its public URL.
+    uploaded = AsyncMock(return_value="https://files.example/samples/abc.bin")
     monkeypatch.setattr(portal_router, "upload_sample", uploaded)
     sample = client.post(f"/api/portal/{slug}/templates/samples", files={"file": ("promo.png", b"\x89PNG...", "image/png")})
-    assert sample.status_code == 201 and sample.json() == {"handle": "4:handle"}
-    assert uploaded.call_args.args == ("tok",) and uploaded.call_args.kwargs["mime"] == "image/png"
+    assert sample.status_code == 201 and sample.json() == {"handle": "https://files.example/samples/abc.bin"}
+    assert uploaded.call_args.args == ("acct-1",) and uploaded.call_args.kwargs["mime"] == "image/png"
     refused = client.post(f"/api/portal/{slug}/templates/samples", files={"file": ("promo.gif", b"GIF89a", "image/gif")})
     assert refused.status_code == 415
 
@@ -133,8 +141,19 @@ def test_a_template_starts_a_conversation_and_the_window_rules_replies(authentic
     customer = _portal_with_cloud_line(client)
     slug = customer["portal_slug"]
     monkeypatch.setattr(portal_router, "list_templates", AsyncMock(return_value=[APPROVED, PENDING]))
-    sent = AsyncMock(side_effect=["wamid.1", "wamid.2", "wamid.3"])
-    monkeypatch.setattr(portal_router, "send_template", sent)
+
+    async def fake_open(account_id, phone, **kwargs):
+        from app.services.whatsapp_templates import send_components
+
+        send_components(kwargs["template"], body_values=kwargs["body_values"], header_value=kwargs.get("header_value", ""),
+                        location=kwargs.get("location"), button_values=kwargs.get("button_values"))
+        assert account_id == "acct-1" and phone == "573001112233"
+        return {"conversationId": "conv-9", "messageId": "wamid.1"}
+
+    opened_template = AsyncMock(side_effect=fake_open)
+    in_thread = AsyncMock(return_value="wamid.2")
+    monkeypatch.setattr(portal_router, "open_template_conversation", opened_template)
+    monkeypatch.setattr(portal_router, "send_template", in_thread)
     contact = client.post(f"/api/portal/{slug}/contacts", json={"name": "Sam", "phone": "573001112233"}).json()
     start = f"/api/portal/{slug}/contacts/{contact['id']}/conversations"
 
@@ -145,13 +164,9 @@ def test_a_template_starts_a_conversation_and_the_window_rules_replies(authentic
     conv = opened.json()
     assert conv["mode"] == "human" and conv["assignee_name"] == "Ana" and conv["status"] == "open"
     assert conv["reply_window_open"] is False and conv["reply_window_until"] is None
-    assert sent.call_args.kwargs == {"name": "saludo_inicial", "language": "es", "components": [
-        {"type": "body", "parameters": [
-            {"type": "text", "text": "Sam", "parameter_name": "nombre"},
-            {"type": "text", "text": "Outbound Co", "parameter_name": "empresa"},
-        ]},
-    ]}
-    assert sent.call_args.args[2] == "573001112233"
+    assert opened_template.call_args.kwargs["name"] == "saludo_inicial"
+    assert opened_template.call_args.kwargs["language"] == "es"
+    assert opened_template.call_args.kwargs["body_values"] == ["Sam", "Outbound Co"]
     kinds = [(m["kind"], m.get("activity", {}) or {}) for m in conv["messages"]]
     assert kinds[0] == ("activity", {"event": "started"})
     assert conv["messages"][-1]["content"] == "Hola Sam, te escribimos de Outbound Co.\n\nResponde para continuar."
@@ -162,6 +177,13 @@ def test_a_template_starts_a_conversation_and_the_window_rules_replies(authentic
     assert client.post(f"{base}/reply", json={"content": "Hola?"}).status_code == 409
     again = client.post(f"{base}/reply-template", json={"name": "saludo_inicial", "language": "es", "variables": ["Sam", "Outbound Co"]})
     assert again.status_code == 200
+    assert in_thread.call_args.args == ("acct-1", "conv-9")
+    assert in_thread.call_args.kwargs["components"] == [
+        {"type": "body", "parameters": [
+            {"type": "text", "text": "Sam", "parameter_name": "nombre"},
+            {"type": "text", "text": "Outbound Co", "parameter_name": "empresa"},
+        ]},
+    ]
     # Only one open conversation per line and contact.
     assert client.post(start, json={"template": {"name": "saludo_inicial", "language": "es", "variables": ["Sam", "Outbound Co"]}}).status_code == 409
 
@@ -200,11 +222,11 @@ def test_the_agency_manages_templates_from_the_client_page(authenticated_client:
 
     rows = client.get(base).json()
     assert [r["name"] for r in rows] == ["saludo_inicial", "promo"]
-    assert listed.call_args.args == ("tok", "WABA1")
+    assert listed.call_args.args == ("acct-1",)
 
     submitted = client.post(base, json={"name": "bienvenida", "language": "es", "body": "Bienvenido {{1}}, hola", "examples": {"1": "Ana"}})
     assert submitted.status_code == 201, submitted.text
-    assert created.call_args.kwargs["name"] == "bienvenida" and created.call_args.args == ("tok", "WABA1")
+    assert created.call_args.kwargs["name"] == "bienvenida" and created.call_args.args == ("acct-1",)
 
     assert client.delete(f"{base}/saludo_inicial?hsm_id=1").status_code == 204
     assert deleted.call_args.kwargs == {"name": "saludo_inicial", "hsm_id": "1"}

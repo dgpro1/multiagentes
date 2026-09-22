@@ -41,6 +41,8 @@ class SocialChannelOut(BaseModel):
     has_app_secret: bool
     webhook_url: str
     webhook_verify_token: str | None = None
+    # Present while no account is linked: the hosted page to open.
+    connect_url: str | None = None
     last_connected_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -53,5 +55,5 @@ class SocialOAuthStart(BaseModel):
 
 
 class SocialOAuthComplete(BaseModel):
-    setup_id: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]+$")
-    external_account_id: str = Field(min_length=1, max_length=64, pattern=r"^[0-9]+$")
+    setup_id: str = Field(min_length=1, max_length=128, pattern=r"^[0-9a-zA-Z-]+$")
+    external_account_id: str = Field(min_length=1, max_length=128, pattern=r"^[0-9a-zA-Z-]+$")

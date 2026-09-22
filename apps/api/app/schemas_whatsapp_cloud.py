@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 class WhatsAppCloudChannelUpdate(BaseModel):
     agent_id: uuid.UUID
     label: str | None = Field(default=None, max_length=80)
+    # Kept so older forms still validate; the number is linked on connect.
     phone_number_id: str | None = Field(default=None, max_length=80)
     waba_id: str | None = Field(default=None, max_length=80)
-    # Secrets are write-only: omitted or blank values keep the stored ones.
     access_token: str | None = Field(default=None, max_length=4000)
     app_secret: str | None = Field(default=None, max_length=255)
 
@@ -24,6 +24,10 @@ class WhatsAppCloudChannelOut(BaseModel):
     label: str | None = None
     phone_number_id: str
     waba_id: str | None
+    external_account_id: str = ""
+    provider_profile_id: str | None = None
+    # Present while the number is not linked: the hosted page to open.
+    connect_url: str | None = None
     coexistence: bool = False
     coexistence_sync: dict = Field(default_factory=dict)
     quality_rating: str | None = None

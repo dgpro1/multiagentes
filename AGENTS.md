@@ -80,6 +80,8 @@ Everything is agency-scoped: `Agency → Users, Clients, AIConnections`; `Client
 
 ### WhatsApp flow
 
+Two QR drivers share one pipeline: the local Go bridge (below) and a self-hosted Evolution API (`app/services/evolution.py`, one deterministic instance per line `openlivery-{channel_id}`, events through `POST /api/public/whatsapp/evolution/webhook`). `whatsapp_qr_driver` picks (`auto` → Evolution when `evolution_api_url`+`evolution_api_key` are set); both end in the same `WhatsAppChannel` states and the shared inbound pipeline, and outbound services branch on the driver.
+
 The bridge (`apps/whatsapp/manager.go`) holds live whatsmeow clients, one per channel. Session keys live in whatsmeow's own SQL store (`WHATSAPP_STORE_URL`, SQLite or Postgres); the backend only stores a small marker with the device JID through the internal auth endpoints, which is what makes a channel restorable on startup. Incoming messages: bridge → `POST /api/whatsapp/channels/{channel_id}/inbound` on the backend → AI reply sent back through the bridge. Replies are delayed per agent (`reply_delay_min_seconds` / `reply_delay_max_seconds`, a random wait between the two, 6 to 9s by default): the shared pipeline in `app/services/whatsapp_inbound.py` waits for a quiet window that restarts on each new visitor message, then answers the whole burst with one reply delivered via `send_channel_message()`; with both bounds at 0 the reply returns synchronously in the inbound response instead. Backend↔bridge calls authenticate with `WHATSAPP_BRIDGE_TOKEN`. Conversations have a `mode` field: switching to `"human"` pauses the AI so an operator answers from the portal.
 
 ### Frontend

@@ -11,7 +11,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from ..models import ContactIdentity, Conversation, Message, SocialChannel, SocialOutbox, SocialWebhookEvent, new_uuid, now_utc
-from ..security import decrypt_secret
 from . import social_graph
 from .attachments import store_attachment
 from .conversation_state import set_mode
@@ -75,6 +74,177 @@ def enqueue_webhook(db: Session, provider: str, payload: dict, channel: SocialCh
     return count
 
 
+# Provider platform value per channel provider.
+_PROVIDER_PLATFORM = {"instagram": "instagram", "messenger": "facebook"}
+
+
+def _store_event(db: Session, channel: SocialChannel, key: str, event: dict) -> bool:
+    if len(key) > 512:
+        key = "event:" + hashlib.sha256(key.encode()).hexdigest()
+    result = db.execute(insert(SocialWebhookEvent).values(
+        id=new_uuid(), channel_id=channel.id, external_event_id=key,
+        payload=event, status="pending", attempts=0, available_at=now_utc(), created_at=now_utc(),
+    ).on_conflict_do_nothing(index_elements=["channel_id", "external_event_id"]).returning(SocialWebhookEvent.id))
+    return result.scalar_one_or_none() is not None
+
+
+def enqueue_provider_event(db: Session, event: dict, *, commit: bool = True) -> int:
+    """Translate one provider webhook event into the durable event shape the
+    worker processes. The caller verifies the signature. A successful return
+    means persisted; unknown or foreign events store nothing."""
+    if not isinstance(event, dict):
+        return 0
+    name = event.get("event")
+    account = event.get("account") or {}
+    account_id = str(account.get("accountId") or event.get("accountId") or "")
+    if not account_id:
+        return 0
+    channel = db.scalar(select(SocialChannel).where(
+        SocialChannel.provider.in_(("instagram", "messenger")),
+        SocialChannel.external_account_id == account_id))
+    if (not channel or channel.provider not in ("instagram", "messenger")
+            or not channel.is_enabled or channel.status != "connected"):
+        return 0
+    platform = (event.get("message") or {}).get("platform")
+    if platform and platform != _PROVIDER_PLATFORM[channel.provider]:
+        return 0
+    stored = False
+    if name == "message.received":
+        stored = _store_incoming(db, channel, event)
+    elif name == "message.sent":
+        stored = _store_echo(db, channel, event)
+    elif name in ("message.delivered", "message.read"):
+        stored = _store_receipt(db, channel, event, state="read" if name == "message.read" else "delivered")
+    elif name == "reaction.received":
+        stored = _store_reaction(db, channel, event)
+    elif name == "message.edited":
+        stored = _apply_edit(db, channel, event)
+    if commit and stored:
+        db.commit()
+    return 1 if stored else 0
+
+
+def _provider_person(db: Session, channel: SocialChannel, event: dict) -> str:
+    """The participant id behind a provider event, from the payload or from
+    the thread it belongs to."""
+    message = event.get("message") or {}
+    sender = message.get("sender") or {}
+    if message.get("direction") == "incoming" and sender.get("id"):
+        return str(sender["id"])
+    conversation_id = str(message.get("conversationId") or (event.get("conversation") or {}).get("id") or "")
+    if conversation_id:
+        row = db.scalar(select(Conversation).where(
+            Conversation.social_channel_id == channel.id,
+            Conversation.provider_conversation_id == conversation_id).limit(1))
+        if row and row.external_chat_id:
+            return row.external_chat_id
+    participant = event.get("participant") or {}
+    if participant.get("id"):
+        return str(participant["id"])
+    return ""
+
+
+def _event_time(event: dict, message: dict):
+    return event.get("timestamp") or message.get("timestamp")
+
+
+def _store_incoming(db: Session, channel: SocialChannel, event: dict) -> bool:
+    message = event.get("message") or {}
+    platform_id = str(message.get("platformMessageId") or "")
+    if not platform_id:
+        return False
+    person = _provider_person(db, channel, event)
+    if not person or person == channel.external_account_id:
+        return False
+    sender = message.get("sender") or {}
+    attachments = []
+    for item in message.get("attachments") or []:
+        if not isinstance(item, dict):
+            continue
+        entry: dict = {"type": item.get("type"), "payload": {"url": item.get("url")}}
+        if item.get("originalType"):
+            entry["originalType"] = item["originalType"]
+        attachments.append(entry)
+    metadata = message.get("metadata") or {}
+    shaped = {
+        "sender": {"id": person, "name": sender.get("name"), "username": sender.get("username")},
+        "recipient": {"id": channel.external_account_id},
+        "timestamp": _event_time(event, message),
+        "provider_conversation_id": str(message.get("conversationId") or ""),
+        "message": {
+            "mid": platform_id,
+            "text": message.get("text") or "",
+            "attachments": attachments,
+            **({"reply_to": {"mid": str(metadata["quotedMessageId"])}} if metadata.get("quotedMessageId") else {}),
+        },
+    }
+    return _store_event(db, channel, f"message:{platform_id}", shaped)
+
+
+def _store_echo(db: Session, channel: SocialChannel, event: dict) -> bool:
+    """Our own sends already carry their id from the send call; anything
+    else is a native reply from the business app, which takes the case."""
+    message = event.get("message") or {}
+    platform_id = str(message.get("platformMessageId") or "")
+    if not platform_id:
+        return False
+    if _message(db, channel, platform_id):
+        return False
+    person = _provider_person(db, channel, event)
+    if not person or person == channel.external_account_id:
+        return False
+    shaped = {
+        "sender": {"id": channel.external_account_id},
+        "recipient": {"id": person},
+        "timestamp": _event_time(event, message),
+        "provider_conversation_id": str(message.get("conversationId") or ""),
+        "message": {"mid": platform_id, "text": message.get("text") or "", "attachments": []},
+    }
+    return _store_event(db, channel, f"message:{platform_id}", shaped)
+
+
+def _store_receipt(db: Session, channel: SocialChannel, event: dict, *, state: str) -> bool:
+    message = event.get("message") or {}
+    platform_id = str(message.get("platformMessageId") or "")
+    person = _provider_person(db, channel, event)
+    if not platform_id or not person:
+        return False
+    key = f"event:{state}:{platform_id}"
+    shaped = {
+        "sender": {"id": person},
+        "recipient": {"id": channel.external_account_id},
+        "timestamp": _event_time(event, message),
+        state: {"mids": [platform_id]},
+    }
+    return _store_event(db, channel, key, shaped)
+
+
+def _store_reaction(db: Session, channel: SocialChannel, event: dict) -> bool:
+    reaction = event.get("reaction") or {}
+    platform_id = str(reaction.get("platformMessageId") or (event.get("message") or {}).get("platformMessageId") or "")
+    if not platform_id:
+        return False
+    action = "unreact" if reaction.get("action") == "removed" else "react"
+    key = f"event:reaction:{platform_id}:{action}:{(reaction.get('emoji') or '')}"
+    shaped = {
+        "sender": {"id": _provider_person(db, channel, event) or "unknown"},
+        "recipient": {"id": channel.external_account_id},
+        "timestamp": _event_time(event, event.get("message") or {}),
+        "reaction": {"mid": platform_id, "action": action, "emoji": str(reaction.get("emoji") or "")},
+    }
+    return _store_event(db, channel, key, shaped)
+
+
+def _apply_edit(db: Session, channel: SocialChannel, event: dict) -> bool:
+    message = event.get("message") or {}
+    platform_id = str(message.get("platformMessageId") or "")
+    target = _message(db, channel, platform_id) if platform_id else None
+    if not target or target.role != "user":
+        return False
+    target.content = str(message.get("text") or target.content)
+    return True
+
+
 def _conversation(db: Session, channel: SocialChannel, person: str) -> Conversation | None:
     return db.scalar(select(Conversation).where(Conversation.social_channel_id == channel.id,
         Conversation.external_chat_id == person).order_by(Conversation.created_at.desc()).limit(1))
@@ -92,10 +262,9 @@ async def _name_contact(db: Session, channel: SocialChannel, person: str, sender
         return
     name = str(sender.get("name") or "").strip()
     username = str(sender.get("username") or "").strip() or None
-    if not name and channel.encrypted_access_token and channel.encrypted_app_secret:
+    if not name and channel.external_account_id:
         try:
-            profile = await social_graph.sender_profile(channel.provider, decrypt_secret(channel.encrypted_access_token),
-                                                        decrypt_secret(channel.encrypted_app_secret), person)
+            profile = await social_graph.sender_profile(channel, person)
             name = profile.get("name") or ""
             username = profile.get("username") or username
         except Exception as exc:
@@ -122,6 +291,12 @@ class WaitForDelivery(Exception):
     pass
 
 
+def _stamp_thread(conversation: Conversation | None, event: dict) -> None:
+    thread_id = str(event.get("provider_conversation_id") or "")
+    if conversation is not None and thread_id and not conversation.provider_conversation_id:
+        conversation.provider_conversation_id = thread_id
+
+
 async def process_event(db: Session, channel: SocialChannel, event: dict) -> None:
     sender = str((event.get("sender") or {}).get("id") or "")
     recipient = str((event.get("recipient") or {}).get("id") or "")
@@ -136,6 +311,7 @@ async def process_event(db: Session, channel: SocialChannel, event: dict) -> Non
         return
     conversation = _conversation(db, channel, person)
     occurred = event_time(event.get("timestamp"))
+    _stamp_thread(conversation, event)
     if conversation and (event.get("_standby") or event.get("pass_thread_control") or event.get("take_thread_control")):
         control = event.get("pass_thread_control") or event.get("take_thread_control") or {}
         owner = str(control.get("new_owner_app_id") or "")
@@ -212,6 +388,7 @@ async def process_event(db: Session, channel: SocialChannel, event: dict) -> Non
             conversation = Conversation(agency_id=channel.agency_id, client_id=channel.client_id,
                 agent_id=channel.agent_id, channel=channel.provider, social_channel_id=channel.id,
                 external_chat_id=person, contact_id=contact.id, title=display_name(contact),
+                provider_conversation_id=str(event.get("provider_conversation_id") or "") or None,
                 status="resolved", mode="human", resolved_at=channel.last_connected_at,
                 operator_read_at=channel.last_connected_at, created_at=occurred, updated_at=occurred)
             db.add(conversation)
@@ -290,6 +467,7 @@ async def process_event(db: Session, channel: SocialChannel, event: dict) -> Non
     result = await process_inbound(db, channel, inbound, conversation_channel=channel.provider,
                                   channel_fk_field="social_channel_id", defer_reply=True)
     conversation = db.get(Conversation, result.conversation_id)
+    _stamp_thread(conversation, event)
     if not conversation:
         return
     if len(fetched) > 1 and result.accepted:

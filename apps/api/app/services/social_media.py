@@ -125,6 +125,40 @@ def media_signature(channel: SocialChannel, attachment_id, expires: int) -> str:
     return hmac.new(secret.encode(), content.encode(), hashlib.sha256).hexdigest()
 
 
+def provider_media_signature(attachment_id, expires: int) -> str:
+    """Server-wide signature for provider-managed channels, which hold no
+    per-channel secret. Verified against the webhook secret."""
+    from ..config import get_settings
+
+    secret = get_settings().messaging_provider_webhook_secret.strip()
+    content = f"social-media:{attachment_id}:{expires}"
+    return hmac.new(secret.encode(), content.encode(), hashlib.sha256).hexdigest()
+
+
+def verify_media_signature(channel: SocialChannel, attachment_id, expires: int, signature: str) -> bool:
+    """Accept the server-wide signature, or a legacy per-channel one still
+    in flight from before the provider migration."""
+    from ..config import get_settings
+
+    if signature and get_settings().messaging_provider_webhook_secret.strip():
+        expected = provider_media_signature(attachment_id, expires)
+        try:
+            if hmac.compare_digest(signature.encode("ascii"), expected.encode("ascii")):
+                return True
+        except (UnicodeEncodeError, ValueError):
+            return False
+    try:
+        legacy = media_signature(channel, attachment_id, expires)
+    except Exception:
+        return False
+    if not signature:
+        return False
+    try:
+        return hmac.compare_digest(signature.encode("ascii"), legacy.encode("ascii"))
+    except (UnicodeEncodeError, ValueError):
+        return False
+
+
 def attachment_url(channel: SocialChannel, attachment: MessageAttachment) -> str:
     from .social_connections import get_app_config
     config = get_app_config(channel.provider)
@@ -132,10 +166,12 @@ def attachment_url(channel: SocialChannel, attachment: MessageAttachment) -> str
     if origin.scheme != "https" or not origin.hostname or origin.username or origin.password:
         raise HTTPException(status_code=409, detail="A public HTTPS address is required to send attachments.")
     base = urlunparse((origin.scheme, origin.netloc, "", "", "", ""))
-    if not channel.is_enabled or channel.status != "connected" or not channel.encrypted_app_secret:
+    if not channel.is_enabled or channel.status != "connected" or not channel.external_account_id:
         raise HTTPException(status_code=409, detail="Connect this messaging channel before sending attachments.")
     if attachment.size_bytes != len(attachment.data):
         raise HTTPException(status_code=409, detail="The attachment data is incomplete.")
+    if not get_settings().messaging_provider_webhook_secret.strip():
+        raise HTTPException(status_code=409, detail="Set MESSAGING_PROVIDER_WEBHOOK_SECRET to send files.")
     expires = int(now_utc().timestamp()) + 3600
     return (f"{base}/api/public/social/media/{channel.id}/{attachment.id}?expires={expires}"
-            f"&signature={media_signature(channel, attachment.id, expires)}")
+            f"&signature={provider_media_signature(attachment.id, expires)}")

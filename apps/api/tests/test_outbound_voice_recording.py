@@ -67,19 +67,17 @@ def test_recorded_mp4_voice_preserves_audio_duration_and_samples(tmp_path, fragm
 def test_both_outbound_channels_receive_valid_voice_media(tmp_path, monkeypatch, channel):
     original = _recording(tmp_path)
     bridge = AsyncMock(return_value={"external_message_id": "message-1"})
-    upload = AsyncMock(return_value="media-1")
     send = AsyncMock(return_value="message-1")
     caption = AsyncMock(return_value="caption-1")
     monkeypatch.setattr(whatsapp, "bridge_command", bridge)
-    monkeypatch.setattr(whatsapp, "upload_media", upload)
     monkeypatch.setattr(whatsapp, "send_media", send)
     monkeypatch.setattr(whatsapp, "send_text", caption)
-    monkeypatch.setattr(whatsapp, "decrypt_secret", lambda value: "test-token")
     conversation = SimpleNamespace(
         channel=channel, whatsapp_channel_id="qr-line", whatsapp_cloud_channel_id="api-line",
-        external_chat_id="573001234567",
+        external_chat_id="573001234567", provider_conversation_id="thread-1",
     )
-    db = SimpleNamespace(get=lambda model, key: SimpleNamespace(encrypted_access_token="encrypted", phone_number_id="phone-id", coexistence=False))
+    cloud = SimpleNamespace(external_account_id="acct-1", coexistence=False)
+    db = SimpleNamespace(get=lambda model, key: cloud)
     result = asyncio.run(whatsapp.send_channel_media(
         db, conversation, kind="audio", data=original, mime="audio/mp4", filename="voice-note.m4a", caption="Listen to this",
     ))
@@ -92,13 +90,13 @@ def test_both_outbound_channels_receive_valid_voice_media(tmp_path, monkeypatch,
         assert payload["filename"] == "voice-note.ogg"
         assert payload["text"] == "Listen to this"
         _assert_voice(base64.b64decode(payload["media_base64"]), tmp_path)
-        upload.assert_not_called()
+        send.assert_not_called()
     else:
-        _, _, converted, mime, filename = upload.call_args.args
-        assert mime == "audio/ogg" and filename == "voice-note.ogg"
-        _assert_voice(converted, tmp_path)
-        assert send.call_args.args[3:5] == ("audio", "media-1")
-        assert caption.call_args.args[-1] == "Listen to this"
+        assert send.call_args.args[:2] == ("acct-1", "thread-1")
+        assert send.call_args.kwargs["mime"] == "audio/ogg"
+        assert send.call_args.kwargs["filename"] == "voice-note.ogg"
+        assert send.call_args.kwargs["voice_note"] is True
+        _assert_voice(send.call_args.kwargs["data"], tmp_path)
         bridge.assert_not_called()
 
 

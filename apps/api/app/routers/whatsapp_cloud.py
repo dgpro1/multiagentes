@@ -4,13 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import Agent, Client, User, WhatsAppCloudChannel, new_public_id, now_utc
 from ..schemas_whatsapp_cloud import WhatsAppCloudChannelOut, WhatsAppCloudChannelUpdate
-from ..security import decrypt_secret, encrypt_secret
-from ..services.whatsapp_cloud import verify_phone_number
+from ..services import messaging_provider as provider
+from ..services import messaging_profiles as profiles
+from ..services.whatsapp_cloud import verify_account
 
 
 router = APIRouter(prefix="/whatsapp-cloud", tags=["WhatsApp Cloud"])
@@ -56,10 +56,7 @@ def _client_agent(db: Session, user: User, client_id: uuid.UUID, agent_id: uuid.
     return agent
 
 
-def _public_channel(channel: WhatsAppCloudChannel) -> dict:
-    webhook_url = (
-        f"{get_settings().frontend_url.rstrip('/')}/api/public/whatsapp-cloud/channels/{channel.id}/webhook"
-    )
+def _public_channel(channel: WhatsAppCloudChannel, connect_url: str | None = None) -> dict:
     return {
         "id": channel.id,
         "client_id": channel.client_id,
@@ -70,13 +67,16 @@ def _public_channel(channel: WhatsAppCloudChannel) -> dict:
         "label": channel.label,
         "phone_number_id": channel.phone_number_id,
         "waba_id": channel.waba_id,
+        "external_account_id": channel.external_account_id,
+        "provider_profile_id": channel.provider_profile_id,
+        "connect_url": connect_url,
         "coexistence": channel.coexistence,
         "coexistence_sync": channel.coexistence_sync,
         "quality_rating": channel.quality_rating,
         "messaging_limit": channel.messaging_limit,
-        "has_access_token": bool(channel.encrypted_access_token),
-        "has_app_secret": bool(channel.encrypted_app_secret),
-        "webhook_url": webhook_url,
+        "has_access_token": False,
+        "has_app_secret": False,
+        "webhook_url": provider.webhook_url() if provider.configured() else "",
         "webhook_verify_token": channel.webhook_verify_token,
         "last_error": channel.last_error,
         "is_enabled": channel.is_enabled,
@@ -98,37 +98,10 @@ def list_channels(client_id: uuid.UUID, db: Session = Depends(get_db), user: Use
 
 def _apply_update(db: Session, user: User, channel: WhatsAppCloudChannel, payload: WhatsAppCloudChannelUpdate) -> None:
     agent = _client_agent(db, user, channel.client_id, payload.agent_id)
-    # One number answers on one line. Saving the same one twice would give two
-    # agents the same inbox, and each channel's webhook would accept the
-    # other's traffic.
-    number = (payload.phone_number_id or "").strip()
-    if number and db.scalar(
-        select(WhatsAppCloudChannel.id).where(
-            WhatsAppCloudChannel.agency_id == user.agency_id,
-            WhatsAppCloudChannel.phone_number_id == number,
-            WhatsAppCloudChannel.id != channel.id,
-        )
-    ):
-        raise HTTPException(status_code=400, detail="That phone number is already connected to another line")
-    if channel.coexistence and (
-        payload.phone_number_id is not None or payload.waba_id is not None
-        or payload.access_token or payload.app_secret
-    ):
-        raise HTTPException(status_code=409, detail="Use the WhatsApp Business app connection flow to change this number or its authorization.")
     channel.agent_id = agent.id
     if "label" in payload.model_fields_set:
         channel.label = (payload.label or "").strip()[:80] or None
-    if not channel.coexistence:
-        channel.is_enabled = True
-    if payload.phone_number_id is not None:
-        channel.phone_number_id = number
-    if payload.waba_id is not None:
-        channel.waba_id = payload.waba_id.strip() or None
-    # Blank secrets keep the stored values, so the form can resubmit safely.
-    if payload.access_token:
-        channel.encrypted_access_token = encrypt_secret(payload.access_token.strip())
-    if payload.app_secret:
-        channel.encrypted_app_secret = encrypt_secret(payload.app_secret.strip())
+    channel.is_enabled = True
     channel.updated_at = now_utc()
 
 
@@ -139,7 +112,8 @@ def create_channel(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Add another WhatsApp API number to the client."""
+    """Add another WhatsApp API number to the client. Linking the number
+    itself happens on connect, through the provider's hosted page."""
     client = _owned_client(db, user, client_id)
     channel = WhatsAppCloudChannel(
         agency_id=user.agency_id, client_id=client.id, agent_id=payload.agent_id, webhook_verify_token=new_public_id()
@@ -156,13 +130,37 @@ def get_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depe
     return _public_channel(_channel_for_user(db, user, ref))
 
 
+async def _sync_from_provider(db: Session, channel: WhatsAppCloudChannel) -> None:
+    """Refresh the number's public profile from its linked account."""
+    if not channel.external_account_id:
+        raise HTTPException(status_code=409, detail="Link a number on the connection page before refreshing")
+    try:
+        profile = await verify_account(channel.external_account_id, channel.provider_profile_id)
+    except HTTPException as exc:
+        channel.status = "error"
+        channel.last_error = str(exc.detail)
+        channel.updated_at = now_utc()
+        db.commit()
+        db.refresh(channel)
+        return
+    channel.status = "connected"
+    channel.phone_number = profile.get("display_phone_number")
+    channel.display_name = profile.get("verified_name")
+    channel.quality_rating = profile.get("quality_rating")
+    channel.messaging_limit = profile.get("messaging_limit")
+    channel.coexistence = False
+    channel.last_error = None
+    channel.is_enabled = True
+    channel.last_connected_at = channel.last_connected_at or now_utc()
+    channel.updated_at = now_utc()
+    db.commit()
+    db.refresh(channel)
+
+
 @router.post("/channels/{ref}/refresh", response_model=WhatsAppCloudChannelOut)
 async def refresh_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    from ..services.whatsapp_coexistence import refresh_connection
-
     channel = _channel_for_user(db, user, ref)
-    await refresh_connection(db, channel)
-    db.refresh(channel)
+    await _sync_from_provider(db, channel)
     return _public_channel(channel)
 
 
@@ -173,7 +171,7 @@ def configure_channel(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Save a number's agent, name and credentials. Called with a client id it
+    """Save a number's agent and name. Called with a client id it
     configures that client's first number, creating it when there is none."""
     channel = db.scalar(
         select(WhatsAppCloudChannel).where(WhatsAppCloudChannel.id == ref, WhatsAppCloudChannel.agency_id == user.agency_id)
@@ -196,31 +194,39 @@ def configure_channel(
 
 
 @router.delete("/channels/{channel_id}", status_code=204)
-def remove_channel(channel_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Remove a number. Its conversations stay as history."""
+async def remove_channel(channel_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Remove a number. Its conversations stay as history; the provider-side
+    profile is released so the name can be used again (best-effort)."""
     channel = db.scalar(
         select(WhatsAppCloudChannel).where(WhatsAppCloudChannel.id == channel_id, WhatsAppCloudChannel.agency_id == user.agency_id)
     )
     if not channel:
         raise HTTPException(status_code=404, detail="Number not found")
-    if channel.coexistence and channel.is_enabled and channel.status == "connected":
-        raise HTTPException(status_code=409, detail="Disconnect this number in WhatsApp Business first: Settings > Account > Business Platform > Disconnect account.")
+    from ..services.messaging_profiles import release_channel_profile
+
+    await release_channel_profile(channel)
     db.delete(channel)
     db.commit()
 
 
 @router.post("/channels/{ref}/connect", response_model=WhatsAppCloudChannelOut)
 async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Link the number through the provider's hosted page. When the number
+    is already linked this verifies it instead and returns the channel;
+    otherwise it returns the channel with the page to open."""
     channel = _channel_for_user(db, user, ref)
-    if not channel.encrypted_access_token or not channel.encrypted_app_secret or not channel.phone_number_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Save the phone number ID, access token and app secret before connecting",
-        )
+    provider.require_config()
+    if channel.external_account_id:
+        await _sync_from_provider(db, channel)
+        if channel.status == "connected":
+            channel.last_connected_at = now_utc()
+            channel.updated_at = now_utc()
+            db.commit()
+            db.refresh(channel)
+        return _public_channel(channel)
+    profile_id = await profiles.ensure_channel_profile(db, channel)
     try:
-        profile = await verify_phone_number(
-            decrypt_secret(channel.encrypted_access_token), channel.phone_number_id
-        )
+        link = await provider.connect_url("whatsapp", profile_id, onboarding="api")
     except HTTPException as exc:
         channel.status = "error"
         channel.last_error = str(exc.detail)
@@ -228,23 +234,13 @@ async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: U
         db.commit()
         db.refresh(channel)
         return _public_channel(channel)
-    channel.status = "connected"
-    channel.phone_number = profile.get("display_phone_number")
-    channel.display_name = profile.get("verified_name")
-    channel.last_error = None
-    channel.is_enabled = True
-    channel.last_connected_at = now_utc()
-    channel.updated_at = now_utc()
-    db.commit()
     db.refresh(channel)
-    return _public_channel(channel)
+    return _public_channel(channel, connect_url=link["authorization_url"])
 
 
 @router.post("/channels/{ref}/disconnect", response_model=WhatsAppCloudChannelOut)
 def disconnect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     channel = _channel_for_user(db, user, ref)
-    if channel.coexistence:
-        raise HTTPException(status_code=409, detail="Disconnect this number in WhatsApp Business: Settings > Account > Business Platform > Disconnect account.")
     channel.status = "disconnected"
     channel.is_enabled = False
     channel.last_error = None

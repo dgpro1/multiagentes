@@ -1,6 +1,4 @@
 import asyncio
-import hashlib
-import hmac
 import json
 import socket
 import uuid
@@ -10,76 +8,71 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
-from starlette.requests import Request
 
 from app.config import get_settings
 from app.models import SocialChannel, SocialWebhookEvent, now_utc
-from app.routers import social_webhook
-from app.security import encrypt_secret
 from app.services import attachments, audio, social_media
 from conftest import TestingSession
 from test_social_history import setup
 
 
-def test_unicode_verification_queries_return_forbidden_instead_of_server_error(authenticated_client, monkeypatch):
-    setup(authenticated_client, monkeypatch)
+def test_unicode_signature_params_return_forbidden_instead_of_server_error(authenticated_client):
+    setup(authenticated_client)
     with TestingSession() as db:
         channel = db.scalar(select(SocialChannel))
         channel_id = channel.id
-    response = authenticated_client.get(f"/api/public/social/channels/{channel_id}/webhook",
-        params={"hub.mode": "subscribe", "hub.verify_token": "ñ", "hub.challenge": "challenge"})
-    assert response.status_code == 403
     response = authenticated_client.get(f"/api/public/social/media/{channel_id}/{uuid.uuid4()}",
         params={"expires": int(now_utc().timestamp()) + 60, "signature": "ñ"})
     assert response.status_code == 403
 
 
-def test_non_ascii_hmac_header_is_rejected_without_type_error():
+def test_non_ascii_signature_is_rejected_without_type_error(authenticated_client):
+    import asyncio
+
+    from starlette.requests import Request
+
+    from app.routers import messaging_webhook
+
     async def run():
-        request = Request({"type": "http", "headers": [(b"x-hub-signature-256", b"\xff")]},
-            receive=AsyncMock(return_value={"type": "http.request", "body": b"{}", "more_body": False}))
-        with pytest.raises(HTTPException) as error:
-            await social_webhook._verified_payload(request, "secret")
-        assert error.value.status_code == 403
+        raw = b'{"id": "evt-1", "event": "webhook.test"}'
+        request = Request({"type": "http", "headers": [(b"x-zernio-signature", "ÿ".encode("latin-1"))]},
+            receive=AsyncMock(return_value={"type": "http.request", "body": raw, "more_body": False}))
+        with TestingSession() as db:
+            with pytest.raises(HTTPException) as error:
+                await messaging_webhook.receive_webhook(request, db)
+            assert error.value.status_code == 403
+
     asyncio.run(run())
 
 
-def test_revoked_token_keeps_signed_receipts_and_blocks_new_media_urls(authenticated_client, monkeypatch):
-    setup(authenticated_client, monkeypatch)
+def test_disconnected_channel_blocks_new_media_urls(authenticated_client, monkeypatch):
+    setup(authenticated_client)
     with TestingSession() as db:
         channel = db.scalar(select(SocialChannel))
-        channel.status = "reauthorization_required"
-        channel_id = channel.id
+        channel.status = "error"
         db.commit()
-        monkeypatch.setattr(get_settings(), "frontend_url", "https://app.example.test")
+        monkeypatch.setattr(get_settings(), "messaging_provider_public_url", "https://app.example.test")
         with pytest.raises(HTTPException) as error:
             social_media.attachment_url(channel, SimpleNamespace(id=uuid.uuid4(), size_bytes=1, data=b"a"))
         assert error.value.status_code == 409
-    payload = {"object": "instagram", "entry": [{"id": "111", "messaging": [{"sender": {"id": "222"},
-        "recipient": {"id": "111"}, "timestamp": int(now_utc().timestamp() * 1000), "read": {"mid": "message"}}]}]}
-    raw = json.dumps(payload).encode()
-    signature = "sha256=" + hmac.new(b"secret", raw, hashlib.sha256).hexdigest()
-    response = authenticated_client.post(f"/api/public/social/channels/{channel_id}/webhook", content=raw,
-        headers={"Content-Type": "application/json", "X-Hub-Signature-256": signature})
-    assert response.status_code == 200
-    with TestingSession() as db:
-        assert db.scalar(select(SocialWebhookEvent)) is not None
 
 
-def test_non_ascii_app_secret_comparison_uses_bytes(authenticated_client, monkeypatch):
-    setup(authenticated_client, monkeypatch)
-    secret = "secreto-ñ"
-    monkeypatch.setattr(get_settings(), "instagram_app_id", "999")
-    monkeypatch.setattr(get_settings(), "instagram_app_secret", secret)
+def test_unicode_bodies_verify_and_store(authenticated_client):
+    from test_social_runtime import provider_event, provider_message, signed_provider_post
+
+    setup(authenticated_client)
     with TestingSession() as db:
         channel = db.scalar(select(SocialChannel))
-        channel.encrypted_app_secret = encrypt_secret(secret)
-        db.commit()
-    raw = json.dumps({"object": "instagram", "entry": [{"id": "111", "messaging": []}]}).encode()
-    signature = "sha256=" + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
-    response = authenticated_client.post("/api/public/social/instagram/webhook", content=raw,
-        headers={"Content-Type": "application/json", "X-Hub-Signature-256": signature})
-    assert response.status_code == 200
+        account = channel.external_account_id
+    message = {"id": "pm-uni", "conversationId": "conv-uni", "platform": "instagram",
+               "platformMessageId": "mid-uni", "direction": "incoming", "text": "¡Hola, señor! ñ",
+               "attachments": [], "sender": {"id": "person-uni", "name": "Señor"},
+               "timestamp": now_utc().isoformat()}
+    payload = {"id": "evt-uni", "event": "message.received", "message": message,
+               "account": {"accountId": account, "profileId": "prof-1"}}
+    assert signed_provider_post(authenticated_client, payload).status_code == 200
+    with TestingSession() as db:
+        assert db.scalar(select(SocialWebhookEvent)) is not None
 
 
 def test_cdn_url_rejects_foreign_hosts_and_malformed_origins():

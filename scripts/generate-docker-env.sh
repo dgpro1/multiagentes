@@ -14,6 +14,10 @@ postgres_password=$(openssl rand -hex 24)
 secret_key=$(openssl rand -hex 32)
 encryption_key=$(openssl rand -hex 32)
 bridge_token=$(openssl rand -hex 32)
+webhook_secret=$(openssl rand -hex 32)
+evolution_api_key=$(openssl rand -hex 24)
+evolution_webhook_secret=$(openssl rand -hex 32)
+evolution_db_password=$(openssl rand -hex 24)
 
 {
   echo "POSTGRES_DB=openlivery"
@@ -24,6 +28,12 @@ bridge_token=$(openssl rand -hex 32)
   echo "SECRET_KEY=$secret_key"
   echo "ENCRYPTION_KEY=$encryption_key"
   echo "WHATSAPP_BRIDGE_TOKEN=$bridge_token"
+  echo "MESSAGING_PROVIDER_WEBHOOK_SECRET=$webhook_secret"
+  echo
+  echo "# WhatsApp QR lines run through Evolution API (https://docs.evolutionfoundation.com.br)."
+  echo "EVOLUTION_API_KEY=$evolution_api_key"
+  echo "EVOLUTION_WEBHOOK_SECRET=$evolution_webhook_secret"
+  echo "EVOLUTION_DB_PASSWORD=$evolution_db_password"
   echo
   echo "FRONTEND_URL=http://localhost:3000"
   echo "ACCESS_TOKEN_MINUTES=10080"

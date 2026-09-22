@@ -13,7 +13,6 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.models import Agent, Contact, ContactIdentity, Conversation, Message, MessageAttachment, ProviderCredential, SocialChannel, SocialOutbox, SocialWebhookEvent, Team, now_utc
-from app.security import encrypt_secret
 from app.services import escalation, notifications, social_connections, social_delivery, social_graph, social_inbound, social_policy, social_worker, whatsapp_inbound
 from app.services.ai import Completion
 from app.services.contacts import merge_contacts, resolve_contact
@@ -21,7 +20,7 @@ from app.services.conversation_state import set_status
 from conftest import TestingSession, login_legacy_owner
 
 
-SECRET = "runtime-test-app-secret"
+WEBHOOK_SECRET = "test-webhook-secret"
 PERSON = "123456789012345"
 
 
@@ -30,9 +29,6 @@ def isolated_providers(monkeypatch):
     monkeypatch.setattr(social_connections, "_app_resolver", None)
     monkeypatch.setattr(social_connections, "_connection_hooks", [])
     monkeypatch.setattr(social_connections, "_state_hooks", [])
-    monkeypatch.setattr(social_graph, "verify_account", AsyncMock(return_value={"id": "111", "name": "Shop", "scopes": ["instagram_business_basic", "instagram_business_manage_messages"]}))
-    monkeypatch.setattr(social_graph, "subscribe", AsyncMock(return_value=True))
-    monkeypatch.setattr(social_graph, "unsubscribe", AsyncMock())
     monkeypatch.setattr(social_graph, "send_text", AsyncMock(side_effect=lambda *args, **kwargs: f"sent.{uuid.uuid4().hex}"))
     monkeypatch.setattr(social_graph, "send_media", AsyncMock(side_effect=AssertionError("Unexpected media network call")))
     monkeypatch.setattr(whatsapp_inbound, "run_completion", AsyncMock(return_value=Completion(text="We can help.")))
@@ -52,9 +48,9 @@ def resources(client, *, provider="instagram", account="111", human_agent=True):
     with TestingSession() as db:
         agent = db.get(Agent, agent_response.json()["id"])
         channel = SocialChannel(agency_id=agent.agency_id, client_id=agent.client_id, agent_id=agent.id,
-            provider=provider, app_id="999", external_account_id=account, display_name="Shop", status="connected",
-            encrypted_access_token=encrypt_secret("test-token"), encrypted_app_secret=encrypt_secret(SECRET),
-            is_enabled=True, human_agent_enabled=human_agent, connection_source="manual",
+            provider=provider, external_account_id=account, provider_profile_id="prof-1",
+            display_name="Shop", status="connected",
+            is_enabled=True, human_agent_enabled=human_agent, connection_source="oauth",
             last_connected_at=now_utc().replace(microsecond=0), webhook_verify_token="test-verify")
         db.add(channel)
         db.commit()
@@ -62,28 +58,38 @@ def resources(client, *, provider="instagram", account="111", human_agent=True):
             agency_id=agent.agency_id, account=account, provider=provider)
 
 
-def event(resource, mid, *, text="Hello", person=PERSON, occurred=None, echo=False, app_id=None):
+def platform_of(resource):
+    return "instagram" if resource.provider == "instagram" else "facebook"
+
+
+def provider_message(mid, resource, *, text="Hello", person=PERSON, occurred=None, direction="incoming",
+                     conversation="conv-ig-1", sender_name="Visitor", attachments=None):
+    occurred = occurred or now_utc().replace(microsecond=0)
+    return {"id": f"pm-{mid}", "conversationId": conversation, "platform": platform_of(resource),
+        "platformMessageId": mid, "direction": direction, "text": text, "attachments": attachments or [],
+        "sender": {"id": person, "name": sender_name}, "timestamp": occurred.isoformat()}
+
+
+def provider_event(resource, message, *, event="message.received", event_id=None):
+    return {"id": event_id or f"evt-{message['platformMessageId']}", "event": event,
+        "message": message, "account": {"accountId": resource.account, "profileId": "prof-1"}}
+
+
+def signed_provider_post(client, payload, *, secret=WEBHOOK_SECRET):
+    raw = json.dumps(payload).encode()
+    signature = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+    return client.post("/api/public/messaging/webhook", content=raw,
+        headers={"Content-Type": "application/json", "X-Zernio-Signature": signature})
+
+
+def event(resource, mid, *, text="Hello", person=PERSON, occurred=None, echo=False):
     occurred = occurred or now_utc().replace(microsecond=0)
     message = {"mid": mid, "text": text}
     if echo:
         message["is_echo"] = True
-    if app_id:
-        message["app_id"] = app_id
     return {"sender": {"id": resource.account if echo else person},
         "recipient": {"id": person if echo else resource.account},
         "timestamp": int(occurred.timestamp() * 1000), "message": message}
-
-
-def envelope(resource, *events, batch_time=None):
-    return {"object": "instagram" if resource.provider == "instagram" else "page", "entry": [
-        {"id": resource.account, "time": batch_time or int(now_utc().timestamp()), "messaging": list(events)}]}
-
-
-def signed_post(client, resource, payload, *, secret=SECRET):
-    raw = json.dumps(payload).encode()
-    signature = "sha256=" + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
-    return client.post(f"/api/public/social/channels/{resource.channel_id}/webhook", content=raw,
-        headers={"Content-Type": "application/json", "X-Hub-Signature-256": signature})
 
 
 def inbound(db, resource, *, mid="incoming-1", person=PERSON, occurred=None):
@@ -105,14 +111,14 @@ def queue(db, conversation, content="Reply", *, human=True):
 
 def receipt(resource, mid, *, read=False):
     return {"sender": {"id": PERSON}, "recipient": {"id": resource.account},
-        "timestamp": int(now_utc().timestamp() * 1000), "read" if read else "delivery": {"mid": mid}}
+        "timestamp": int(now_utc().timestamp() * 1000), "read" if read else "delivery": {"mids": [mid]}}
 
 
 def test_signed_webhook_is_durable_before_any_ai_or_send(authenticated_client):
     resource = resources(authenticated_client)
-    payload = envelope(resource, event(resource, "incoming-1"))
-    assert signed_post(authenticated_client, resource, payload, secret="wrong").status_code == 403
-    assert signed_post(authenticated_client, resource, payload).status_code == 200
+    payload = provider_event(resource, provider_message("incoming-1", resource))
+    assert signed_provider_post(authenticated_client, payload, secret="wrong").status_code == 403
+    assert signed_provider_post(authenticated_client, payload).status_code == 200
     with TestingSession() as db:
         saved = db.scalars(select(SocialWebhookEvent)).all()
         assert len(saved) == 1 and saved[0].status == "pending"
@@ -123,6 +129,7 @@ def test_signed_webhook_is_durable_before_any_ai_or_send(authenticated_client):
         assert asyncio.run(social_inbound.process_pending(db)) == 1
         conversation = db.scalar(select(Conversation))
         assert conversation.channel == "instagram"
+        assert conversation.provider_conversation_id == "conv-ig-1"
         assert conversation.social_reply_due_at is not None
         assert db.scalar(select(SocialWebhookEvent)).status == "processed"
     whatsapp_inbound.run_completion.assert_not_awaited()
@@ -130,18 +137,19 @@ def test_signed_webhook_is_durable_before_any_ai_or_send(authenticated_client):
 
 def test_message_retries_do_not_create_a_new_case_after_resolution(authenticated_client):
     resource = resources(authenticated_client)
-    incoming = event(resource, "stable-mid")
-    assert signed_post(authenticated_client, resource, envelope(resource, incoming, batch_time=100)).status_code == 200
+    incoming = provider_message("stable-mid", resource)
+    assert signed_provider_post(authenticated_client, provider_event(resource, incoming, event_id="evt-a")).status_code == 200
     with TestingSession() as db:
         asyncio.run(social_inbound.process_pending(db))
         original = db.scalar(select(Conversation))
         set_status(db, original, "resolved")
         db.commit()
         original_id = original.id
-    assert signed_post(authenticated_client, resource, envelope(resource, incoming, batch_time=200)).status_code == 200
+    assert signed_provider_post(authenticated_client, provider_event(resource, incoming, event_id="evt-b")).status_code == 200
     with TestingSession() as db:
         assert asyncio.run(social_inbound.process_pending(db)) == 0
-        asyncio.run(social_inbound.process_event(db, db.get(SocialChannel, resource.channel_id), incoming))
+        asyncio.run(social_inbound.process_event(db, db.get(SocialChannel, resource.channel_id),
+                                                 event(resource, "stable-mid")))
         assert db.scalar(select(func.count(Conversation.id))) == 1
         assert db.get(Conversation, original_id).status == "resolved"
         assert db.scalar(select(func.count(Message.id)).where(Message.external_message_id == "stable-mid")) == 1
@@ -172,7 +180,7 @@ def test_sender_profile_names_the_contact_once_and_titles_the_case(authenticated
         second = inbound(db, resource, mid="named-2")
         assert second.id == first.id
     lookup.assert_awaited_once()
-    assert lookup.await_args.args[0] == "messenger" and lookup.await_args.args[3] == PERSON
+    assert lookup.await_args.args[1] == PERSON
 
 
 def test_instagram_handle_names_the_contact_when_no_name_is_shared(authenticated_client, monkeypatch):
@@ -240,7 +248,7 @@ def test_human_route_queues_before_send_and_receipts_update_delivery(authenticat
 
 def test_utf8_multipart_needs_receipts_for_every_part(authenticated_client):
     resource = resources(authenticated_client)
-    text = "🌍 mañana e\u0301 " * 230
+    text = "🌍 mañana é " * 230
     with TestingSession() as db:
         conversation = inbound(db, resource)
         message = queue(db, conversation, text)
@@ -305,16 +313,20 @@ def test_cached_channel_revocation_prevents_delivery(authenticated_client):
     social_graph.send_text.assert_not_awaited()
 
 
-def test_revoked_provider_token_requires_reconnection(authenticated_client, monkeypatch):
+def test_revoked_provider_key_requires_reconnection(authenticated_client, monkeypatch):
+    from app.services import messaging_provider as provider_client
+
     resource = resources(authenticated_client)
     monkeypatch.setattr(social_graph, "send_text", AsyncMock(side_effect=HTTPException(401, "Authorization revoked")))
+    monkeypatch.setattr(provider_client, "require_account", AsyncMock(return_value={
+        "account_id": "111", "platform": "instagram", "username": "shop", "display_name": "Shop"}))
     with TestingSession() as db:
         conversation = inbound(db, resource)
         message = queue(db, conversation)
         asyncio.run(social_delivery.process_outbox(db))
         assert message.delivery_status == "failed"
         channel = db.get(SocialChannel, resource.channel_id)
-        assert channel.status == "reauthorization_required"
+        assert channel.status == "error"
         assert not social_policy.window_fields(conversation)["human_reply_window_open"]
     response = authenticated_client.post(f"/api/social/instagram/channels/{resource.client_id}/connect")
     assert response.status_code == 200, response.text
@@ -347,7 +359,7 @@ def test_echo_for_a_retried_old_row_waits_for_its_current_send(authenticated_cli
         row.created_at = now_utc() - timedelta(minutes=4)
         row.locked_until = now_utc() + timedelta(minutes=1)
         db.commit()
-        echo = event(resource, "echo-result", text="Our reply", echo=True, app_id="999")
+        echo = event(resource, "echo-result", text="Our reply", echo=True)
         with pytest.raises(social_inbound.WaitForDelivery):
             asyncio.run(social_inbound.process_event(db, db.get(SocialChannel, resource.channel_id), echo))
         row.external_message_id = message.external_message_id = "echo-result"
@@ -579,22 +591,17 @@ def test_two_attachments_are_preserved_on_one_incoming_message_and_not_duplicate
     whatsapp_inbound.run_completion.assert_not_awaited()
 
 
-def test_inbound_after_token_revocation_remains_visible_and_needs_a_person(authenticated_client):
+def test_events_for_disabled_channels_are_dropped(authenticated_client):
     resource = resources(authenticated_client)
     with TestingSession() as db:
         channel = db.get(SocialChannel, resource.channel_id)
-        channel.status = "reauthorization_required"
+        channel.status = "error"
         db.commit()
-    response = signed_post(authenticated_client, resource, envelope(resource, event(resource, "after-revocation")))
+    response = signed_provider_post(authenticated_client, provider_event(resource, provider_message("dropped-1", resource)))
     assert response.status_code == 200, response.text
     with TestingSession() as db:
-        assert asyncio.run(social_inbound.process_pending(db)) == 1
-        conversation = db.scalar(select(Conversation))
-        assert conversation and conversation.mode == "human"
-        assert conversation.social_reply_due_at is None
-        assert db.scalar(select(func.count(Message.id)).where(Message.sender_type == "visitor")) == 1
-        assert social_policy.window_fields(conversation)["reply_block_reason"] == "authorization_expired"
-        assert asyncio.run(social_worker.process_replies(db)) == 0
-        assert db.scalar(select(func.count(SocialOutbox.id))) == 0
-    notifications.notify_needs_human.assert_awaited_once()
+        assert asyncio.run(social_inbound.process_pending(db)) == 0
+        assert db.scalar(select(func.count(Conversation.id))) == 0
+        assert db.scalar(select(func.count(Message.id))) == 0
+    notifications.notify_needs_human.assert_not_awaited()
     whatsapp_inbound.run_completion.assert_not_awaited()

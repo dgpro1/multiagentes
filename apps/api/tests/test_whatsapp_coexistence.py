@@ -1,498 +1,110 @@
-import asyncio
+"""Companion-app machinery after the direct-sync retirement.
+
+Numbers run through the unified provider, always Cloud-API-only. The old
+event fields are acknowledged and ignored, stale sync rows drain instead
+of stalling, and the pure guards (window, reply requirement, locks) keep
+working for rows that still carry the legacy flag.
+"""
+
 import uuid
 from datetime import timedelta
 from unittest.mock import AsyncMock
 
-import httpx
-import pytest
-from fastapi import HTTPException
-from sqlalchemy import event, select, update
+from sqlalchemy import select
 
-from app.models import Contact, Conversation, Message, WhatsAppCloudChannel, WhatsAppCoexistenceEvent, now_utc
-from app.services import whatsapp_coexistence as coex, whatsapp_inbound
-from app.services.ai import Completion
-from app.routers import whatsapp_cloud_webhook
+from app.models import Conversation, WhatsAppCloudChannel, WhatsAppCoexistenceEvent, new_uuid, now_utc
+from app.services import whatsapp_coexistence as coex
 from conftest import TestingSession
-from test_whatsapp_cloud import _setup_channel, _post_signed, _webhook_payload
-
-BUSINESS = "15550783881"
-PERSON = "16505551234"
+from test_whatsapp_cloud import _setup_channel
 
 
-@pytest.fixture
-def channel(authenticated_client):
+def legacy_row(authenticated_client):
     _, _, data = _setup_channel(authenticated_client)
     with TestingSession() as db:
         channel = db.get(WhatsAppCloudChannel, uuid.UUID(data["id"]))
-        channel.phone_number = BUSINESS
         channel.coexistence = True
         channel.status = "connected"
         channel.is_enabled = True
-        channel.coexistence_sync = {"history": {"status": "pending"}, "contacts": {"status": "pending"}}
         db.commit()
     return uuid.UUID(data["id"])
 
 
-def raw(mid, *, outgoing=False, age=60, kind="text"):
-    return {"id": mid, "from": BUSINESS if outgoing else PERSON,
-        "timestamp": str(int((now_utc() - timedelta(seconds=age)).timestamp())),
-        "type": kind, "text": {"body": mid}}
-
-
-def value(**parts):
-    return {"metadata": {"phone_number_id": "111", "display_phone_number": BUSINESS}, **parts}
-
-
-def receive(db, channel_id, field, body):
-    return coex.accept_change(db, db.get(WhatsAppCloudChannel, channel_id), field, body, waba_id="waba-1")
-
-
-def history(*messages, progress=100):
-    return value(history=[{"metadata": {"phase": 2, "chunk_order": 1, "progress": progress},
-        "threads": [{"id": PERSON, "messages": list(messages)}]}])
-
-
-def test_history_is_durable_bounded_and_never_replies(channel, monkeypatch):
-    ai = AsyncMock()
-    monkeypatch.setattr(whatsapp_inbound, "run_completion", ai)
-    payload = history(raw("old-in", age=86400), raw("old-out", outgoing=True, age=86000))
+def test_retired_fields_are_acknowledged_and_ignored(authenticated_client):
+    channel_id = legacy_row(authenticated_client)
     with TestingSession() as db:
-        receive(db, channel, "history", payload)
-        receive(db, channel, "history", payload)
-        assert len(db.scalars(select(WhatsAppCoexistenceEvent)).all()) == 1
-        assert not db.scalars(select(Message).where(Message.kind == "message")).all()
-        asyncio.run(coex.process_pending(db, limit=1, batch_size=1))
-        assert len(db.scalars(select(Message).where(Message.kind == "message")).all()) == 1
-        assert db.get(WhatsAppCloudChannel, channel).coexistence_sync["history"]["status"] == "pending"
-        db.execute(update(WhatsAppCoexistenceEvent).values(available_at=now_utc()))
+        channel = db.get(WhatsAppCloudChannel, channel_id)
+        assert coex.accept_change(db, channel, "history", {"threads": []}, waba_id="waba-1") is False
+        assert coex.accept_change(db, channel, "smb_message_echoes", {}, waba_id="waba-1") is False
+        assert db.scalars(select(WhatsAppCoexistenceEvent)).all() == []
+
+
+def test_stale_sync_rows_drain_as_processed(authenticated_client):
+    channel_id = legacy_row(authenticated_client)
+    with TestingSession() as db:
+        db.add(WhatsAppCoexistenceEvent(id=new_uuid(), channel_id=channel_id, event_key="k",
+            field="history", payload={}, cursor=0, attempts=7, available_at=now_utc(), created_at=now_utc()))
         db.commit()
-    # A fresh process/session continues from the persisted offset.
+    import asyncio
+
     with TestingSession() as db:
-        asyncio.run(coex.process_pending(db, limit=1, batch_size=1))
-        messages = db.scalars(select(Message).where(Message.kind == "message").order_by(Message.created_at)).all()
-        assert [m.role for m in messages] == ["user", "assistant"]
-        assert all(m.is_historical for m in messages)
-        conv = db.scalar(select(Conversation))
-        assert conv.status == "resolved" and conv.waiting_since is None
-        assert conv.social_last_inbound_at is None
-        assert db.get(WhatsAppCloudChannel, channel).coexistence_sync["history"]["progress"] == 100
-        assert db.scalar(select(WhatsAppCoexistenceEvent)).payload == {}
-    ai.assert_not_called()
+        assert asyncio.run(coex.process_pending(db)) == 1
+        row = db.scalar(select(WhatsAppCoexistenceEvent))
+        assert row.processed_at is not None
 
 
-def test_phone_reply_pauses_agent_and_duplicate_does_not_take_over_twice(channel):
-    echo = raw("phone-reply", outgoing=True, age=0)
-    echo["to"] = PERSON
+def test_reply_guards_stay_for_legacy_rows(authenticated_client):
+    channel_id = legacy_row(authenticated_client)
     with TestingSession() as db:
-        receive(db, channel, "smb_message_echoes", value(message_echoes=[echo]))
-        conv = db.scalar(select(Conversation))
-        assert conv.mode == "human" and conv.taken_over_at
-        assert db.scalar(select(Message).where(Message.kind == "message")).sender_type == "human"
-        conv.mode = "ai"
+        channel = db.get(WhatsAppCloudChannel, channel_id)
+        conversation = Conversation(agency_id=channel.agency_id, client_id=channel.client_id,
+            agent_id=channel.agent_id, channel="whatsapp_cloud", whatsapp_cloud_channel_id=channel.id,
+            external_chat_id="111", status="open", mode="ai", title="Case",
+            social_last_inbound_at=now_utc() - timedelta(hours=25))
+        db.add(conversation)
         db.commit()
-        receive(db, channel, "smb_message_echoes", value(message_echoes=[echo]))
-        db.refresh(conv)
-        assert conv.mode == "ai"
-        assert len(db.scalars(select(Message).where(Message.kind == "message")).all()) == 1
+        fields = coex.window_fields(conversation)
+        assert fields["reply_window_open"] is False
+        assert fields["reply_block_reason"] == "reply_window_closed"
+        try:
+            coex.require_reply(conversation)
+            raised = False
+        except Exception:
+            raised = True
+        assert raised
+        channel.coexistence = False
+        coex.require_reply(conversation)
 
 
-def test_manual_routes_cannot_replace_or_locally_offboard_a_business_app_number(channel, authenticated_client):
+def test_refresh_syncs_linked_numbers_and_flags_missing_authorization(authenticated_client, monkeypatch):
+    import asyncio
+
+    from app.services import whatsapp_cloud as cloud_service
+
+    channel_id = legacy_row(authenticated_client)
+    monkeypatch.setattr(cloud_service, "verify_account",
+                        AsyncMock(return_value={"display_phone_number": "+1", "verified_name": "Shop",
+                                                "quality_rating": "GREEN", "messaging_limit": "TIER_1K", "username": "+1"}))
     with TestingSession() as db:
-        stored = db.get(WhatsAppCloudChannel, channel)
+        channel = db.get(WhatsAppCloudChannel, channel_id)
+        channel.external_account_id = "acct-1"
+        db.commit()
+        asyncio.run(coex.refresh_connection(db, channel))
+        assert channel.display_name == "Shop"
+    with TestingSession() as db:
+        channel = db.get(WhatsAppCloudChannel, channel_id)
+        channel.external_account_id = ""
+        channel.status = "connected"
+        channel.is_enabled = True
+        db.commit()
+        asyncio.run(coex.refresh_connection(db, channel))
+        assert channel.status == "disconnected"
+
+
+def test_manual_routes_work_on_legacy_rows(authenticated_client):
+    channel_id = legacy_row(authenticated_client)
+    with TestingSession() as db:
+        stored = db.get(WhatsAppCloudChannel, channel_id)
         client_id, agent_id = str(stored.client_id), str(stored.agent_id)
     url = f"/api/whatsapp-cloud/channels/{client_id}"
-    assert authenticated_client.put(url, json={"agent_id": agent_id, "phone_number_id": "222"}).status_code == 409
-    assert authenticated_client.post(f"{url}/disconnect").status_code == 409
     assert authenticated_client.put(url, json={"agent_id": agent_id}).status_code == 200
-    with TestingSession() as db:
-        stored = db.get(WhatsAppCloudChannel, channel)
-        stored.is_enabled = False
-        stored.status = "disconnected"
-        db.commit()
-    assert authenticated_client.put(url, json={"agent_id": agent_id}).json()["is_enabled"] is False
-
-
-def test_failed_import_is_visible_and_does_not_erase_accepted_messages(channel, monkeypatch):
-    with TestingSession() as db:
-        receive(db, channel, "history", history(raw("bad-chunk")))
-        db.execute(update(WhatsAppCoexistenceEvent).values(attempts=7))
-        db.commit()
-        def fail(*args, **kwargs):
-            raise ValueError("Invalid import")
-        monkeypatch.setattr(coex, "_messages", fail)
-        asyncio.run(coex.process_pending(db))
-        assert db.get(WhatsAppCloudChannel, channel).coexistence_sync["history"]["status"] == "error"
-        receipt = db.scalar(select(WhatsAppCoexistenceEvent))
-        assert receipt.attempts == 8 and receipt.payload
-
-
-def test_phone_reply_received_during_generation_suppresses_ai(channel, authenticated_client, monkeypatch):
-    async def complete(*args, **kwargs):
-        echo = raw("person-took-over", outgoing=True, age=0)
-        echo["to"] = PERSON
-        with TestingSession() as other:
-            receive(other, channel, "smb_message_echoes", value(message_echoes=[echo]))
-        return Completion(text="This must not be sent")
-    monkeypatch.setattr(whatsapp_inbound, "run_completion", complete)
-    monkeypatch.setattr(whatsapp_inbound, "_signal_read_and_typing", AsyncMock())
-    send = AsyncMock()
-    monkeypatch.setattr(whatsapp_cloud_webhook, "send_text", send)
-    response = _post_signed(authenticated_client, str(channel), _webhook_payload([raw("new-inbound", age=0)]))
-    assert response.status_code == 200
-    send.assert_not_called()
-    with TestingSession() as db:
-        assert db.scalar(select(Conversation)).mode == "human"
-        assert not db.scalars(select(Message).where(Message.kind == "message").where(Message.sender_type == "ai")).all()
-
-
-def test_history_does_not_duplicate_live_message_or_overwrite_its_role(channel):
-    echo = raw("same-id", outgoing=True)
-    echo["to"] = PERSON
-    with TestingSession() as db:
-        receive(db, channel, "smb_message_echoes", value(message_echoes=[echo]))
-        receive(db, channel, "history", history(echo))
-        asyncio.run(coex.process_pending(db))
-        message = db.scalar(select(Message).where(Message.kind == "message"))
-        assert not message.is_historical and message.role == "assistant"
-        assert len(db.scalars(select(Message).where(Message.kind == "message")).all()) == 1
-
-
-def test_other_number_and_forged_signature_are_rejected(channel, authenticated_client):
-    with TestingSession() as db:
-        other = history(raw("wrong-number"))
-        other["metadata"]["phone_number_id"] = "222"
-        assert receive(db, channel, "history", other) is False
-    payload = {"entry": [{"id": "waba-1", "changes": [{"field": "history", "value": history(raw("forged"))}]}]}
-    assert _post_signed(authenticated_client, str(channel), payload, secret="wrong").status_code == 403
-    with TestingSession() as db:
-        assert not db.scalars(select(WhatsAppCoexistenceEvent)).all()
-
-
-def test_history_declined_is_a_supported_choice(channel):
-    with TestingSession() as db:
-        receive(db, channel, "history", value(history=[{"errors": [{"code": 2593109}]}]))
-        asyncio.run(coex.process_pending(db))
-        row = db.get(WhatsAppCloudChannel, channel)
-        assert row.coexistence_sync["history"]["status"] == "declined"
-        assert row.status == "connected"
-
-
-def test_sync_requests_are_once_only_and_store_meta_request_ids(channel, monkeypatch):
-    send = AsyncMock(side_effect=[httpx.Response(200, json={"request_id": "contacts-1"}), httpx.Response(200, json={"request_id": "history-1"})])
-    monkeypatch.setattr(coex, "_graph_request", send)
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        asyncio.run(coex.request_sync(db, row))
-        asyncio.run(coex.request_sync(db, row))
-        assert row.coexistence_sync["contacts"]["request_id"] == "contacts-1"
-        assert row.coexistence_sync["history"]["request_id"] == "history-1"
-    assert send.await_count == 2
-    assert send.call_args_list[0].kwargs["json"]["sync_type"] == "smb_app_state_sync"
-
-
-def test_ambiguous_sync_response_is_not_retried(channel, monkeypatch):
-    send = AsyncMock(side_effect=HTTPException(status_code=502))
-    monkeypatch.setattr(coex, "_graph_request", send)
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        asyncio.run(coex.request_sync(db, row))
-        asyncio.run(coex.request_sync(db, row))
-        assert row.coexistence_sync["history"]["status"] == "unknown"
-    assert send.await_count == 2
-
-
-def test_media_history_can_arrive_before_the_message(channel, monkeypatch):
-    media = raw("photo", kind="image")
-    media["image"] = {"id": "asset-1", "caption": "A photo"}
-    monkeypatch.setattr(coex, "fetch_media", AsyncMock(return_value=(b"image bytes", "image/jpeg")))
-    with TestingSession() as db:
-        receive(db, channel, "history", value(messages=[media]))
-        asyncio.run(coex.process_pending(db))
-        receive(db, channel, "history", history(raw("photo", kind="media_placeholder")))
-        asyncio.run(coex.process_pending(db))
-        db.execute(update(WhatsAppCoexistenceEvent).values(available_at=now_utc()))
-        db.commit()
-        asyncio.run(coex.process_pending(db))
-        message = db.scalar(select(Message).where(Message.kind == "message"))
-        assert message.content == "A photo" and len(message.attachments) == 1
-        assert message.is_historical
-
-
-def test_offboarding_stops_messages_and_drops_credentials(channel):
-    with TestingSession() as db:
-        receive(db, channel, "account_update", {"event": "PARTNER_REMOVED", "phone_number": BUSINESS})
-        row = db.get(WhatsAppCloudChannel, channel)
-        assert row.status == "disconnected" and not row.is_enabled and not row.encrypted_access_token
-        assert row.coexistence_sync["offboarded_at"]
-
-
-@pytest.mark.parametrize("event_name", ["PARTNER_REMOVED", "ACCOUNT_OFFBOARDED"])
-def test_nested_waba_identifies_offboarding_target(channel, event_name):
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        body = {"event": event_name, "waba_info": {"waba_id": "other-waba"}}
-        assert not coex.accept_change(db, row, "account_update", body, waba_id="waba-1")
-        assert row.status == "connected" and row.encrypted_access_token
-        body["waba_info"]["waba_id"] = "waba-1"
-        assert coex.accept_change(db, row, "account_update", body, waba_id="partner-event-id")
-        assert row.status == "disconnected" and not row.encrypted_access_token
-        assert row.coexistence_sync["offboarded_at"]
-
-
-def refresh_url(channel):
-    with TestingSession() as db:
-        return f"/api/whatsapp-cloud/channels/{db.get(WhatsAppCloudChannel, channel).client_id}/refresh"
-
-
-@pytest.mark.parametrize("meta_error", [{"code": 100, "error_subcode": 33}, {"code": 190}])
-def test_refresh_reconciles_revoked_access_and_preserves_history(channel, authenticated_client, monkeypatch, meta_error):
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        row.coexistence_sync = {"history": {"status": "declined"}, "contacts": {"status": "complete"}}
-        echo = {**raw("existing-reply", outgoing=True), "to": PERSON}
-        receive(db, channel, "smb_message_echoes", value(message_echoes=[echo]))
-        agent_id = str(row.agent_id)
-    graph = AsyncMock(return_value=httpx.Response(400, json={"error": meta_error}))
-    monkeypatch.setattr(coex, "_graph_request", graph)
-    response = authenticated_client.post(refresh_url(channel))
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert data["status"] == "disconnected" and not data["is_enabled"] and not data["has_access_token"]
-    assert data["agent_id"] == agent_id
-    assert data["coexistence_sync"]["history"]["status"] == "declined"
-    assert data["coexistence_sync"]["authorization_lost_at"]
-    assert data["coexistence_sync"]["status_checked_at"]
-    assert "offboarded_at" not in data["coexistence_sync"]
-    graph.assert_awaited_once()
-    assert graph.call_args.args[0] == "GET"
-    with TestingSession() as db:
-        assert db.scalar(select(Message).where(Message.kind == "message")).content == "existing-reply"
-        assert db.scalar(select(Conversation)).mode == "human"
-    assert authenticated_client.post(refresh_url(channel)).status_code == 200
-    graph.assert_awaited_once()
-
-
-@pytest.mark.parametrize("on_app,platform,expected_status", [
-    (True, "CLOUD_API", "connected"), (False, "CLOUD_API", "disconnected"), (True, "NOT_APPLICABLE", "disconnected")])
-def test_refresh_checks_business_app_registration(channel, authenticated_client, monkeypatch, on_app, platform, expected_status):
-    graph = AsyncMock(return_value=httpx.Response(200, json={"id": "111", "is_on_biz_app": on_app, "platform_type": platform}))
-    monkeypatch.setattr(coex, "_graph_request", graph)
-    response = authenticated_client.post(refresh_url(channel))
-    assert response.status_code == 200, response.text
-    assert response.json()["status"] == expected_status
-    assert response.json()["coexistence_sync"]["status_checked_at"]
-    if expected_status == "disconnected":
-        assert response.json()["coexistence_sync"]["offboarded_at"]
-    else:
-        assert response.json()["has_access_token"]
-
-
-@pytest.mark.parametrize("response", [
-    httpx.Response(503, json={"error": {"code": 2}}),
-    httpx.Response(400, json={"error": {"code": 4}}),
-    httpx.Response(200, json={"id": "111"}),
-    httpx.Response(200, json={"id": "different-number", "is_on_biz_app": True, "platform_type": "CLOUD_API"}),
-    httpx.Response(200, json=[]), httpx.Response(500, json={"error": "unexpected"}),
-    httpx.Response(502, text="Bad Gateway"),
-])
-def test_uncertain_meta_status_never_revokes_credentials(channel, authenticated_client, monkeypatch, response):
-    monkeypatch.setattr(coex, "_graph_request", AsyncMock(return_value=response))
-    result = authenticated_client.post(refresh_url(channel))
-    assert result.status_code == 502, result.text
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        assert row.status == "connected" and row.is_enabled and row.encrypted_access_token
-        assert "status_checked_at" not in row.coexistence_sync
-
-
-def test_refresh_network_failure_keeps_connection(channel, authenticated_client, monkeypatch):
-    monkeypatch.setattr(coex, "_graph_request", AsyncMock(side_effect=HTTPException(502, "Could not reach the Meta API.")))
-    assert authenticated_client.post(refresh_url(channel)).status_code == 502
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        assert row.status == "connected" and row.encrypted_access_token
-
-
-def test_late_refresh_cannot_disconnect_a_new_authorization(channel, authenticated_client, monkeypatch):
-    from app.security import encrypt_secret, decrypt_secret
-    async def reconnect(*args, **kwargs):
-        with TestingSession() as db:
-            row = db.get(WhatsAppCloudChannel, channel)
-            row.encrypted_access_token = encrypt_secret("new-authorization")
-            row.last_connected_at = now_utc()
-            db.commit()
-        return httpx.Response(400, json={"error": {"code": 190}})
-    monkeypatch.setattr(coex, "_graph_request", reconnect)
-    response = authenticated_client.post(refresh_url(channel))
-    assert response.status_code == 200 and response.json()["status"] == "connected"
-    with TestingSession() as db:
-        assert decrypt_secret(db.get(WhatsAppCloudChannel, channel).encrypted_access_token) == "new-authorization"
-
-
-def test_refresh_requires_ownership_and_rereads_the_profile_of_any_number(channel, authenticated_client, monkeypatch):
-    graph = AsyncMock(return_value=httpx.Response(200, json={
-        "id": "111", "is_on_biz_app": False, "platform_type": "CLOUD_API",
-        "display_phone_number": "+1 555 078 3881", "verified_name": "Bistro Renamed",
-        "quality_rating": "GREEN", "messaging_limit_tier": "TIER_1K"}))
-    monkeypatch.setattr(coex, "_graph_request", graph)
-    assert authenticated_client.post(f"/api/whatsapp-cloud/channels/{uuid.uuid4()}/refresh").status_code == 404
-    graph.assert_not_called()
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        row.coexistence = False
-        db.commit()
-    # A number that is not shared with the WhatsApp Business app is not
-    # judged by that app's registration; only its profile is refreshed.
-    fetched = authenticated_client.post(refresh_url(channel))
-    assert fetched.status_code == 200, fetched.text
-    assert fetched.json()["status"] == "connected"
-    assert fetched.json()["display_name"] == "Bistro Renamed"
-    assert fetched.json()["phone_number"] == "+1 555 078 3881"
-    assert fetched.json()["quality_rating"] == "GREEN" and fetched.json()["messaging_limit"] == "TIER_1K"
-
-
-def test_quality_update_keeps_the_limit_and_flags(channel):
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        upgrade = {"display_phone_number": BUSINESS, "event": "UPGRADE", "current_limit": "TIER_10K"}
-        assert coex.accept_change(db, row, "phone_number_quality_update", upgrade, waba_id="waba-1") is True
-        row = db.get(WhatsAppCloudChannel, channel)
-        assert row.messaging_limit == "TIER_10K" and row.quality_rating is None
-        flagged = {"display_phone_number": BUSINESS, "event": "FLAGGED", "current_limit": "TIER_10K"}
-        assert coex.accept_change(db, row, "phone_number_quality_update", flagged, waba_id="waba-1") is True
-        assert db.get(WhatsAppCloudChannel, channel).quality_rating == "RED"
-        other = {"display_phone_number": "19990000000", "event": "UNFLAGGED", "current_limit": "TIER_50"}
-        assert coex.accept_change(db, row, "phone_number_quality_update", other, waba_id="waba-1") is False
-        assert db.get(WhatsAppCloudChannel, channel).messaging_limit == "TIER_10K"
-
-
-def test_account_restriction_lands_on_the_channel_for_any_number(channel):
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        row.coexistence = False
-        row.waba_id = "waba-1"
-        db.commit()
-        restriction = {"event": "ACCOUNT_RESTRICTION", "phone_number": BUSINESS,
-            "restriction_info": [{"restriction_type": "RESTRICTED_BIZ_INITIATED_MESSAGING", "expiration": "2026-10-01T00:00:00+0000"}]}
-        assert coex.accept_change(db, row, "account_update", restriction, waba_id="waba-1") is True
-        row = db.get(WhatsAppCloudChannel, channel)
-        assert row.status == "connected" and row.is_enabled
-        assert "restricted" in row.last_error and "biz initiated messaging" in row.last_error and "2026-10-01" in row.last_error
-        # Another WABA's event never lands here.
-        assert coex.accept_change(db, row, "account_update", restriction, waba_id="waba-2") is False
-        # Offboarding stays a Business app matter: a plain API number ignores it.
-        assert coex.accept_change(db, row, "account_update", {"event": "PARTNER_REMOVED"}, waba_id="waba-1") is False
-
-
-def test_history_export_errors_are_counted_not_fatal(channel):
-    with TestingSession() as db:
-        batch = value(history=[{"metadata": {"phase": 2, "chunk_order": 1, "progress": 60},
-            "errors": [{"code": 2593107, "message": "thread not exportable"}],
-            "threads": [{"id": PERSON, "messages": [raw("kept")]}]}])
-        receive(db, channel, "history", batch)
-        asyncio.run(coex.process_pending(db))
-        state = db.get(WhatsAppCloudChannel, channel).coexistence_sync["history"]
-        assert state["status"] == "syncing" and state["progress"] == 60 and state["errors"] == 1
-        assert db.scalars(select(Message).where(Message.kind == "message")).all()
-
-
-def test_name_update_applies_an_approved_display_name(channel):
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        rejected = {"display_phone_number": BUSINESS, "decision": "REJECTED", "requested_verified_name": "Nope"}
-        assert coex.accept_change(db, row, "phone_number_name_update", rejected, waba_id="waba-1") is False
-        other = {"display_phone_number": "19990000000", "decision": "APPROVED", "requested_verified_name": "Other"}
-        assert coex.accept_change(db, row, "phone_number_name_update", other, waba_id="waba-1") is False
-        approved = {"display_phone_number": BUSINESS, "decision": "APPROVED", "requested_verified_name": "Bistro Nuevo"}
-        assert coex.accept_change(db, row, "phone_number_name_update", approved, waba_id="waba-1") is True
-        assert db.get(WhatsAppCloudChannel, channel).display_name == "Bistro Nuevo"
-
-
-def test_import_query_count_does_not_grow_per_message(channel):
-    with TestingSession() as db:
-        receive(db, channel, "history", history(*[raw(f"history-{i}", age=1000-i) for i in range(100)]))
-        calls = []
-        engine = db.get_bind()
-        def count(*args): calls.append(1)
-        event.listen(engine, "before_cursor_execute", count)
-        try:
-            asyncio.run(coex.process_pending(db, limit=1))
-        finally:
-            event.remove(engine, "before_cursor_execute", count)
-        assert len(calls) < 25, len(calls)
-        assert len(db.scalars(select(Message).where(Message.kind == "message")).all()) == 100
-
-
-def test_contacts_name_history_placeholders_and_ignore_out_of_order_changes(channel):
-    def contact(action, age, name=""):
-        return {"type": "contact", "action": action, "metadata": {"timestamp": str(int((now_utc()-timedelta(seconds=age)).timestamp()))},
-                "contact": {"phone_number": PERSON, "full_name": name}}
-    with TestingSession() as db:
-        receive(db, channel, "history", history(raw("old-contact")))
-        asyncio.run(coex.process_pending(db))
-        receive(db, channel, "smb_app_state_sync", value(state_sync=[contact("add", 500, "Sam")]))
-        asyncio.run(coex.process_pending(db))
-        db.expire_all()
-        person = db.scalar(select(Contact))
-        assert person.name == "Sam"
-        receive(db, channel, "smb_app_state_sync", value(state_sync=[contact("remove", 100)]))
-        asyncio.run(coex.process_pending(db))
-        receive(db, channel, "smb_app_state_sync", value(state_sync=[contact("add", 300, "Stale name")]))
-        asyncio.run(coex.process_pending(db))
-        db.refresh(person)
-        assert person.name == ""
-        assert len(db.scalars(select(Message).where(Message.kind == "message")).all()) == 1
-        person.name = "My customer label"
-        db.commit()
-        receive(db, channel, "smb_app_state_sync", value(state_sync=[contact("add", 0, "Phone label")]))
-        asyncio.run(coex.process_pending(db))
-        db.refresh(person)
-        assert person.name == "My customer label"
-
-
-def test_history_does_not_open_the_api_reply_window(channel):
-    with TestingSession() as db:
-        receive(db, channel, "history", history(raw("recent-but-imported", age=30)))
-        asyncio.run(coex.process_pending(db))
-        conv = db.scalar(select(Conversation))
-        conv.status = "open"
-        assert coex.window_fields(conv)["reply_block_reason"] == "reply_window_closed"
-        with pytest.raises(HTTPException):
-            coex.require_reply(conv)
-
-
-def test_restart_does_not_repeat_an_inflight_sync(channel, monkeypatch):
-    send = AsyncMock()
-    monkeypatch.setattr(coex, "_graph_request", send)
-    with TestingSession() as db:
-        row = db.get(WhatsAppCloudChannel, channel)
-        row.coexistence_sync = {part: {"status": "requesting", "requested_at": (now_utc()-timedelta(minutes=10)).isoformat()}
-                                for part in ("history", "contacts")}
-        db.commit()
-        asyncio.run(coex.run_scope(db))
-        assert row.coexistence_sync["history"]["status"] == "unknown"
-    send.assert_not_called()
-
-
-def test_phone_pause_expires_and_answers_pending_customer_in_coexistence(channel, authenticated_client, monkeypatch):
-    from app.services.phone_handover import resume_due
-    completion = AsyncMock(return_value=Completion(text="The beard trim is $10."))
-    send = AsyncMock(return_value="resumed-reply")
-    monkeypatch.setattr(whatsapp_inbound, "run_completion", completion)
-    monkeypatch.setattr("app.services.whatsapp.send_channel_message", send)
-    with TestingSession() as db:
-        receive(db, channel, "smb_message_echoes", value(message_echoes=[{**raw("phone", outgoing=True), "to": PERSON}]))
-        conversation_id = db.scalar(select(Conversation.id))
-    response = _post_signed(authenticated_client, str(channel), _webhook_payload([
-        {**raw("question", age=0), "text": {"body": "How much is the beard trim?"}}]))
-    assert response.status_code == 200
-    completion.assert_not_awaited()
-    with TestingSession() as db:
-        row = db.get(Conversation, conversation_id)
-        assert row.mode == "human" and row.phone_pause_until is not None
-        row.phone_pause_until = now_utc() - timedelta(seconds=1)
-        db.commit()
-    with TestingSession() as db:
-        asyncio.run(resume_due(db))
-    completion.assert_awaited_once()
-    send.assert_awaited_once()
+    assert authenticated_client.post(f"{url}/disconnect").status_code == 200

@@ -56,6 +56,10 @@ def integration_destination(tool_type: str, url: str) -> tuple[str, str]:
     return "MCP service" if tool_type == "mcp" else "Connected service", destination_host(url)
 
 
+def _messaging_host() -> str:
+    return destination_host(get_settings().messaging_provider_base_url)
+
+
 def disclosure(db: Session, client: Client) -> MobilePrivacy:
     destinations: dict[tuple[str, str, str], set[str]] = {}
 
@@ -84,9 +88,9 @@ def disclosure(db: Session, client: Client) -> MobilePrivacy:
     if db.scalar(select(WhatsAppChannel.id).where(WhatsAppChannel.client_id == client.id, WhatsAppChannel.is_enabled.is_(True))):
         add("integration", "WhatsApp", "whatsapp.com", ["messages", "uploads"])
     if db.scalar(select(WhatsAppCloudChannel.id).where(WhatsAppCloudChannel.client_id == client.id, WhatsAppCloudChannel.is_enabled.is_(True))):
-        add("integration", "WhatsApp", "graph.facebook.com", ["messages", "uploads"])
+        add("integration", "WhatsApp", _messaging_host(), ["messages", "uploads"])
     for provider in db.scalars(select(SocialChannel.provider).where(SocialChannel.client_id == client.id, SocialChannel.is_enabled.is_(True))):
-        add("integration", "Instagram" if provider == "instagram" else "Messenger", "graph.facebook.com", ["messages", "uploads"])
+        add("integration", "Instagram" if provider == "instagram" else "Messenger", _messaging_host(), ["messages", "uploads"])
     if notifications.push_enabled():
         name, host = notification_destination()
         add("notification", name, host, ["notifications"])

@@ -1,18 +1,15 @@
-"""Authenticated channel administration and one-use OAuth callbacks."""
+"""Authenticated channel administration and provider callbacks."""
 
 import uuid
-from dataclasses import replace
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import SocialChannel, User
+from ..models import SocialChannel, User, now_utc
 from ..schemas_social import SocialChannelOut, SocialChannelRename, SocialChannelUpdate, SocialOAuthComplete, SocialOAuthStart
-from ..security import decrypt_secret
 from ..services import social_connections as connections
 from ..services.social_graph import PROVIDERS, provider_name
 
@@ -53,6 +50,7 @@ def rename_channel(provider: str, channel_id: uuid.UUID, payload: SocialChannelR
         channel.agent_id = payload.agent_id
     if "label" in payload.model_fields_set:
         channel.label = (payload.label or "").strip()[:80] or None
+    channel.updated_at = now_utc()
     db.commit()
     db.refresh(channel)
     return connections.public_channel(channel)
@@ -61,52 +59,48 @@ def rename_channel(provider: str, channel_id: uuid.UUID, payload: SocialChannelR
 @router.put("/{provider}/channels/{ref}", response_model=SocialChannelOut)
 async def configure_channel(provider: str, ref: uuid.UUID, payload: SocialChannelUpdate,
                             db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Connect an account with credentials the operator holds. ``ref`` is the
-    row to update, or a client id to add the account to that client (or update
-    the row that already holds this account)."""
+    """Manual credentials are retired: every account arrives through the
+    provider's hosted authorization page (see oauth/start)."""
     provider_name(provider)
-    channel = db.scalar(select(SocialChannel).where(SocialChannel.id == ref, SocialChannel.agency_id == user.agency_id, SocialChannel.provider == provider))
-    if channel:
-        client_id = channel.client_id
-    else:
-        client_id = ref
-        connections.owned_client(db, user, client_id)
-        channel = db.scalar(select(SocialChannel).where(SocialChannel.client_id == client_id, SocialChannel.agency_id == user.agency_id,
-            SocialChannel.provider == provider, SocialChannel.external_account_id == payload.external_account_id))
-    connections.owned_client(db, user, client_id, payload.agent_id)
-    config = connections.get_app_config(provider)
-    if config.managed and (not channel or payload.access_token or payload.app_secret or
-                           payload.external_account_id != channel.external_account_id or
-                           (payload.app_id and payload.app_id != channel.app_id)):
-        raise HTTPException(403, "Use the account authorization flow to connect this channel")
-    access_token = (payload.access_token or "").strip() or (decrypt_secret(channel.encrypted_access_token) if channel and channel.encrypted_access_token else "")
-    secret = (payload.app_secret or "").strip() or (decrypt_secret(channel.encrypted_app_secret) if channel and channel.encrypted_app_secret else config.app_secret)
-    app_id = payload.app_id or (channel.app_id if channel else None) or config.app_id
-    if not access_token or not secret or not app_id:
-        raise HTTPException(400, "Provide an application ID, access token and application secret before connecting")
-    config = replace(config, app_id=app_id, app_secret=secret)
-    account = {"id": payload.external_account_id, "access_token": access_token}
-    source = channel.connection_source if channel and not payload.access_token and not payload.app_secret else "manual"
-    if channel and not payload.access_token:
-        account.update({"expires_at": channel.token_expires_at.isoformat() if channel.token_expires_at else None, "scopes": channel.granted_scopes})
-    human_agent = config.human_agent_enabled if config.managed else (payload.human_agent_enabled if payload.human_agent_enabled is not None else bool(channel and channel.human_agent_enabled))
-    channel = await connections.connect_account(db, user, client_id, payload.agent_id, provider, account, config,
-        source=source, human_agent_enabled=human_agent, activate=bool(channel and channel.status == "connected"),
-        channel=channel, label=payload.label if "label" in payload.model_fields_set else None)
-    return connections.public_channel(channel)
+    raise HTTPException(403, "Use the account authorization flow to connect this channel")
 
 
 @router.post("/{provider}/channels/{ref}/connect", response_model=SocialChannelOut)
 async def connect_channel(provider: str, ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Verify a linked account, or return the hosted page that links one."""
+    from ..services import messaging_provider as provider_client
+    from ..services import messaging_profiles as profiles
+
     channel = connections.owned_channel(db, user, ref, provider)
-    if not channel.encrypted_access_token or not channel.encrypted_app_secret:
-        raise HTTPException(400, "Authorize this account or provide credentials before connecting")
-    config = replace(connections.get_app_config(provider), app_id=channel.app_id,
-                     app_secret=decrypt_secret(channel.encrypted_app_secret))
-    account = {"id": channel.external_account_id, "access_token": decrypt_secret(channel.encrypted_access_token),
-               "expires_at": channel.token_expires_at.isoformat() if channel.token_expires_at else None, "scopes": channel.granted_scopes}
-    return connections.public_channel(await connections.connect_account(db, user, channel.client_id, channel.agent_id, provider,
-        account, config, source=channel.connection_source, human_agent_enabled=channel.human_agent_enabled, channel=channel))
+    provider_client.require_config()
+    if channel.external_account_id:
+        try:
+            remote = await provider_client.require_account(channel.external_account_id, channel.provider_profile_id)
+        except HTTPException as exc:
+            channel.status = "error"
+            channel.last_error = str(exc.detail)[:400]
+            channel.updated_at = now_utc()
+            db.commit()
+            db.refresh(channel)
+            return connections.public_channel(channel)
+        channel.display_name = str(remote.get("display_name") or remote.get("username") or channel.display_name or "")[:180]
+        channel.username = str(remote.get("username") or channel.username or "")[:180] or None
+        channel.status = "connected"
+        channel.is_enabled = True
+        channel.last_error = None
+        channel.last_connected_at = channel.last_connected_at or now_utc()
+        channel.updated_at = now_utc()
+        db.commit()
+        db.refresh(channel)
+        return connections.public_channel(channel)
+    client = connections.owned_client(db, user, channel.client_id)
+    profile_id = await profiles.ensure_client_profile(db, client)
+    channel.provider_profile_id = profile_id
+    db.commit()
+    platform = {"instagram": "instagram", "messenger": "facebook"}[provider]
+    link = await provider_client.connect_url(platform, profile_id)
+    db.refresh(channel)
+    return connections.public_channel(channel, connect_url=link["authorization_url"])
 
 
 @router.post("/{provider}/channels/{ref}/disconnect", status_code=204)
@@ -115,22 +109,15 @@ async def disconnect_channel(provider: str, ref: uuid.UUID, db: Session = Depend
 
 
 @router.post("/{provider}/oauth/start")
-def start_oauth(provider: str, payload: SocialOAuthStart, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def start_oauth(provider: str, payload: SocialOAuthStart, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     provider_name(provider)
-    return {"authorization_url": connections.begin_oauth(db, user, provider, payload.client_id, payload.agent_id, payload.next_path)}
-
-
-@router.get("/oauth/callback/{provider}")
-async def oauth_callback(provider: str, state: str = Query(max_length=256), code: str | None = Query(default=None, max_length=8192),
-                         error: str | None = Query(default=None, max_length=256), db: Session = Depends(get_db)):
-    target = await connections.finish_oauth(db, provider, state, code, error)
-    return RedirectResponse(target, status_code=303, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+    return {"authorization_url": await connections.begin_oauth(db, user, provider, payload.client_id, payload.agent_id, payload.next_path)}
 
 
 @router.get("/{provider}/oauth/pending")
-def pending_oauth(provider: str, client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def pending_oauth(provider: str, client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     provider_name(provider)
-    return connections.pending_oauth(db, user, provider, client_id)
+    return await connections.pending_oauth(db, user, provider, client_id)
 
 
 @router.post("/{provider}/oauth/complete", response_model=SocialChannelOut)

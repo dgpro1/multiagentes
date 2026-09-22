@@ -3,11 +3,13 @@ const en = {
   head: {
     eyebrow: "Agency overview",
     title: "Hello 👋",
+    greeting: "Hello, {name} 👋",
     description: "Everything happening with your clients and agents, in one place.",
   },
   nextSteps: {
     title: "First steps",
     subtitle: "Get your workspace ready to start chatting",
+    hide: "Hide first steps",
     step1Title: "Create a client",
     step1Desc: "Add their business context.",
     step2Title: "Set up an agent",
@@ -59,11 +61,13 @@ const es: typeof en = {
   head: {
     eyebrow: "Resumen de agencia",
     title: "Hola 👋",
+    greeting: "Hola, {name} 👋",
     description: "Todo lo que ocurre con tus clientes y agentes, en un solo lugar.",
   },
   nextSteps: {
     title: "Primeros pasos",
     subtitle: "Deja tu espacio de trabajo listo para empezar a conversar",
+    hide: "Ocultar primeros pasos",
     step1Title: "Crea un cliente",
     step1Desc: "Agrega su contexto de negocio.",
     step2Title: "Configura un agente",

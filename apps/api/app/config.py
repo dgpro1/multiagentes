@@ -31,17 +31,35 @@ class Settings(BaseSettings):
     backend_url: str = "http://localhost:8000"
     whatsapp_bridge_url: str = "http://localhost:3101"
     whatsapp_bridge_token: str = "dev-local-change-this-bridge-token"
-    # Meta Graph API root used by the WhatsApp Cloud API channel; override to
-    # point at a mock server in tests.
-    meta_graph_base_url: str = "https://graph.facebook.com/v23.0"
-    # The Meta app the WhatsApp Cloud API tokens belong to. Only needed to
-    # upload the sample file of a template header: Meta files uploads under
-    # the app, not the business account.
-    whatsapp_app_id: str = ""
+    # Evolution API (https://docs.evolutionfoundation.com.br) — the WhatsApp QR
+    # driver. When url and key are set it replaces the local Go bridge; with
+    # whatsapp_qr_driver="auto" (the default) the bridge stays in charge until
+    # Evolution is configured.
+    evolution_api_url: str = ""
+    evolution_api_key: str = ""
+    # Shared secret Evolution sends in the webhook Authorization header.
+    evolution_webhook_secret: str = ""
+    # Absolute URL Evolution calls with events. Inside Docker this is the API
+    # service (http://api:8000/...); outside it is the public origin of the
+    # deployment. Empty falls back to backend_url for local development.
+    evolution_webhook_url: str = ""
+    # "auto" picks Evolution when url+key are configured, otherwise the local
+    # bridge. "bridge" and "evolution" force one driver.
+    whatsapp_qr_driver: str = "auto"
     # Speech-to-text models offered for the audio capability. OpenRouter serves
     # them through its audio endpoint but lists them nowhere its API exposes,
     # so the offer is declared here; every other model is read live.
     transcription_models: str = "openai/gpt-4o-mini-transcribe,openai/gpt-4o-transcribe,openai/gpt-transcribe"
+    # Unified messaging provider (WhatsApp API, Instagram, Messenger).
+    # One server key covers every channel; each channel keeps only the
+    # provider-side account id. Webhook deliveries are signed with the
+    # webhook secret (HMAC-SHA256 over the raw body).
+    messaging_provider_api_key: str = ""
+    messaging_provider_base_url: str = "https://zernio.com/api/v1"
+    messaging_provider_webhook_secret: str = ""
+    # Public HTTPS origin for the provider callback and event webhook.
+    # Empty falls back to social_public_url, then frontend_url.
+    messaging_provider_public_url: str = ""
     # Official messaging APIs. App credentials remain on the server.
     social_graph_version: str = "v25.0"
     social_worker_enabled: bool = True

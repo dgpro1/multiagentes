@@ -1,32 +1,29 @@
-"""Message templates and the 24-hour reply window on the WhatsApp Cloud API.
+"""Message templates and the 24-hour reply window on the WhatsApp API line.
 
-Meta lets a business write to a person only inside 24 hours of that
-person's last message. Outside that window the only thing that goes
-through is a template Meta approved beforehand. Templates belong to the
-business's WhatsApp account (the WABA), so they are read and created
-there, never stored here: Meta's answer is the truth about their status.
+A business can write to a person only inside 24 hours of that person's
+last message. Outside that window the only thing that goes through is a
+template approved beforehand. Templates belong to the business's WhatsApp
+account on the messaging provider, so they are read and created there,
+never stored here: the provider's answer is the truth about their status.
 
 A template is a header (text, media sample or location), a body, a footer
-and up to ten buttons. Variables are written ``{{name}}``; Meta also
-accepts the older ``{{1}}``, ``{{2}}`` form and both are understood when
-reading, but a template uses one form only. Every variable needs an
-example value, because Meta reviews the message as a person would read it.
+and up to ten buttons. Variables are written ``{{name}}``; the older
+``{{1}}``, ``{{2}}`` form is also understood when reading, but a template
+uses one form only. Every variable needs an example value, because the
+message is reviewed as a person would read it.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-import httpx
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..config import get_settings
 from ..models import Client, WhatsAppCloudChannel, now_utc
-from ..security import decrypt_secret
-from .whatsapp_cloud import GRAPH_TIMEOUT, _graph_error, _graph_request, _graph_url
+from . import messaging_provider as provider
 
 
 REPLY_WINDOW_HOURS = 24
@@ -34,15 +31,14 @@ TEMPLATE_CATEGORIES = ("UTILITY", "MARKETING")
 HEADER_FORMATS = ("TEXT", "IMAGE", "VIDEO", "DOCUMENT", "LOCATION")
 MEDIA_HEADER_FORMATS = ("IMAGE", "VIDEO", "DOCUMENT")
 BUTTON_TYPES = ("QUICK_REPLY", "URL", "PHONE_NUMBER", "COPY_CODE")
-# What Meta accepts as a header sample, and the mime it expects for each.
+# What WhatsApp accepts as a header sample, and the mime it expects for each.
 SAMPLE_MIME_TYPES = {
     "IMAGE": ("image/jpeg", "image/png"),
     "VIDEO": ("video/mp4",),
     "DOCUMENT": ("application/pdf",),
 }
-MAX_SAMPLE_BYTES = 16 * 1024 * 1024
 
-# Limits Meta enforces on each part; the same numbers the editor shows.
+# Limits WhatsApp enforces on each part; the same numbers the editor shows.
 MAX_HEADER_TEXT = 60
 MAX_BODY_TEXT = 1024
 MAX_FOOTER_TEXT = 60
@@ -53,7 +49,7 @@ MAX_PHONE = 20
 MAX_COPY_CODE = 15
 MAX_URL_BUTTONS = 2
 
-# The language codes Meta accepts for a template.
+# The language codes WhatsApp accepts for a template.
 LANGUAGES = frozenset({
     "af", "sq", "ar", "ar_EG", "ar_AE", "ar_LB", "ar_MA", "ar_QA", "az", "be_BY", "bn", "bn_IN", "bg", "ca", "zh_CN",
     "zh_HK", "zh_TW", "hr", "cs", "da", "prs_AF", "nl", "nl_BE", "en", "en_GB", "en_US", "en_AE", "en_AU", "en_CA",
@@ -66,7 +62,7 @@ LANGUAGES = frozenset({
 })
 
 _NAME = re.compile(r"^[a-z0-9_]{1,512}$")
-# A variable as Meta writes it: a number, or a name in lowercase letters and
+# A variable as WhatsApp writes it: a number, or a name in lowercase letters and
 # underscores. Anything else between double braces is a mistake to report.
 _VARIABLE = re.compile(r"\{\{([a-z_]+|[0-9]+)\}\}")
 _BRACES = re.compile(r"\{\{.*?\}\}|\{\{|\}\}")
@@ -86,24 +82,29 @@ def window_is_open(last_inbound_at: datetime | None) -> bool:
     return bool(until and until > now_utc())
 
 
-def template_credentials(db: Session, client: Client, channel: WhatsAppCloudChannel | None = None) -> tuple[str, str]:
-    """The token and WABA id templates are managed with, from the client's
-    WhatsApp API channel. Both the portal and the agency go through here.
-    Without ``channel`` the client's first number that can manage templates is used."""
-    if channel is None:
-        channel = db.scalar(
-            select(WhatsAppCloudChannel).where(
-                WhatsAppCloudChannel.client_id == client.id,
-                WhatsAppCloudChannel.encrypted_access_token.is_not(None),
-                WhatsAppCloudChannel.waba_id.is_not(None),
-            ).order_by(WhatsAppCloudChannel.is_enabled.desc(), WhatsAppCloudChannel.created_at).limit(1)
-        )
-    if not channel or not channel.encrypted_access_token or not channel.waba_id:
+def template_account(db: Session, client: Client, channel: WhatsAppCloudChannel | None = None) -> str:
+    """The provider account id templates are managed with, from the client's
+    WhatsApp API numbers. Both the portal and the agency go through here.
+    Without ``channel`` the client's first connected number is used."""
+    if channel is not None:
+        if not channel.external_account_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Connect this WhatsApp API number before managing templates",
+            )
+        return channel.external_account_id
+    row = db.scalar(
+        select(WhatsAppCloudChannel).where(
+            WhatsAppCloudChannel.client_id == client.id,
+            WhatsAppCloudChannel.external_account_id != "",
+        ).order_by(WhatsAppCloudChannel.is_enabled.desc(), WhatsAppCloudChannel.created_at).limit(1)
+    )
+    if not row:
         raise HTTPException(
             status_code=409,
-            detail="Templates need the WhatsApp API channel with its access token and WhatsApp Business account id",
+            detail="Templates need a connected WhatsApp API number",
         )
-    return decrypt_secret(channel.encrypted_access_token), channel.waba_id
+    return row.external_account_id
 
 
 def parameters(text: str) -> list[str]:
@@ -136,7 +137,7 @@ def _reject(detail: str) -> HTTPException:
 
 
 def _check_variables(text: str, *, part: str) -> list[str]:
-    """The variables of a part, refusing anything Meta would bounce."""
+    """The variables of a part, refusing anything WhatsApp would bounce."""
     names = parameters(text)
     if len(_BRACES.findall(text)) != len(_VARIABLE.findall(text)):
         raise _reject(f"Variables in the {part} are written {{{{name}}}} with lowercase letters and underscores")
@@ -157,7 +158,7 @@ def _example_for(examples: dict[str, str], name: str, *, part: str) -> str:
 
 
 def _example_component(names: list[str], examples: dict[str, str], *, part: str, key: str) -> dict:
-    """The ``example`` block Meta wants for a part with variables, in the
+    """The ``example`` block WhatsApp wants for a part with variables, in the
     shape its parameter format asks for."""
     values = [_example_for(examples, n, part=part) for n in names]
     if parameter_format(names) == "POSITIONAL":
@@ -173,7 +174,7 @@ def build_components(
     buttons: list[dict],
     examples: dict[str, str],
 ) -> tuple[list[dict], str]:
-    """Validate every part the way Meta will and return the components of the
+    """Validate every part the way WhatsApp will and return the components of the
     creation payload plus the parameter format they use. The errors name the
     part and the rule, so the editor can show them next to the field."""
     body = (body or "").strip()
@@ -285,7 +286,7 @@ def _check_buttons(buttons: list[dict]) -> list[dict]:
         raise _reject("A template takes one call button")
     if counts["COPY_CODE"] > 1:
         raise _reject("A template takes one copy code button")
-    # Meta groups the quick replies: they sit together, before or after the rest.
+    # WhatsApp groups the quick replies: they sit together, before or after the rest.
     quick = [i for i, b in enumerate(out) if b["type"] == "QUICK_REPLY"]
     if quick and (quick[-1] - quick[0] + 1 != len(quick) or (quick[0] != 0 and quick[-1] != len(out) - 1)):
         raise _reject("Quick reply buttons go together, before or after the other buttons")
@@ -293,7 +294,7 @@ def _check_buttons(buttons: list[dict]) -> list[dict]:
 
 
 def normalize(raw: dict) -> dict:
-    """The parts of a Meta template the portal shows and sends."""
+    """The parts of a WhatsApp template the portal shows and sends."""
     body = footer = ""
     header: dict | None = None
     buttons: list[dict] = []
@@ -323,7 +324,7 @@ def normalize(raw: dict) -> dict:
                     "dynamic": btype == "COPY_CODE" or (btype == "URL" and bool(_VARIABLE.search(url))),
                 })
     names = parameters(body)
-    # Meta spells "no reason" as the string NONE.
+    # WhatsApp spells "no reason" as the string NONE.
     reason = raw.get("rejected_reason") or None
     if reason and reason.upper() == "NONE":
         reason = None
@@ -370,7 +371,7 @@ def send_components(
     location: dict | None = None,
     button_values: list[str] | None = None,
 ) -> list[dict]:
-    """The components of a send, with each value in the slot Meta expects.
+    """The components of a send, with each value in the slot WhatsApp expects.
     Refuses a send that would leave a variable unfilled."""
     named = template["parameter_format"] == "NAMED"
     names = template["parameters"]
@@ -420,27 +421,12 @@ def send_components(
     return components
 
 
-async def list_templates(access_token: str, waba_id: str) -> list[dict]:
-    response = await _graph_request(
-        "GET",
-        _graph_url(
-            f"{waba_id}/message_templates"
-            "?fields=id,name,status,category,language,parameter_format,components,rejected_reason&limit=200"
-        ),
-        access_token,
-    )
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Could not read the templates: {_graph_error(response)}")
-    try:
-        data = response.json().get("data") or []
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail="Invalid response from the Meta API.") from exc
-    return [normalize(item) for item in data]
+async def list_templates(account_id: str) -> list[dict]:
+    return [normalize(item) for item in await provider.list_templates(account_id)]
 
 
 async def create_template(
-    access_token: str,
-    waba_id: str,
+    account_id: str,
     *,
     name: str,
     language: str,
@@ -451,111 +437,138 @@ async def create_template(
     buttons: list[dict] | None = None,
     examples: dict[str, str] | None = None,
 ) -> dict:
-    """Submit a template for approval. Meta may file it under the other
+    """Submit a template for approval. The review may file it under the other
     category when it reads differently; letting it do so beats a rejection."""
     if language not in LANGUAGES:
         raise _reject("Pick a language WhatsApp supports for templates")
     components, fmt = build_components(header=header, body=body, footer=footer, buttons=buttons or [], examples=examples or {})
-    payload = {
-        "name": name,
-        "language": language,
-        "category": category,
-        "parameter_format": fmt,
-        "allow_category_change": True,
-        "components": components,
-    }
-    response = await _graph_request("POST", _graph_url(f"{waba_id}/message_templates"), access_token, json=payload)
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Meta did not accept the template: {_graph_error(response)}")
-    try:
-        created = response.json()
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail="Invalid response from the Meta API.") from exc
+    created = await provider.create_template(
+        account_id,
+        {"name": name, "language": language, "category": category,
+         "parameter_format": fmt, "components": components},
+    )
     return normalize({
-        **payload,
         "id": created.get("id"),
+        "name": created.get("name") or name,
         "status": created.get("status") or "PENDING",
         "category": created.get("category") or category,
+        "language": created.get("language") or language,
+        "parameter_format": fmt,
+        "components": components,
     })
 
 
 async def read_sample(file) -> tuple[bytes, str, str]:
     """The bytes, mime and a safe name of an uploaded header sample, refusing
-    what Meta would not take."""
+    what would not pass review."""
+    from .messaging_media import SAMPLE_MAX_BYTES
+
     mime = (file.content_type or "").lower()
     if mime == "image/jpg":
         mime = "image/jpeg"
     if mime not in {m for mimes in SAMPLE_MIME_TYPES.values() for m in mimes}:
         raise HTTPException(status_code=415, detail="Header samples are a JPG or PNG image, an MP4 video or a PDF")
-    data = await file.read(MAX_SAMPLE_BYTES + 1)
-    if len(data) > MAX_SAMPLE_BYTES:
+    data = await file.read(SAMPLE_MAX_BYTES + 1)
+    if len(data) > SAMPLE_MAX_BYTES:
         raise HTTPException(status_code=413, detail="The sample exceeds the 16 MB limit")
     name = re.sub(r"[^\w. -]", "_", (file.filename or "sample").rsplit("/", 1)[-1])[:120] or "sample"
     return data, mime, name
 
 
-async def upload_sample(access_token: str, *, data: bytes, mime: str, filename: str) -> str:
-    """Send a header sample through Meta's resumable upload and return the
-    handle a template refers to it by. The upload is filed under the Meta
-    app the channel's token belongs to, which the server has to know."""
-    app_id = get_settings().whatsapp_app_id
-    if not app_id:
-        raise HTTPException(status_code=409, detail="Set WHATSAPP_APP_ID to upload header samples for templates")
-    opened = await _graph_request(
-        "POST",
-        _graph_url(f"{app_id}/uploads"),
-        access_token,
-        params={"file_name": filename, "file_length": len(data), "file_type": mime},
-    )
-    if opened.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Meta refused the sample: {_graph_error(opened)}")
-    try:
-        session_id = opened.json().get("id")
-    except ValueError:
-        session_id = None
-    if not session_id:
-        raise HTTPException(status_code=502, detail="Invalid upload response from the Meta API.")
-    headers = {"Authorization": f"OAuth {access_token}", "file_offset": "0"}
-    try:
-        async with httpx.AsyncClient(timeout=GRAPH_TIMEOUT * 4) as client:
-            uploaded = await client.post(_graph_url(session_id), headers=headers, content=data)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="Could not reach the Meta API.") from exc
-    if uploaded.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Meta could not store the sample: {_graph_error(uploaded)}")
-    try:
-        handle = uploaded.json().get("h")
-    except ValueError:
-        handle = None
-    if not handle:
-        raise HTTPException(status_code=502, detail="Invalid upload response from the Meta API.")
-    return handle
+async def upload_sample(account_id: str, *, data: bytes, mime: str, filename: str) -> str:
+    """Host a header sample at a public URL and return it. The template
+    refers to the sample by this URL, so review sees the same file the
+    sends will carry."""
+    from . import messaging_media
+
+    _ = account_id
+    handle = messaging_media.store_sample(data, mime, filename)
+    return messaging_media.sample_url(handle)
 
 
-async def delete_template(access_token: str, waba_id: str, *, name: str, hsm_id: str | None = None) -> None:
-    """Remove a template from the WABA. Meta has no disable switch, so
-    deleting is the only way to retire one. With an hsm_id only that
-    language goes; by name alone Meta removes every language under it."""
-    params: dict[str, str] = {"name": name}
+async def delete_template(account_id: str, *, name: str, hsm_id: str | None = None) -> None:
+    """Retire a template. By name alone every language variant goes; with an
+    id only that variant does."""
+    variants = [item for item in await provider.list_templates(account_id, name=name)]
     if hsm_id:
-        params["hsm_id"] = hsm_id
-    response = await _graph_request("DELETE", _graph_url(f"{waba_id}/message_templates"), access_token, params=params)
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Meta could not delete the template: {_graph_error(response)}")
+        variants = [item for item in variants if str(item.get("id") or "") == hsm_id]
+        if not variants:
+            raise HTTPException(status_code=404, detail="That template variant no longer exists")
+    elif not variants:
+        return
+    for variant in variants:
+        await provider.delete_template(account_id, name, language=variant.get("language") or None)
+
+
+def flat_template_params(
+    template: dict,
+    *,
+    body_values: list[str],
+    header_value: str = "",
+    button_values: list[str] | None = None,
+) -> tuple[list[str], list[dict], dict | None]:
+    """The flat send shape of a template: positional values (text header,
+    body, dynamic URL buttons in order), per-send button payloads (copy
+    codes), and the media header override when the send carries its own
+    file. Validates through the same rules as the component send, so the
+    editor's errors stay identical."""
+    send_components(template, body_values=body_values, header_value=header_value, button_values=button_values)
+    params: list[str] = []
+    header = template.get("header") or {}
+    if header.get("format") == "TEXT" and header.get("parameters"):
+        params.append(header_value.strip())
+    params.extend(body_values)
+    button_params: list[dict] = []
+    media: dict | None = None
+    if header.get("format") in MEDIA_HEADER_FORMATS and header_value.strip():
+        media = {"link": header_value.strip()}
+    for index, button in enumerate(template.get("buttons") or []):
+        if not button.get("dynamic"):
+            continue
+        value = (button_values[index].strip() if button_values and index < len(button_values) else "")
+        if button["type"] == "URL":
+            params.append(value)
+        elif button["type"] == "COPY_CODE":
+            button_params.append({"index": index, "subType": "copy_code", "value": value})
+    return params, button_params, media
 
 
 async def send_template(
-    access_token: str, phone_number_id: str, to: str, *, name: str, language: str, components: list[dict]
+    account_id: str, conversation_id: str, *, name: str, language: str, components: list[dict]
 ) -> str | None:
-    template: dict = {"name": name, "language": {"code": language}}
-    if components:
-        template["components"] = components
-    payload = {"messaging_product": "whatsapp", "to": to, "type": "template", "template": template}
-    response = await _graph_request("POST", _graph_url(f"{phone_number_id}/messages"), access_token, json=payload)
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"WhatsApp could not send the template: {_graph_error(response)}")
-    try:
-        messages = response.json().get("messages") or []
-        return messages[0].get("id") if messages else None
-    except ValueError:
-        return None
+    """Send an approved template inside its conversation (re-engagement after
+    the 24-hour window closed). Returns the provider message id."""
+    data = await provider.send_message(
+        account_id, conversation_id,
+        template={"elements": [{"name": name, "language": language, "components": components or []}]},
+    )
+    return data.get("messageId")
+
+
+async def open_template_conversation(
+    account_id: str, phone: str, *, template: dict, name: str, language: str,
+    body_values: list[str], header_value: str = "", location: dict | None = None,
+    button_values: list[str] | None = None,
+) -> dict:
+    """Send an approved template to a phone number with no open thread. Media
+    headers fall back to the approved sample unless the send carries its own
+    file; a location header needs its pin now. Returns the provider
+    conversation payload."""
+    params, button_params, media = flat_template_params(
+        template, body_values=body_values, header_value=header_value, button_values=button_values)
+    header = template.get("header") or {}
+    header_location = None
+    if header.get("format") == "LOCATION":
+        if not location or location.get("latitude") is None or location.get("longitude") is None:
+            raise _reject("This template needs a location for the header")
+        header_location = {
+            "latitude": float(location["latitude"]), "longitude": float(location["longitude"]),
+            "name": location.get("name") or "", "address": location.get("address") or "",
+        }
+    digits = "".join(char for char in (phone or "") if char.isdigit())
+    if not digits:
+        raise HTTPException(status_code=409, detail="This conversation does not have a valid WhatsApp destination")
+    return await provider.create_conversation(
+        account_id, digits, template_name=name, template_language=language,
+        template_params=params, template_button_params=button_params or None,
+        header_media=media, header_location=header_location)

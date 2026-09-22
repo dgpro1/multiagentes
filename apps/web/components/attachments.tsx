@@ -2,12 +2,75 @@
 
 import { DragEvent, MouseEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, FileText, Mic, Paperclip, Pause, Play, Square, X, type LucideIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, MapPin, Mic, Paperclip, Pause, Play, Square, X, type LucideIcon } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import type { Attachment } from "@/types";
 
 /** One image of a conversation-wide gallery the lightbox can navigate. */
 export type GalleryImage = { id: string; url: string; name: string | null };
+
+/** A shared location (WhatsApp pin): stored as a JSON attachment with kind
+ * "location". Rendered as a map card with deep links instead of raw bytes. */
+export type LocationPayload = { latitude: number; longitude: number; name?: string; address?: string };
+
+export function parseLocation(value: string | null): LocationPayload | null {
+  if (!value) return null;
+  try {
+    const data = JSON.parse(value) as LocationPayload;
+    if (typeof data.latitude !== "number" || typeof data.longitude !== "number") return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export function LocationCard({ attachment, urlFor }: { attachment: Attachment; urlFor: (attachment: Attachment) => string }) {
+  const t = useT();
+  const [place, setPlace] = useState<LocationPayload | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(urlFor(attachment), { credentials: "include" });
+        const text = await response.text();
+        if (!cancelled) setPlace(parseLocation(text));
+      } catch {
+        if (!cancelled) setPlace(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [attachment.id, urlFor]);
+  if (!place) return null;
+  const coords = `${place.latitude},${place.longitude}`;
+  const where = place.name || place.address || coords;
+  return (
+    <div className="location-card">
+      <a
+        className="location-map"
+        href={`https://www.google.com/maps/search/?api=1&query=${coords}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={where}
+      >
+        <img
+          src={`https://staticmap.openstreetmap.de/staticmap.php?center=${coords}&zoom=16&size=320x160&markers=${coords}`}
+          alt={where}
+          loading="lazy"
+          onError={(event) => { event.currentTarget.style.display = "none"; }}
+        />
+        <span className="location-pin"><MapPin size={22} /></span>
+      </a>
+      <div className="location-body">
+        <strong>{where}</strong>
+        {place.address && place.address !== where && <small>{place.address}</small>}
+        <div className="location-links">
+          <a href={`https://www.google.com/maps/search/?api=1&query=${coords}`} target="_blank" rel="noopener noreferrer">{t("inbox.locationOpen")}</a>
+          <a href={`https://www.google.com/maps/dir/?api=1&destination=${coords}`} target="_blank" rel="noopener noreferrer">{t("inbox.locationDirections")}</a>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function formatClock(value: number): string {
   if (!isFinite(value) || value < 0) return "0:00";
@@ -223,7 +286,7 @@ export function MessageAttachments({ attachments, urlFor, gallery, stamp }: {
   if (!attachments?.length) return null;
 
   const images = attachments.filter((attachment) => attachment.kind === "image");
-  const others = attachments.filter((attachment) => attachment.kind !== "image");
+  const others = attachments.filter((attachment) => attachment.kind !== "image" && attachment.kind !== "location");
   const items: GalleryImage[] = gallery?.length
     ? gallery
     : images.map((attachment) => ({ id: attachment.id, url: urlFor(attachment), name: attachment.filename }));
@@ -235,8 +298,10 @@ export function MessageAttachments({ attachments, urlFor, gallery, stamp }: {
 
   const gridImages = images.slice(0, 4);
   const extra = images.length - gridImages.length;
+  const locations = attachments.filter((attachment) => attachment.kind === "location");
   return (
     <div className="attachments">
+      {locations.map((attachment) => <LocationCard key={attachment.id} attachment={attachment} urlFor={urlFor} />)}
       {images.length > 1 ? (
         <div className={`attachment-grid count-${gridImages.length}`}>
           {gridImages.map((attachment, index) => (

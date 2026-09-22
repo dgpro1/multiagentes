@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from .config import get_settings
 from .database import new_session
@@ -19,13 +20,14 @@ from .routers import (
     dashboard,
     domains,
     industries,
+    messaging_webhook,
     mobile,
     portal,
     providers,
     reports,
     whatsapp,
     whatsapp_cloud,
-    whatsapp_cloud_webhook,
+    whatsapp_evolution,
     widget,
     webchat,
     social,
@@ -57,12 +59,60 @@ async def lifespan(_: FastAPI):
     from .services.social_worker import start_worker, stop_worker
     start_worker()
     sweeper = asyncio.create_task(_auto_resolve_loop()) if settings.auto_resolve_after_hours > 0 else None
+    asyncio.create_task(_ensure_messaging_webhook())
+    asyncio.create_task(_restore_evolution_channels())
     try:
         yield
     finally:
         await stop_worker()
         if sweeper:
             sweeper.cancel()
+
+
+async def _ensure_messaging_webhook() -> None:
+    """Register the shared provider event subscription, once per boot.
+    Best-effort: a missing key or network only logs, never stops the app."""
+    try:
+        from .services import messaging_provider as provider
+
+        if not provider.configured():
+            return
+        secret = get_settings().messaging_provider_webhook_secret.strip()
+        if not secret:
+            logger.warning("Messaging webhook secret is missing; event deliveries stay unverified")
+            return
+        await provider.ensure_webhook("OpenLivery inbox", provider.webhook_url(), secret, provider.INBOX_EVENTS)
+    except Exception:
+        logger.exception("Messaging webhook registration failed")
+
+
+async def _restore_evolution_channels() -> None:
+    """Reconnect the WhatsApp QR lines driven by Evolution after a boot — the
+    counterpart of the bridge's restorable-channels call. Best-effort: a down
+    Evolution only logs, the lines keep their stored state."""
+    from .services import evolution as evolution_driver
+
+    if not evolution_driver.enabled():
+        return
+    try:
+        from .models import WhatsAppChannel
+
+        with new_session() as db:
+            channels = db.scalars(
+                select(WhatsAppChannel).where(
+                    WhatsAppChannel.is_enabled.is_(True),
+                    WhatsAppChannel.status.in_(("connected", "reconnecting", "connecting", "qr")),
+                )
+            ).all()
+            ids = [channel.id for channel in channels]
+        for channel_id in ids:
+            with new_session() as db:
+                channel = db.get(WhatsAppChannel, channel_id)
+                if channel:
+                    await evolution_driver.restore_channel(channel)
+                    db.commit()
+    except Exception:  # noqa: BLE001 - restore must never block the boot
+        logger.exception("Evolution channel restore failed")
 
 
 app = FastAPI(
@@ -104,8 +154,10 @@ app.include_router(mobile.router, prefix="/api")
 app.include_router(portal.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
 app.include_router(whatsapp.internal_router, prefix="/api")
+app.include_router(whatsapp_evolution.public_router, prefix="/api")
 app.include_router(whatsapp_cloud.router, prefix="/api")
-app.include_router(whatsapp_cloud_webhook.public_router, prefix="/api")
+app.include_router(messaging_webhook.public_router, prefix="/api")
+app.include_router(messaging_webhook.router, prefix="/api")
 app.include_router(widget.router, prefix="/api")
 app.include_router(domains.public_router, prefix="/api")
 app.include_router(social.router, prefix="/api")

@@ -25,6 +25,7 @@ from ..schemas import (
     WhatsAppOutgoing,
 )
 from ..security import decrypt_secret, encrypt_secret
+from ..services import evolution as evolution_driver
 from ..services.whatsapp import bridge_command
 from ..services.whatsapp_inbound import InboundMessage, process_inbound, send_reply_attachments
 
@@ -76,6 +77,25 @@ def _apply_label(channel: WhatsAppChannel, payload: WhatsAppChannelUpdate) -> No
         channel.label = (payload.label or "").strip()[:80] or None
 
 
+def _apply_toggles(channel: WhatsAppChannel, payload: WhatsAppChannelUpdate) -> bool:
+    """Apply the groups/calls toggles; True when any of them changed."""
+    changed = False
+    if "groups_enabled" in payload.model_fields_set and payload.groups_enabled is not None:
+        if channel.groups_enabled != payload.groups_enabled:
+            channel.groups_enabled = payload.groups_enabled
+            changed = True
+    if "calls_enabled" in payload.model_fields_set and payload.calls_enabled is not None:
+        if channel.calls_enabled != payload.calls_enabled:
+            channel.calls_enabled = payload.calls_enabled
+            changed = True
+    if "calls_message" in payload.model_fields_set:
+        message = (payload.calls_message or "").strip()[:200] or None
+        if channel.calls_message != message:
+            channel.calls_message = message
+            changed = True
+    return changed
+
+
 def _public_channel(channel: WhatsAppChannel) -> dict:
     qr_code = decrypt_secret(channel.encrypted_qr) if channel.encrypted_qr else None
     return {
@@ -89,6 +109,9 @@ def _public_channel(channel: WhatsAppChannel) -> dict:
         "qr_code": qr_code,
         "last_error": channel.last_error,
         "is_enabled": channel.is_enabled,
+        "groups_enabled": channel.groups_enabled,
+        "calls_enabled": channel.calls_enabled,
+        "calls_message": channel.calls_message,
         "has_session": bool(channel.encrypted_auth_state),
         "last_connected_at": channel.last_connected_at,
         "created_at": channel.created_at,
@@ -147,7 +170,7 @@ def get_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depe
 
 
 @router.put("/channels/{ref}", response_model=WhatsAppChannelOut)
-def configure_channel(
+async def configure_channel(
     ref: uuid.UUID,
     payload: WhatsAppChannelUpdate,
     db: Session = Depends(get_db),
@@ -169,7 +192,12 @@ def configure_channel(
     channel.agent_id = agent.id
     channel.is_enabled = True
     _apply_label(channel, payload)
+    toggles_changed = _apply_toggles(channel, payload)
     db.commit()
+    if toggles_changed and evolution_driver.enabled():
+        from ..services import evolution as evolution_module
+
+        await evolution_module.apply_settings(channel)
     db.refresh(channel)
     return _public_channel(channel)
 
@@ -181,7 +209,12 @@ async def remove_channel(channel_id: uuid.UUID, db: Session = Depends(get_db), u
     channel = db.scalar(select(WhatsAppChannel).where(WhatsAppChannel.id == channel_id, WhatsAppChannel.agency_id == user.agency_id))
     if not channel:
         raise HTTPException(status_code=404, detail="Line not found")
-    if channel.encrypted_auth_state:
+    if evolution_driver.enabled():
+        try:
+            await evolution_driver.delete_instance(channel)
+        except HTTPException:
+            pass  # the local line goes away regardless
+    elif channel.encrypted_auth_state:
         try:
             await bridge_command("POST", f"/channels/{channel.id}/disconnect")
         except HTTPException:
@@ -198,12 +231,16 @@ async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: U
     channel.is_enabled = True
     db.commit()
     try:
-        await bridge_command("POST", f"/channels/{channel.id}/connect")
+        if evolution_driver.enabled():
+            await evolution_driver.connect(channel)
+        else:
+            await bridge_command("POST", f"/channels/{channel.id}/connect")
     except HTTPException as exc:
         channel.status = "error"
         channel.last_error = exc.detail
         db.commit()
         raise
+    db.commit()
     db.refresh(channel)
     return _public_channel(channel)
 
@@ -211,7 +248,11 @@ async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: U
 @router.post("/channels/{ref}/disconnect", response_model=WhatsAppChannelOut)
 async def disconnect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     channel = _channel_for_user(db, user, ref)
-    await bridge_command("POST", f"/channels/{channel.id}/disconnect")
+    if evolution_driver.enabled():
+        await evolution_driver.disconnect(channel)
+        db.commit()
+    else:
+        await bridge_command("POST", f"/channels/{channel.id}/disconnect")
     db.refresh(channel)
     return _public_channel(channel)
 
@@ -262,6 +303,28 @@ def clear_auth(channel_id: uuid.UUID, db: Session = Depends(get_db)):
     db.commit()
 
 
+def apply_connected(db: Session, channel: WhatsAppChannel) -> None:
+    """A line just reached WhatsApp: refuse the same phone scanning on two
+    lines — it would answer every message twice. The second one errors and the
+    operator disconnects it."""
+    twin = db.scalar(
+        select(WhatsAppChannel.id).where(
+            WhatsAppChannel.agency_id == channel.agency_id,
+            WhatsAppChannel.id != channel.id,
+            WhatsAppChannel.phone_number == channel.phone_number,
+            WhatsAppChannel.is_enabled.is_(True),
+            WhatsAppChannel.encrypted_auth_state.is_not(None),
+        )
+    ) if channel.phone_number else None
+    if twin:
+        channel.status = "error"
+        channel.last_error = "This number is already connected on another line. Disconnect this one."
+        channel.is_enabled = False
+    else:
+        channel.last_connected_at = now_utc()
+        channel.is_enabled = True
+
+
 @internal_router.put("/channels/{channel_id}/status", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(_require_bridge)])
 def update_status(channel_id: uuid.UUID, payload: WhatsAppInternalStatus, db: Session = Depends(get_db)):
     channel = _internal_channel(db, channel_id)
@@ -276,24 +339,7 @@ def update_status(channel_id: uuid.UUID, payload: WhatsAppInternalStatus, db: Se
         channel.encrypted_qr = None
     channel.last_error = payload.error
     if payload.status == "connected":
-        # The same phone scanned on two lines would answer every message
-        # twice. The second line is refused; the operator disconnects it.
-        twin = db.scalar(
-            select(WhatsAppChannel.id).where(
-                WhatsAppChannel.agency_id == channel.agency_id,
-                WhatsAppChannel.id != channel.id,
-                WhatsAppChannel.phone_number == channel.phone_number,
-                WhatsAppChannel.is_enabled.is_(True),
-                WhatsAppChannel.encrypted_auth_state.is_not(None),
-            )
-        ) if channel.phone_number else None
-        if twin:
-            channel.status = "error"
-            channel.last_error = "This number is already connected on another line. Disconnect this one."
-            channel.is_enabled = False
-        else:
-            channel.last_connected_at = now_utc()
-            channel.is_enabled = True
+        apply_connected(db, channel)
     channel.updated_at = now_utc()
     db.commit()
 

@@ -1,3 +1,4 @@
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
@@ -15,6 +16,7 @@ from ..schemas import (
     ConversationModeUpdate,
     ConversationStatusUpdate,
     ConversationOut,
+    LocationSend,
     ReactionRequest,
     SendMessageRequest,
 )
@@ -31,7 +33,7 @@ from ..services.knowledge import build_system_prompt, llm_turns, retrieve_knowle
 from ..services.operator_media import store_operator_media_reply
 from ..services.providers import resolve_agent_credentials
 from ..services.usage import record_usage
-from ..services.whatsapp import deliver_reaction, resolve_quote, send_channel_message, signal_channel_read
+from ..services.whatsapp import deliver_reaction, resolve_quote, send_channel_location, send_channel_message, signal_channel_read
 from ..services import channel_accounts
 from ..services.whatsapp_inbound import InboundMessage, resolve_inbound_content
 
@@ -449,6 +451,58 @@ async def reply_as_human(
     )
     from ..services.phone_handover import cancel_phone_pause
     cancel_phone_pause(conversation)
+    note_reply(conversation)
+    conversation.updated_at = now_utc()
+    db.commit()
+    return _conversation(db, user, conversation_id)
+
+
+@router.post("/{conversation_id}/location", response_model=ConversationDetail)
+async def send_location(
+    conversation_id: uuid.UUID,
+    payload: LocationSend,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Send a pin location as the operator (WhatsApp QR lines through the
+    Evolution driver). The chat keeps a location attachment; the phone gets a
+    real pin."""
+    conversation = _conversation(db, user, conversation_id)
+    if conversation.mode != "human":
+        raise HTTPException(status_code=409, detail="Take control of the conversation before sending a location")
+    external_message_id = await send_channel_location(
+        db,
+        conversation,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        name=payload.name,
+        address=payload.address,
+    )
+    place = {
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "name": payload.name.strip(),
+        "address": payload.address.strip(),
+    }
+    where = place["name"] or place["address"] or f"{payload.latitude:.6f}, {payload.longitude:.6f}"
+    message = Message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=f"📍 {where}",
+        sender_type="human",
+        sender_name=user.name,
+        external_message_id=external_message_id,
+    )
+    db.add(message)
+    db.flush()
+    store_attachment(
+        db,
+        message,
+        data=json.dumps(place, separators=(",", ":")).encode(),
+        mime="application/json",
+        filename="location.json",
+        kind="location",
+    )
     note_reply(conversation)
     conversation.updated_at = now_utc()
     db.commit()

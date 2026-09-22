@@ -1,7 +1,5 @@
 """Bounded, resumable imports of history still exposed by the provider."""
 
-import asyncio
-import re
 from datetime import timedelta
 
 from fastapi import HTTPException
@@ -9,8 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from ..models import SocialChannel, now_utc
-from ..security import decrypt_secret
-from . import social_graph as graph
+from . import messaging_provider as provider
 from .social_connections import owned_channel
 from .social_inbound import enqueue_webhook, event_time
 
@@ -29,9 +26,9 @@ def latest_job(db, channel):
                      .order_by(SocialHistoryImport.created_at.desc()).limit(1))
 
 
-def request_import(db, user, client_id, provider):
+def request_import(db, user, client_id, provider_name):
     from ..models import SocialHistoryImport
-    channel = owned_channel(db, user, client_id, provider)
+    channel = owned_channel(db, user, client_id, provider_name)
     if not channel.is_enabled or channel.status != "connected" or not channel.last_connected_at:
         raise HTTPException(409, "Connect this account before importing history")
     prior = latest_job(db, channel)
@@ -55,93 +52,58 @@ def request_import(db, user, client_id, provider):
     return job
 
 
-def normalize_message(channel, detail: dict, cutoff) -> dict | None:
+def _sender_of(item: dict) -> str:
+    sender = item.get("sender") if isinstance(item.get("sender"), dict) else {}
+    return str(item.get("senderId") or sender.get("id") or "")
+
+
+def normalize_message(channel, thread: dict, item: dict, cutoff) -> dict | None:
     """Only import one-to-one messages addressing this receiving account."""
-    occurred = event_time(detail.get("created_time"))
-    mid = detail.get("id")
-    sender = detail.get("from") or {}
-    recipients = (detail.get("to") or {}).get("data") or []
-    if not occurred or occurred > cutoff or not isinstance(mid, str) or not re.fullmatch(r"[\x21-\x7e]{1,1024}", mid) or not isinstance(sender, dict) or len(recipients) != 1:
+    if not isinstance(item, dict):
         return None
-    recipient = recipients[0]
-    if not isinstance(recipient, dict):
+    occurred = event_time(item.get("createdAt"))
+    mid = str(item.get("id") or "")
+    if not occurred or occurred > cutoff or not mid or len(mid) > 1024:
         return None
-    sender_id, recipient_id = str(sender.get("id") or ""), str(recipient.get("id") or "")
     account_id = channel.external_account_id
-    if sender_id != account_id and recipient_id != account_id:
+    person = str(thread.get("participantId") or "")
+    if not person or person == account_id:
         return None
-    person = recipient_id if sender_id == account_id else sender_id
-    if not person or person == account_id or not person.isdigit():
-        return None
-    message = {"mid": mid, "text": str(detail.get("message") or "")}
-    if sender_id == account_id:
+    echo = item.get("direction") == "outgoing"
+    text = str(item.get("message") or "")
+    message: dict = {"mid": mid, "text": text or "[Historical attachment unavailable]"}
+    if echo:
         message["is_echo"] = True
-    if not message["text"]:
-        message["is_unsupported"] = True
-    # The basic detail endpoint may omit expired attachments. Preserve the
-    # timestamped record without inventing its original contents.
-    return {"sender": {"id": sender_id, "name": sender.get("name"), "username": sender.get("username")},
-            "recipient": {"id": recipient_id}, "timestamp": int(occurred.timestamp() * 1000),
+    sender = {"id": account_id} if echo else {
+        "id": person, "name": thread.get("participantName"), "username": thread.get("participantUsername")}
+    recipient = {"id": person} if echo else {"id": account_id}
+    stamp = int(occurred.timestamp() * 1000)
+    return {"sender": sender, "recipient": recipient, "timestamp": stamp,
+            "provider_conversation_id": str(thread.get("id") or ""),
             "message": message, "_historical": True}
 
 
 async def _read_page(channel, cursor: str | None, cutoff):
-    token = decrypt_secret(channel.encrypted_access_token)
-    secret = decrypt_secret(channel.encrypted_app_secret)
-    common = {"appsecret_proof": graph._proof(token, secret)}
-    params = {**common, "limit": 1}
-    if channel.provider == "instagram":
-        params["platform"] = "instagram"
-    if cursor:
-        params["after"] = cursor
-    # Separate this lookup from authorization probes in the same worker pass.
-    await asyncio.sleep(0.51)
-    page = await graph.request(channel.provider, "GET", f"{graph.object_id(channel.external_account_id)}/conversations", token, params=params)
-    items = page.get("data") or []
-    if not isinstance(items, list):
-        raise HTTPException(502, "The provider returned an invalid conversation list")
-    if not items:
-        return [], None, False
-    item = items[0]
-    if not isinstance(item, dict) or not item.get("id"):
-        raise HTTPException(502, "The provider returned an invalid conversation identifier")
-    # Conversations API calls have a separate two-per-second rate limit.
-    await asyncio.sleep(0.51)
-    thread = await graph.request(channel.provider, "GET", graph.path_component(str(item["id"])), token,
-                                 params={**common, "fields": "messages.limit(20)"})
-    messages = (thread.get("messages") or {}).get("data") or []
-    if not isinstance(messages, list):
-        raise HTTPException(502, "The provider returned an invalid message list")
-    semaphore = asyncio.Semaphore(4)
-
-    async def read_message(message):
-        if not isinstance(message, dict) or not message.get("id"):
-            return None
-        async with semaphore:
-            try:
-                detail = await graph.request(channel.provider, "GET", graph.path_component(str(message["id"])), token,
-                    params={**common, "fields": "id,created_time,from,to,message"})
-            except HTTPException as exc:
-                if exc.status_code in {400, 404}:
-                    # Individual history entries can be deleted or unavailable.
-                    return None
-                raise
-        return normalize_message(channel, detail, cutoff)
-
-    details = await asyncio.gather(*(read_message(message) for message in messages[:MAX_MESSAGES]), return_exceptions=True)
-    for result in details:
-        if isinstance(result, BaseException):
-            raise result
-    events = sorted((event for event in details if event), key=lambda event: event["timestamp"])
-    paging = page.get("paging") or {}
-    after = (paging.get("cursors") or {}).get("after") if paging.get("next") else None
-    if after is not None and (not isinstance(after, str) or len(after) > 8192):
-        raise HTTPException(502, "The provider returned an invalid continuation cursor")
-    return events, after, True
+    threads, next_cursor = await provider.list_conversations(
+        account_id=channel.external_account_id, limit=MAX_CONVERSATIONS, cursor=cursor)
+    events: list[dict] = []
+    for thread in threads:
+        if not isinstance(thread, dict) or not thread.get("id"):
+            continue
+        items, _ = await provider.list_messages(
+            channel.external_account_id, str(thread["id"]), limit=MAX_MESSAGES, sort_order="asc")
+        for item in items[:MAX_MESSAGES]:
+            event = normalize_message(channel, thread, item, cutoff)
+            if event:
+                events.append(event)
+        if len(events) >= MAX_CONVERSATIONS * MAX_MESSAGES:
+            break
+    events.sort(key=lambda event: event["timestamp"])
+    return events, next_cursor
 
 
 async def process_history_jobs(db, *, limit: int = 1) -> int:
-    """One bounded conversation per lease; restart resumes its committed cursor."""
+    """One bounded page per lease; restart resumes its committed cursor."""
     from ..models import SocialHistoryImport
     processed = 0
     for _ in range(limit):
@@ -161,12 +123,12 @@ async def process_history_jobs(db, *, limit: int = 1) -> int:
         try:
             if not channel or not channel.is_enabled or channel.status != "connected" or not channel.last_connected_at:
                 raise HTTPException(409, "The messaging channel was disconnected. Reconnect it before importing history")
-            events, cursor, had_conversation = await _read_page(channel, job.cursor, min(job.cutoff_at, channel.last_connected_at))
+            events, cursor = await _read_page(channel, job.cursor, min(job.cutoff_at, channel.last_connected_at))
             count = enqueue_webhook(db, channel.provider, {"object": "instagram" if channel.provider == "instagram" else "page",
                 "entry": [{"id": channel.external_account_id, "messaging": events}]}, channel, commit=False)
             job.cursor = cursor
             job.messages_count += count
-            job.conversations_count += int(had_conversation)
+            job.conversations_count += 1
             job.status = "completed" if not cursor or job.conversations_count >= job.max_conversations else "pending"
             job.last_error = None
         except HTTPException as exc:
@@ -174,7 +136,7 @@ async def process_history_jobs(db, *, limit: int = 1) -> int:
             job.status = "failed"
             job.last_error = str(exc.detail)
             if channel and exc.status_code in {401, 403}:
-                channel.status = "reauthorization_required"
+                channel.status = "error"
                 channel.last_error = str(exc.detail)
         except Exception:
             db.rollback()

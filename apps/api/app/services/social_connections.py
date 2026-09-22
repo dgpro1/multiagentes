@@ -1,21 +1,23 @@
-"""Connection lifecycle and configurable application credentials."""
+"""Connection lifecycle through the unified messaging provider."""
 
 import hashlib
 import json
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Callable
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import HTTPException
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import Agent, Client, SocialChannel, SocialOAuthState, User, new_public_id, now_utc
 from ..security import decrypt_secret, encrypt_secret
+from . import messaging_provider as provider
+from . import messaging_profiles as profiles
 from . import social_graph as graph
 
 
@@ -27,7 +29,7 @@ class SocialAppConfig:
     redirect_uri: str = ""
     webhook_url: str = ""
     verify_token: str = ""
-    source: str = "operator"
+    source: str = "provider"
     login_config_id: str = ""
     frontend_url: str = ""
     human_agent_enabled: bool = False
@@ -38,11 +40,13 @@ class SocialAppConfig:
 
     @property
     def managed(self):
-        return self.source == "managed"
+        # Credentials are never entered by hand: every account arrives
+        # through the provider's hosted authorization page.
+        return True
 
     @property
     def ready(self):
-        return bool(self.app_id and self.app_secret and self.verify_token and _https_origin(self.redirect_uri))
+        return provider.configured()
 
 
 _app_resolver: Callable | None = None
@@ -70,21 +74,19 @@ def _https_origin(value: str) -> bool:
     return parsed.scheme == "https" and bool(parsed.hostname) and not parsed.username and not parsed.password
 
 
-def get_app_config(provider: str) -> SocialAppConfig:
-    graph.provider_name(provider)
+def get_app_config(provider_name: str) -> SocialAppConfig:
+    graph.provider_name(provider_name)
     if _app_resolver:
-        return _app_resolver(provider)
+        return _app_resolver(provider_name)
     settings = get_settings()
-    origin = (settings.social_public_url or settings.frontend_url).rstrip("/")
+    origin = provider.public_base()
+    human_agent = bool(getattr(settings, f"{provider_name}_human_agent_enabled", False))
     return SocialAppConfig(
-        provider=provider, app_id=getattr(settings, f"{provider}_app_id"),
-        app_secret=getattr(settings, f"{provider}_app_secret"),
-        verify_token=getattr(settings, f"{provider}_webhook_verify_token"),
-        redirect_uri=f"{origin}/api/social/oauth/callback/{provider}",
-        webhook_url=f"{origin}/api/public/social/{provider}/webhook",
-        login_config_id=settings.messenger_login_config_id if provider == "messenger" else "",
+        provider=provider_name,
+        redirect_uri=provider.connect_callback_url(),
+        webhook_url=provider.webhook_url(),
         frontend_url=settings.frontend_url,
-        human_agent_enabled=getattr(settings, f"{provider}_human_agent_enabled"),
+        human_agent_enabled=human_agent,
     )
 
 
@@ -97,88 +99,81 @@ def owned_client(db: Session, user: User, client_id, agent_id=None):
     return client
 
 
-def owned_channel(db: Session, user: User, ref, provider: str):
+def owned_channel(db: Session, user: User, ref, provider_name: str):
     """``ref`` is a channel id, or a client id for that client's first account
     of the provider (the shape the routes had while a client could only have one)."""
-    graph.provider_name(provider)
-    channel = db.scalar(select(SocialChannel).where(SocialChannel.id == ref, SocialChannel.agency_id == user.agency_id, SocialChannel.provider == provider))
+    graph.provider_name(provider_name)
+    channel = db.scalar(select(SocialChannel).where(SocialChannel.id == ref, SocialChannel.agency_id == user.agency_id, SocialChannel.provider == provider_name))
     if channel:
         return channel
     owned_client(db, user, ref)
     channel = db.scalar(select(SocialChannel).where(SocialChannel.client_id == ref, SocialChannel.agency_id == user.agency_id,
-        SocialChannel.provider == provider).order_by(SocialChannel.created_at).limit(1))
+        SocialChannel.provider == provider_name).order_by(SocialChannel.created_at).limit(1))
     if not channel:
         raise HTTPException(404, "This messaging channel has not been configured")
     return channel
 
 
-def client_channels(db: Session, user: User, client_id, provider: str) -> list[SocialChannel]:
-    graph.provider_name(provider)
+def client_channels(db: Session, user: User, client_id, provider_name: str) -> list[SocialChannel]:
+    graph.provider_name(provider_name)
     owned_client(db, user, client_id)
     return db.scalars(select(SocialChannel).where(SocialChannel.client_id == client_id, SocialChannel.agency_id == user.agency_id,
-        SocialChannel.provider == provider).order_by(SocialChannel.created_at)).all()
+        SocialChannel.provider == provider_name).order_by(SocialChannel.created_at)).all()
 
 
-def public_channel(channel: SocialChannel) -> dict:
+def public_channel(channel: SocialChannel, connect_url: str | None = None) -> dict:
     config = get_app_config(channel.provider)
-    parsed = urlsplit(config.redirect_uri)
-    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-    webhook = config.webhook_url if channel.connection_source != "manual" else f"{origin}/api/public/social/channels/{channel.id}/webhook"
     keys = ("id", "client_id", "agent_id", "provider", "external_account_id", "app_id", "display_name", "username", "label", "status", "is_enabled", "token_expires_at", "last_error", "human_agent_enabled", "connection_source", "granted_scopes", "last_connected_at", "created_at", "updated_at")
-    return {**{key: getattr(channel, key) for key in keys}, "webhook_url": webhook,
-            "webhook_verify_token": channel.webhook_verify_token if channel.connection_source == "manual" else (None if config.managed else config.verify_token),
-            "has_access_token": bool(channel.encrypted_access_token), "has_app_secret": bool(channel.encrypted_app_secret)}
+    return {**{key: getattr(channel, key) for key in keys}, "webhook_url": config.webhook_url,
+            "webhook_verify_token": None,
+            "has_access_token": False, "has_app_secret": False,
+            "connect_url": connect_url}
 
 
-def _parse_expiry(value):
-    return datetime.fromisoformat(value) if value else None
-
-
-async def connect_account(db: Session, user: User, client_id, agent_id, provider: str, account: dict, config: SocialAppConfig, *, source: str, human_agent_enabled=False, activate=True, channel: SocialChannel | None = None, label: str | None = None) -> SocialChannel:
-    """Check ownership first; persist credentials only after remote validation.
+async def connect_account(db: Session, user: User, client_id, agent_id, provider_name: str, account: dict, *, source: str, human_agent_enabled=True, activate=True, channel: SocialChannel | None = None, label: str | None = None) -> SocialChannel:
+    """Bind a provider account to the client after remote validation.
 
     The client's row for this account is updated, or a new one is added: a
-    client can hold several accounts of a provider. ``channel`` pins the row
-    being edited, which must already be this account."""
-    owned_client(db, user, client_id, agent_id)
-    account_id = graph.object_id(account["id"])
-    app_id = graph.object_id(config.app_id)
-    # A disconnected channel keeps its row for history but holds no credentials,
-    # so the account is free to be connected under another client.
-    collision = db.scalar(select(SocialChannel.id).where(SocialChannel.provider == provider, SocialChannel.external_account_id == account_id,
-        SocialChannel.client_id != client_id, SocialChannel.encrypted_access_token.is_not(None)))
+    disconnected row keeps its history but releases the account, so the same
+    account can be connected under another client.
+    """
+    client = owned_client(db, user, client_id, agent_id)
+    graph.provider_name(provider_name)
+    account_id = str(account.get("id") or account.get("account_id") or "").strip()
+    if not account_id:
+        raise HTTPException(400, "Select one of the accounts authorized by this connection")
+    # A disconnected channel keeps its row for history but releases the
+    # account, so the account is free to be connected under another client.
+    collision = db.scalar(select(SocialChannel.id).where(SocialChannel.provider == provider_name, SocialChannel.external_account_id == account_id,
+        SocialChannel.client_id != client_id, SocialChannel.status == "connected"))
     if collision:
         raise HTTPException(409, "This account is already connected to another client")
     if channel is not None:
-        if channel.client_id != client_id or channel.provider != provider:
+        if channel.client_id != client_id or channel.provider != provider_name:
             raise HTTPException(404, "This messaging channel has not been configured")
         if channel.external_account_id and channel.external_account_id != account_id:
             raise HTTPException(409, "An existing channel cannot be reassigned to a different account. Connect the other account as a new one to preserve conversation routing")
     else:
         channel = db.scalar(select(SocialChannel).where(SocialChannel.client_id == client_id, SocialChannel.agency_id == user.agency_id,
-            SocialChannel.provider == provider, SocialChannel.external_account_id == account_id).with_for_update())
-    token = account["access_token"]
-    token_changed = not channel or not channel.encrypted_access_token or decrypt_secret(channel.encrypted_access_token) != token
-    profile = await graph.verify_account(provider, token, account_id, app_id, config.app_secret, scopes=account.get("scopes"))
-    newly_subscribed = False
+            SocialChannel.provider == provider_name, SocialChannel.external_account_id == account_id).with_for_update())
+    remote = await provider.require_account(account_id)
+    name = str(remote.get("display_name") or remote.get("username") or account.get("name") or account_id)
+    username = remote.get("username") or account.get("username")
     try:
         if not channel:
-            channel = SocialChannel(agency_id=user.agency_id, client_id=client_id, agent_id=agent_id, provider=provider, webhook_verify_token=new_public_id())
+            channel = SocialChannel(agency_id=user.agency_id, client_id=client_id, agent_id=agent_id, provider=provider_name, webhook_verify_token=new_public_id())
             db.add(channel)
         channel.agent_id = agent_id
         if label is not None:
             channel.label = label.strip()[:80] or None
         channel.external_account_id = account_id
-        channel.app_id = app_id
-        channel.display_name = profile["name"]
-        channel.username = profile.get("username")
-        channel.encrypted_access_token = encrypt_secret(token)
-        channel.encrypted_app_secret = encrypt_secret(config.app_secret)
-        channel.token_expires_at = _parse_expiry(profile.get("expires_at") or account.get("expires_at"))
-        channel.token_refreshed_at = now_utc() if token_changed or not channel.token_refreshed_at else channel.token_refreshed_at
-        if token_changed:
-            channel.token_refresh_attempted_at = None
-        channel.granted_scopes = profile.get("scopes") or account.get("scopes") or []
+        channel.provider_profile_id = client.provider_profile_id
+        channel.display_name = name[:180]
+        channel.username = str(username)[:180] if username else None
+        channel.encrypted_access_token = None
+        channel.encrypted_app_secret = None
+        channel.token_expires_at = None
+        channel.granted_scopes = []
         channel.connection_source = source
         channel.status = "connected" if activate else "disconnected"
         channel.is_enabled = activate
@@ -190,15 +185,9 @@ async def connect_account(db: Session, user: User, client_id, agent_id, provider
         if activate:
             for hook in _connection_hooks:
                 hook(db, channel, "linked")
-            newly_subscribed = await graph.subscribe(provider, token, account_id, app_id, config.app_secret)
         db.commit()
     except Exception as exc:
         db.rollback()
-        if newly_subscribed:
-            try:
-                await graph.unsubscribe(provider, token, account_id, config.app_secret)
-            except HTTPException:
-                pass
         if isinstance(exc, IntegrityError):
             raise HTTPException(409, "This account is already connected") from None
         raise
@@ -207,14 +196,8 @@ async def connect_account(db: Session, user: User, client_id, agent_id, provider
 
 
 async def disconnect_account(db: Session, channel: SocialChannel) -> None:
-    """Remove the channel. The provider is asked to stop delivering first,
-    but a revoked authorization must not keep the row alive: the account is
-    released either way and its conversations stay as history."""
-    if channel.encrypted_access_token and channel.encrypted_app_secret and channel.external_account_id:
-        try:
-            await graph.unsubscribe(channel.provider, decrypt_secret(channel.encrypted_access_token), channel.external_account_id, decrypt_secret(channel.encrypted_app_secret))
-        except HTTPException:
-            pass
+    """Remove the channel. Its conversations stay as history; the provider
+    account itself is untouched and can be connected again."""
     for hook in _connection_hooks:
         hook(db, channel, "unlinked")
     db.delete(channel)
@@ -228,11 +211,13 @@ def _payload(state: SocialOAuthState) -> dict:
         raise HTTPException(400, "This connection request is invalid") from None
 
 
-def _new_state(db, user, client_id, agent_id, provider, config, next_url, payload):
+def _new_state(db, user, client_id, agent_id, provider_name, next_url, payload):
+    from ..security import encrypt_secret
+
     raw = secrets.token_urlsafe(32)
     state = SocialOAuthState(id=hashlib.sha256(raw.encode()).hexdigest(), agency_id=user.agency_id,
-        user_id=user.id, client_id=client_id, agent_id=agent_id, provider=provider,
-        redirect_uri=config.redirect_uri, next_url=next_url,
+        user_id=user.id, client_id=client_id, agent_id=agent_id, provider=provider_name,
+        redirect_uri=provider.connect_callback_url(), next_url=next_url,
         encrypted_payload=encrypt_secret(json.dumps(payload)),
         expires_at=now_utc() + timedelta(minutes=max(1, min(get_settings().social_oauth_state_minutes, 30))))
     db.add(state)
@@ -243,133 +228,125 @@ def _new_state(db, user, client_id, agent_id, provider, config, next_url, payloa
     return raw, state
 
 
-def begin_oauth(db: Session, user: User, provider: str, client_id, agent_id, next_path: str | None) -> str:
-    owned_client(db, user, client_id, agent_id)
-    config = get_app_config(provider)
-    if not config.ready:
-        raise HTTPException(503, "The operator must configure application credentials, HTTPS callbacks and webhook verification first")
-    path = next_path or f"/clients/{client_id}/channels/{provider}"
+def _platform_of(provider_name: str) -> str:
+    return {"instagram": "instagram", "messenger": "facebook"}[provider_name]
+
+
+async def begin_oauth(db: Session, user: User, provider_name: str, client_id, agent_id, next_path: str | None) -> str:
+    graph.provider_name(provider_name)
+    client = owned_client(db, user, client_id, agent_id)
+    provider.require_config()
+    path = next_path or f"/clients/{client_id}/channels/{provider_name}"
     # Return only to the connection screen of the client bound into this state.
-    if path != f"/clients/{client_id}/channels/{provider}":
+    if path != f"/clients/{client_id}/channels/{provider_name}":
         raise HTTPException(400, "Use this client's messaging connection page as the return path")
-    origin = config.frontend_url or get_settings().frontend_url
+    origin = (get_settings().frontend_url or "").rstrip("/")
     parsed = urlsplit(origin)
-    if not _https_origin(origin):
-        raise HTTPException(503, "Configure an HTTPS application origin before connecting")
     next_url = urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
-    raw, _ = _new_state(db, user, client_id, agent_id, provider, config, next_url,
-                        {"phase": "oauth", "app_id": config.app_id})
-    query = {"client_id": config.app_id, "redirect_uri": config.redirect_uri, "response_type": "code", "state": raw,
-             "scope": ",".join(sorted(graph.SCOPES[provider]))}
-    if provider == "instagram":
-        query.update({"enable_fb_login": "0", "force_authentication": "1"})
-        return "https://www.instagram.com/oauth/authorize?" + urlencode(query)
-    if config.login_config_id:
-        query["config_id"] = config.login_config_id
-        query["override_default_response_type"] = "true"
-    return f"https://www.facebook.com/{get_settings().social_graph_version}/dialog/oauth?" + urlencode(query)
+    _new_state(db, user, client_id, agent_id, provider_name, next_url, {"phase": "link"})
+    profile_id = await profiles.ensure_client_profile(db, client)
+    link = await provider.connect_url(_platform_of(provider_name), profile_id)
+    return link["authorization_url"]
 
 
-async def finish_oauth(db: Session, provider: str, raw_state: str, code: str | None, error: str | None) -> str:
-    graph.provider_name(provider)
-    if not raw_state or len(raw_state) > 256:
-        raise HTTPException(400, "This connection request is invalid or expired")
-    state = db.scalar(select(SocialOAuthState).where(SocialOAuthState.id == hashlib.sha256(raw_state.encode()).hexdigest(), SocialOAuthState.provider == provider).with_for_update())
-    if not state or state.used_at or state.expires_at <= now_utc() or _payload(state).get("phase") != "oauth":
-        raise HTTPException(400, "This connection request is invalid or expired")
-    config = get_app_config(provider)
-    if _payload(state).get("app_id") != config.app_id or state.redirect_uri != config.redirect_uri:
-        raise HTTPException(400, "The application configuration changed. Start the connection again")
-    state.used_at = now_utc()
-    db.commit()
-    target = state.next_url
-    if error or not code or len(code) > 8192:
-        return target + "?social_status=error"
-    try:
-        user = db.get(User, state.user_id)
-        if not user or user.agency_id != state.agency_id:
-            raise HTTPException(403, "The account owner no longer has access")
-        owned_client(db, user, state.client_id, state.agent_id)
-        accounts = await graph.exchange_code(provider, code, config)
-        _new_state(db, user, state.client_id, state.agent_id, provider, config, target,
-            {"phase": "pending", "app_id": config.app_id, "accounts": accounts})
-    except HTTPException:
-        db.rollback()
-        return target + "?social_status=error"
-    return target + "?social_status=ready"
+async def pending_oauth(db: Session, user: User, provider_name: str, client_id) -> dict:
+    """The accounts on the client's profile the operator can bind."""
+    graph.provider_name(provider_name)
+    client = owned_client(db, user, client_id)
+    provider.require_config()
+    if not client.provider_profile_id:
+        raise HTTPException(404, "No pending connection was found. Start the connection again")
+    accounts = await provider.list_accounts(client.provider_profile_id)
+    return {"setup_id": client.provider_profile_id,
+            "accounts": [{"id": item["account_id"], "name": item.get("display_name") or item.get("username"),
+                           "username": item.get("username")} for item in accounts]}
 
 
-def pending_oauth(db: Session, user: User, provider: str, client_id) -> dict:
-    owned_client(db, user, client_id)
-    rows = db.scalars(select(SocialOAuthState).where(SocialOAuthState.provider == provider, SocialOAuthState.agency_id == user.agency_id,
-        SocialOAuthState.user_id == user.id, SocialOAuthState.client_id == client_id,
-        SocialOAuthState.used_at.is_(None), SocialOAuthState.expires_at > now_utc()).order_by(SocialOAuthState.created_at.desc()).limit(20))
-    for state in rows:
-        payload = _payload(state)
-        if payload.get("phase") == "pending":
-            return {"setup_id": state.id, "accounts": [{key: account.get(key) for key in ("id", "name", "username")} for account in payload["accounts"]]}
-    raise HTTPException(404, "No pending connection was found. Start the connection again")
-
-
-async def complete_oauth(db: Session, user: User, provider: str, setup_id: str, account_id: str) -> SocialChannel:
-    state = db.scalar(select(SocialOAuthState).where(SocialOAuthState.id == setup_id, SocialOAuthState.provider == provider,
-        SocialOAuthState.agency_id == user.agency_id, SocialOAuthState.user_id == user.id).with_for_update())
-    if not state or state.used_at or state.expires_at <= now_utc():
-        raise HTTPException(400, "This connection request is invalid or expired")
-    payload = _payload(state)
-    config = get_app_config(provider)
-    if payload.get("phase") != "pending" or payload.get("app_id") != config.app_id:
+async def complete_oauth(db: Session, user: User, provider_name: str, setup_id: str, account_id: str) -> SocialChannel:
+    """Bind one of the profile's accounts to the client."""
+    graph.provider_name(provider_name)
+    provider.require_config()
+    client = db.scalar(select(Client).where(Client.provider_profile_id == setup_id, Client.agency_id == user.agency_id))
+    if not client:
         raise HTTPException(400, "Start the connection again with the current application")
-    account = next((account for account in payload.get("accounts", []) if account["id"] == account_id), None)
+    agent = db.scalar(select(Agent).where(Agent.client_id == client.id, Agent.agency_id == user.agency_id,
+        Agent.deleted_at.is_(None)).order_by(Agent.created_at).limit(1))
+    state = db.scalar(select(SocialOAuthState).where(SocialOAuthState.provider == provider_name,
+        SocialOAuthState.agency_id == user.agency_id, SocialOAuthState.user_id == user.id,
+        SocialOAuthState.client_id == client.id, SocialOAuthState.used_at.is_(None),
+        SocialOAuthState.expires_at > now_utc()).order_by(SocialOAuthState.created_at.desc()).limit(1))
+    agent_id = state.agent_id if state else (agent.id if agent else None)
+    if not agent_id:
+        raise HTTPException(400, "Add an agent to this client before connecting")
+    owned_client(db, user, client.id, agent_id)
+    if state:
+        state.used_at = now_utc()
+    accounts = await provider.list_accounts(setup_id)
+    account = next((item for item in accounts if item["account_id"] == account_id), None)
     if not account:
         raise HTTPException(400, "Select one of the accounts authorized by this connection")
-    state.used_at = now_utc()
-    state.encrypted_payload = encrypt_secret(json.dumps({"phase": "completed"}))
-    # The channel commit also consumes and scrubs the locked setup atomically.
-    channel = await connect_account(db, user, state.client_id, state.agent_id, provider, account, config,
-                                    source="managed" if config.managed else "oauth", human_agent_enabled=config.human_agent_enabled)
-    return channel
+    return await connect_account(db, user, client.id, agent_id, provider_name,
+        {"id": account_id, "name": account.get("display_name"), "username": account.get("username")},
+        source="oauth", human_agent_enabled=True)
+
+
+async def bind_callback_account(db, provider_name: str, profile_id: str, account_id: str) -> tuple[SocialChannel, str]:
+    """Bind the account the operator just approved on the hosted page.
+    Returns the channel and the frontend path to land on."""
+    graph.provider_name(provider_name)
+    client = db.scalar(select(Client).where(Client.provider_profile_id == profile_id).limit(1))
+    if not client:
+        raise HTTPException(400, "This connection request is invalid or expired")
+    state = db.scalar(select(SocialOAuthState).where(SocialOAuthState.provider == provider_name,
+        SocialOAuthState.client_id == client.id, SocialOAuthState.used_at.is_(None),
+        SocialOAuthState.expires_at > now_utc()).order_by(SocialOAuthState.created_at.desc()).limit(1))
+    if state:
+        state.used_at = now_utc()
+        user = db.get(User, state.user_id)
+        agent_id, next_url = state.agent_id, state.next_url
+    else:
+        user = None
+        agent = db.scalar(select(Agent).where(Agent.client_id == client.id,
+            Agent.deleted_at.is_(None)).order_by(Agent.created_at).limit(1))
+        agent_id, next_url = (agent.id if agent else None), f"/clients/{client.id}/channels/{provider_name}"
+    if not user or user.agency_id != client.agency_id:
+        owner = db.scalar(select(User).where(User.agency_id == client.agency_id).order_by(User.created_at).limit(1))
+        if not owner or not agent_id:
+            raise HTTPException(400, "Add an agent to this client before connecting")
+        user = owner
+    accounts = await provider.list_accounts(profile_id)
+    account = next((item for item in accounts if item["account_id"] == account_id), None)
+    if not account:
+        raise HTTPException(400, "The approved account is not on this profile yet. Retry in a moment")
+    channel = await connect_account(db, user, client.id, agent_id, provider_name,
+        {"id": account_id, "name": account.get("display_name"), "username": account.get("username")},
+        source="oauth", human_agent_enabled=True)
+    return channel, next_url
 
 
 async def refresh_due_channels(db: Session) -> None:
-    """Refresh renewable tokens and detect expired or revoked Page access."""
+    """Prune expired states and confirm connected accounts still exist."""
     current = now_utc()
     db.execute(delete(SocialOAuthState).where(SocialOAuthState.expires_at <= current))
     db.commit()
-    channels = db.scalars(select(SocialChannel).where(SocialChannel.is_enabled.is_(True), SocialChannel.status == "connected",
-        or_(SocialChannel.token_expires_at.is_(None), SocialChannel.token_expires_at <= current + timedelta(days=7),
-            SocialChannel.provider == "messenger"))).all()
+    if not provider.configured():
+        return
+    channels = db.scalars(select(SocialChannel).where(SocialChannel.is_enabled.is_(True),
+        SocialChannel.status == "connected")).all()
     for channel in channels:
-        if channel.token_expires_at and channel.token_expires_at <= current:
-            channel.status = "reauthorization_required"
-            channel.last_error = "The messaging authorization expired. Reconnect this account"
-            channel.updated_at = current
-            db.commit()
-            continue
-        interval = timedelta(hours=24 if channel.provider == "messenger" else 1)
-        if channel.token_refresh_attempted_at and channel.token_refresh_attempted_at > current - interval:
-            continue
-        if channel.provider == "instagram" and channel.token_refreshed_at and channel.token_refreshed_at > current - timedelta(hours=24):
+        if channel.token_refresh_attempted_at and channel.token_refresh_attempted_at > current - timedelta(hours=24):
             continue
         channel.token_refresh_attempted_at = current
         db.commit()
         try:
-            token = decrypt_secret(channel.encrypted_access_token)
-            if channel.provider == "instagram":
-                data = await graph.refresh_instagram(token)
-                channel.encrypted_access_token = encrypt_secret(data["access_token"])
-                channel.token_expires_at = _parse_expiry(data["expires_at"])
-                channel.token_refreshed_at = current
-            else:
-                profile = await graph.verify_account(channel.provider, token, channel.external_account_id,
-                    channel.app_id, decrypt_secret(channel.encrypted_app_secret))
-                channel.token_expires_at = _parse_expiry(profile.get("expires_at"))
-                channel.granted_scopes = profile.get("scopes") or []
+            remote = await provider.require_account(channel.external_account_id, channel.provider_profile_id)
+            channel.display_name = str(remote.get("display_name") or remote.get("username") or channel.display_name or "")[:180]
+            channel.username = str(remote.get("username") or channel.username or "")[:180] or None
             channel.last_error = None
         except HTTPException as exc:
-            if exc.status_code in {401, 403}:
-                channel.status = "reauthorization_required"
-            channel.last_error = str(exc.detail)
+            if exc.status_code == 404:
+                channel.status = "error"
+            channel.last_error = str(exc.detail)[:400]
         channel.updated_at = current
         db.commit()
 
