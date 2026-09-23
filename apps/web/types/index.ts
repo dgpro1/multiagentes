@@ -418,6 +418,31 @@ export type ApiIntegration = {
 
 export type ApiTokenIssued = { token: string; token_prefix: string; expires_at: string | null };
 
+export type WebhookSubscription = {
+  id: string;
+  integration_id: string;
+  url: string;
+  events: string[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WebhookSecret = { subscription_id: string; secret: string };
+
+export type WebhookDelivery = {
+  id: string;
+  subscription_id: string;
+  event: string;
+  status: string;
+  attempts: number;
+  available_at: string | null;
+  last_error: string | null;
+  response_code: number | null;
+  created_at: string;
+  sent_at: string | null;
+};
+
 export type ApiScopes = {
   scopes: { key: string; description: string }[];
   presets: Record<string, string[]>;

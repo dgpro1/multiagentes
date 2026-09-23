@@ -11,14 +11,14 @@ purpose.
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..api_scopes import DESCRIPTIONS, INTEGRATIONS_MANAGE, PRESETS, resolve
 from ..database import get_db
 from ..deps import require
-from ..models import ApiIntegration, ApiToken, Client
+from ..models import ApiIntegration, ApiToken, Client, WebhookDelivery, WebhookSubscription
 from ..schemas import (
     ApiIntegrationCreate,
     ApiIntegrationOut,
@@ -29,8 +29,14 @@ from ..schemas import (
     ApiTokenCreate,
     ApiTokenIssued,
     ApiTokenOut,
+    WebhookDeliveryOut,
+    WebhookSecretOut,
+    WebhookSubscriptionCreate,
+    WebhookSubscriptionOut,
 )
+from ..security import encrypt_secret
 from ..services import api_credentials
+from ..services import outbound_webhooks
 
 router = APIRouter(prefix="/integrations", tags=["API integrations"])
 
@@ -186,26 +192,26 @@ def revoke_token(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def _checked_url(url: str, *, what: str = "URL") -> str:
+    """Exact-match allowlist: https everywhere, http only for loopback."""
+    from urllib.parse import urlsplit
+
+    url = (url or "").strip()
+    try:
+        parts = urlsplit(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid {what}: {url}") from exc
+    if parts.scheme == "https" and parts.hostname:
+        return url
+    if parts.scheme == "http" and parts.hostname in ("localhost", "127.0.0.1", "[::1]"):
+        return url
+    raise HTTPException(status_code=400, detail=f"URLs must be https (http only for localhost): {url}")
+
+
 def _checked_redirect_uris(uris: list[str]) -> list[str]:
     """Exact-match redirect allowlist: https everywhere, http only for
     loopback development."""
-    from urllib.parse import urlsplit
-
-    cleaned = []
-    for uri in uris or []:
-        uri = (uri or "").strip()
-        if not uri:
-            continue
-        try:
-            parts = urlsplit(uri)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"Invalid redirect URL: {uri}") from exc
-        if parts.scheme == "https" and parts.hostname:
-            cleaned.append(uri)
-        elif parts.scheme == "http" and parts.hostname in ("localhost", "127.0.0.1", "[::1]"):
-            cleaned.append(uri)
-        else:
-            raise HTTPException(status_code=400, detail=f"Redirect URLs must be https (http only for localhost): {uri}")
+    cleaned = [_checked_url(uri, what="redirect URL") for uri in uris or [] if (uri or "").strip()]
     if len(cleaned) > 10:
         raise HTTPException(status_code=400, detail="Register at most 10 redirect URLs")
     return cleaned
@@ -235,3 +241,122 @@ def setup_oauth_client(
         "redirect_uris": list(row.oauth_redirect_uris or []),
         "client_secret": secret,
     }
+
+
+def _subscription(db: Session, user, integration_id: uuid.UUID, subscription_id: uuid.UUID):
+    row = _integration(db, user, integration_id)
+    subscription = db.scalar(
+        select(WebhookSubscription).where(
+            WebhookSubscription.id == subscription_id,
+            WebhookSubscription.integration_id == row.id,
+        )
+    )
+    if subscription is None:
+        raise HTTPException(status_code=404, detail="Webhook subscription not found")
+    return subscription
+
+
+def _subscription_out(subscription) -> dict:
+    return {
+        "id": subscription.id,
+        "integration_id": subscription.integration_id,
+        "url": subscription.url,
+        "events": list(subscription.events or []),
+        "is_active": subscription.is_active,
+        "created_at": subscription.created_at,
+        "updated_at": subscription.updated_at,
+    }
+
+
+@router.get("/{integration_id}/webhooks", response_model=list[WebhookSubscriptionOut])
+def list_webhooks(
+    integration_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(require(INTEGRATIONS_MANAGE)),
+):
+    row = _integration(db, user, integration_id)
+    return [
+        _subscription_out(item)
+        for item in db.scalars(
+            select(WebhookSubscription)
+            .where(WebhookSubscription.integration_id == row.id)
+            .order_by(WebhookSubscription.created_at)
+        ).all()
+    ]
+
+
+@router.post("/{integration_id}/webhooks", response_model=WebhookSecretOut, status_code=status.HTTP_201_CREATED)
+def create_webhook(
+    integration_id: uuid.UUID,
+    payload: WebhookSubscriptionCreate,
+    db: Session = Depends(get_db),
+    user=Depends(require(INTEGRATIONS_MANAGE)),
+):
+    row = _integration(db, user, integration_id)
+    events = sorted({event.strip() for event in payload.events or []})
+    unknown = sorted(event for event in events if event not in outbound_webhooks.EVENTS)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown event: {', '.join(unknown)}")
+    secret = outbound_webhooks.new_secret()
+    subscription = WebhookSubscription(
+        integration_id=row.id,
+        url=_checked_url(payload.url),
+        encrypted_secret=encrypt_secret(secret),
+        events=events,
+    )
+    db.add(subscription)
+    db.commit()
+    db.refresh(subscription)
+    return {"subscription_id": subscription.id, "secret": secret}
+
+
+@router.delete("/{integration_id}/webhooks/{subscription_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_webhook(
+    integration_id: uuid.UUID,
+    subscription_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(require(INTEGRATIONS_MANAGE)),
+):
+    db.delete(_subscription(db, user, integration_id, subscription_id))
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{integration_id}/webhooks/{subscription_id}/deliveries", response_model=list[WebhookDeliveryOut])
+def list_deliveries(
+    integration_id: uuid.UUID,
+    subscription_id: uuid.UUID,
+    status_filter: str | None = Query(default=None, max_length=20),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user=Depends(require(INTEGRATIONS_MANAGE)),
+):
+    subscription = _subscription(db, user, integration_id, subscription_id)
+    query = select(WebhookDelivery).where(WebhookDelivery.subscription_id == subscription.id)
+    if status_filter in ("pending", "sent", "failed"):
+        query = query.where(WebhookDelivery.status == status_filter)
+    return list(
+        db.scalars(query.order_by(WebhookDelivery.created_at.desc()).limit(limit)).all()
+    )
+
+
+@router.post(
+    "/{integration_id}/webhooks/{subscription_id}/deliveries/{delivery_id}/replay",
+    response_model=WebhookDeliveryOut,
+)
+def replay_delivery(
+    integration_id: uuid.UUID,
+    subscription_id: uuid.UUID,
+    delivery_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(require(INTEGRATIONS_MANAGE)),
+):
+    subscription = _subscription(db, user, integration_id, subscription_id)
+    delivery = db.scalar(
+        select(WebhookDelivery).where(
+            WebhookDelivery.id == delivery_id, WebhookDelivery.subscription_id == subscription.id
+        )
+    )
+    if delivery is None:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    return outbound_webhooks.replay(db, delivery)

@@ -96,10 +96,20 @@ def set_status(db: Session, conversation: Conversation, status: str, *, actor: s
     conversation.status_changed_at = now
     if status == "resolved":
         from .phone_handover import cancel_phone_pause
+
         cancel_phone_pause(conversation)
         conversation.resolved_at = now
         conversation.waiting_since = None
         record_activity(db, conversation, "resolved", actor=actor)
+        from .outbound_webhooks import CONVERSATION_RESOLVED, emit
+
+        db.flush()
+        emit(
+            db, agency_id=conversation.agency_id, client_id=conversation.client_id,
+            event=CONVERSATION_RESOLVED,
+            data={"conversation_id": str(conversation.id), "channel": conversation.channel},
+        )
+        db.flush()
     else:
         conversation.resolved_at = None
         record_activity(db, conversation, "reopened", actor=actor)
@@ -257,9 +267,28 @@ def set_pipeline_stage(
     if stage is None:
         record_activity(db, conversation, "pipeline_stage_removed", actor=actor,
                          details={"stage": previous.name if previous else ""})
+        _emit_deal_moved(db, conversation, None, actor)
         return True
     record_activity(db, conversation, "pipeline_stage_changed", actor=actor, details={"stage": stage.name})
+    _emit_deal_moved(db, conversation, stage, actor)
     return True
+
+
+def _emit_deal_moved(db, conversation: Conversation, stage, actor: str | None) -> None:
+    from .outbound_webhooks import DEAL_MOVED, emit
+
+    db.flush()
+    emit(
+        db, agency_id=conversation.agency_id, client_id=conversation.client_id, event=DEAL_MOVED,
+        data={
+            "conversation_id": str(conversation.id),
+            "pipeline_stage_id": str(stage.id) if stage else None,
+            "stage_name": stage.name if stage else None,
+            "deal_value": float(conversation.deal_value) if conversation.deal_value is not None else None,
+            "actor": actor,
+        },
+    )
+    db.flush()
 
 
 def note_inbound(db: Session, conversation: Conversation) -> None:

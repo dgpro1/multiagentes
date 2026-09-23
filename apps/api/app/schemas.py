@@ -1293,6 +1293,41 @@ class ApiOAuthClientOut(BaseModel):
     client_secret: str | None = None
 
 
+class WebhookSubscriptionCreate(BaseModel):
+    url: str = Field(min_length=1, max_length=500)
+    events: list[str] = Field(min_length=1, max_length=10)
+
+
+class WebhookSubscriptionOut(BaseModel):
+    id: uuid.UUID
+    integration_id: uuid.UUID
+    url: str
+    events: list[str]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class WebhookSecretOut(BaseModel):
+    """The secret once, right after the subscription is created."""
+
+    subscription_id: uuid.UUID
+    secret: str
+
+
+class WebhookDeliveryOut(BaseModel):
+    id: uuid.UUID
+    subscription_id: uuid.UUID
+    event: str
+    status: str
+    attempts: int
+    available_at: datetime | None = None
+    last_error: str | None = None
+    response_code: int | None = None
+    created_at: datetime
+    sent_at: datetime | None = None
+
+
 class ApiScopeOut(BaseModel):
     key: str
     description: str

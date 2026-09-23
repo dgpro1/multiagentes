@@ -121,6 +121,7 @@ async def process_replies(db, *, limit: int = 10) -> int:
 
 
 async def run_scope(db) -> None:
+    from .outbound_webhooks import process_due
     from .social_connections import refresh_due_channels
     from .social_delivery import process_outbox
     from .social_inbound import process_pending
@@ -131,6 +132,7 @@ async def run_scope(db) -> None:
     await complete_escalations(db)
     await refresh_due_channels(db)
     await process_history_jobs(db)
+    await process_due(db)
 
 
 async def run_once() -> None:

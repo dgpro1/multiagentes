@@ -1227,3 +1227,56 @@ class ApiIdempotencyKey(Base):
     response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     response_body: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class WebhookSubscription(Base):
+    """One third-party URL an integration forwards events to.
+
+    The secret is write-only and only its HMAC signatures leave the server.
+    A subscription follows its integration: deleting or revoking it stops
+    every delivery, and the log rows go with it.
+    """
+
+    __tablename__ = "webhook_subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    integration_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("api_integrations.id", ondelete="CASCADE"), index=True
+    )
+    url: Mapped[str] = mapped_column(String(500))
+    encrypted_secret: Mapped[str] = mapped_column(Text)
+    # Event names from app.services.outbound_webhooks.EVENTS.
+    events: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+    integration: Mapped[ApiIntegration] = relationship()
+    deliveries: Mapped[list["WebhookDelivery"]] = relationship(
+        back_populates="subscription", cascade="all, delete-orphan", order_by="WebhookDelivery.created_at"
+    )
+
+
+class WebhookDelivery(Base):
+    """One attempt log for one event at one subscription. ``pending`` rows
+    with a past ``available_at`` are due; ``sent`` and ``failed`` are the
+    permanent log an operator replays from."""
+
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("webhook_subscriptions.id", ondelete="CASCADE"), index=True
+    )
+    event: Mapped[str] = mapped_column(String(60))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    response_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    subscription: Mapped[WebhookSubscription] = relationship(back_populates="deliveries")

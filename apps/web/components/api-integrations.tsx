@@ -8,7 +8,7 @@ import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import type { ApiIntegration, ApiScopes, ApiTokenIssued, Client } from "@/types";
+import type { ApiIntegration, ApiScopes, ApiTokenIssued, Client, WebhookDelivery, WebhookSecret, WebhookSubscription } from "@/types";
 
 const EXPIRY_OPTIONS = [7, 30, 90, 365, 1825];
 
@@ -166,6 +166,7 @@ function IntegrationRow({ item, showClient, expanded, onToggle, onEdit, onIssue,
         </li>)}
       </ul>}
       <OAuthClientSection item={item} />
+      <WebhookSection item={item} />
     </td></tr>}
   </>;
 }
@@ -217,6 +218,156 @@ function OAuthClientSection({ item }: { item: ApiIntegration }) {
     <div><button type="button" className="button secondary small" disabled={busy} onClick={setup}>
       {busy ? <LoaderCircle className="spin" size={14} /> : null} {t(clientId ? "settings.integrations.oauthRotate" : "settings.integrations.oauthEnable")}
     </button></div>
+  </div>;
+}
+
+const WEBHOOK_EVENTS = ["message.received", "conversation.resolved", "deal.moved"];
+
+function webhookEventLabel(t: ReturnType<typeof useT>, event: string): string {
+  if (event === "message.received") return t("settings.integrations.webhookEventReceived");
+  if (event === "conversation.resolved") return t("settings.integrations.webhookEventResolved");
+  if (event === "deal.moved") return t("settings.integrations.webhookEventDeal");
+  return event;
+}
+
+function WebhookSection({ item }: { item: ApiIntegration }) {
+  const t = useT();
+  const toast = useToast();
+  const [subs, setSubs] = useState<WebhookSubscription[] | null>(null);
+  const [url, setUrl] = useState("");
+  const [events, setEvents] = useState<string[]>([...WEBHOOK_EVENTS]);
+  const [secret, setSecret] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<WebhookSubscription | null>(null);
+  const [openLog, setOpenLog] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setSubs(await api<WebhookSubscription[]>(`/integrations/${item.id}/webhooks`));
+    } catch (err) { toast.error(messageFrom(err)); }
+  }, [item.id, toast]);
+  useEffect(() => { load(); }, [load]);
+
+  function toggleEvent(event: string) {
+    setEvents((current) => current.includes(event) ? current.filter((e) => e !== event) : [...current, event]);
+  }
+
+  async function add() {
+    if (!url.trim() || events.length === 0 || busy) return;
+    setBusy(true);
+    try {
+      const created = await api<WebhookSecret>(`/integrations/${item.id}/webhooks`, {
+        method: "POST", body: JSON.stringify({ url: url.trim(), events }),
+      });
+      setSecret(created.secret);
+      setCopied(false);
+      setUrl("");
+      await load();
+      toast.success(t("settings.integrations.webhookAdded"));
+    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
+  }
+
+  async function remove() {
+    if (!deleting) return;
+    try {
+      await api(`/integrations/${item.id}/webhooks/${deleting.id}`, { method: "DELETE" });
+      setDeleting(null);
+      await load();
+      toast.success(t("settings.integrations.webhookDeleted"));
+    } catch (err) { toast.error(messageFrom(err)); }
+  }
+
+  async function copy(value: string) {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+
+  return <div className="integration-oauth">
+    <strong>{t("settings.integrations.webhookTitle")}</strong>
+    <p className="social-meta">{t("settings.integrations.webhookCopy")}</p>
+    {secret && <div className="wa-copy-field">
+      <label>{t("settings.integrations.webhookSecret")}<input readOnly value={secret} onFocus={(e) => e.currentTarget.select()} /></label>
+      <button type="button" className="button secondary" onClick={() => copy(secret)}>
+        <ClipboardCopy size={15} /> {copied ? t("settings.integrations.copied") : t("settings.integrations.copyButton")}
+      </button>
+    </div>}
+    {subs !== null && subs.length > 0 && <ul className="integration-tokens">
+      {subs.map((sub) => <li key={sub.id}>
+        <code>{sub.url}</code>
+        <small className="soft">{sub.events.map((e) => webhookEventLabel(t, e)).join(" · ")}</small>
+        <button type="button" className="text-button" onClick={() => setOpenLog((id) => (id === sub.id ? null : sub.id))}>
+          {t("settings.integrations.webhookLog")}</button>
+        <button type="button" className="text-button danger-text"
+          aria-label={t("settings.integrations.webhookDelete")} onClick={() => setDeleting(sub)}>
+          <Trash2 size={14} /></button>
+        {openLog === sub.id && <WebhookLog integrationId={item.id} subscription={sub} />}
+      </li>)}
+    </ul>}
+    {subs !== null && subs.length === 0 && !secret && <p className="social-meta">{t("settings.integrations.webhookEmpty")}</p>}
+    <label>{t("settings.integrations.webhookUrl")}
+      <input value={url} maxLength={500} onChange={(e) => setUrl(e.target.value)} disabled={busy}
+        placeholder="https://…" autoComplete="off" /></label>
+    <div className="integration-scopes">
+      {WEBHOOK_EVENTS.map((event) => <label key={event} className="switch-row">
+        <input type="checkbox" checked={events.includes(event)} onChange={() => toggleEvent(event)} disabled={busy} />
+        <span><strong><code>{event}</code></strong><small>{webhookEventLabel(t, event)}</small></span>
+      </label>)}
+    </div>
+    <div><button type="button" className="button secondary small" disabled={busy || !url.trim() || events.length === 0} onClick={add}>
+      {busy ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />} {t("settings.integrations.webhookAdd")}
+    </button></div>
+    {deleting && <ConfirmModal
+      title={t("settings.integrations.webhookDeleteTitle")}
+      message={t("settings.integrations.webhookDeleteCopy")}
+      confirmLabel={t("settings.integrations.webhookDelete")}
+      cancelLabel={t("common.cancel")} confirmIcon={<Trash2 size={15} />}
+      onConfirm={remove} onClose={() => setDeleting(null)} />}
+  </div>;
+}
+
+function WebhookLog({ integrationId, subscription }: { integrationId: string; subscription: WebhookSubscription }) {
+  const t = useT();
+  const toast = useToast();
+  const [filter, setFilter] = useState("");
+  const [rows, setRows] = useState<WebhookDelivery[] | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const query = filter ? `?status_filter=${filter}` : "";
+      setRows(await api<WebhookDelivery[]>(`/integrations/${integrationId}/webhooks/${subscription.id}/deliveries${query}`));
+    } catch (err) { toast.error(messageFrom(err)); }
+  }, [integrationId, subscription.id, filter, toast]);
+  useEffect(() => { load(); }, [load]);
+
+  async function replay(delivery: WebhookDelivery) {
+    try {
+      await api(`/integrations/${integrationId}/webhooks/${subscription.id}/deliveries/${delivery.id}/replay`, { method: "POST" });
+      toast.success(t("settings.integrations.webhookReplayed"));
+      await load();
+    } catch (err) { toast.error(messageFrom(err)); }
+  }
+
+  if (rows === null) return <p className="social-meta"><LoaderCircle className="spin" size={14} /></p>;
+  return <div className="webhook-log">
+    <div className="row-actions">
+      {["", "pending", "sent", "failed"].map((option) => <button key={option || "all"} type="button"
+        className={filter === option ? "button secondary small" : "button ghost small"}
+        onClick={() => setFilter(option)}>
+        {option === "" ? t("settings.integrations.webhookFilterAll") : option}</button>)}
+    </div>
+    {rows.length === 0
+      ? <p className="social-meta">{t("settings.integrations.webhookEmpty")}</p>
+      : <ul className="integration-tokens">
+        {rows.map((row) => <li key={row.id}>
+          <code>{row.event}</code>
+          <small className="soft">{row.status} · {row.attempts} · {new Date(row.created_at).toLocaleString()}
+            {row.last_error ? ` · ${row.last_error}` : ""}</small>
+          {row.status !== "sent" && <button type="button" className="text-button" onClick={() => replay(row)}>
+            {t("settings.integrations.webhookReplay")}</button>}
+        </li>)}
+      </ul>}
   </div>;
 }
 

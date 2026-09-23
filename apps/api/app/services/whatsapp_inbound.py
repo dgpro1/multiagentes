@@ -325,6 +325,20 @@ async def process_inbound(
             filename="location.json",
             kind="location",
         )
+    db.flush()
+    if not blocked:
+        from .outbound_webhooks import MESSAGE_RECEIVED, emit
+
+        emit(
+            db, agency_id=channel.agency_id, client_id=channel.client_id, event=MESSAGE_RECEIVED,
+            data={
+                "conversation_id": str(conversation.id), "message_id": str(visitor_message.id),
+                "channel": conversation_channel,
+                "contact_id": str(conversation.contact_id) if conversation.contact_id else None,
+                "contact_name": conversation.contact_name, "content": display_content,
+            },
+        )
+        db.flush()
     if defer_reply:
         db.flush()
         return InboundResult(accepted=True, conversation_id=conversation.id, mode=conversation.mode)
