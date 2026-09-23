@@ -392,6 +392,35 @@ export type PortalChannel = {
   supports_templates: boolean;
 };
 
+export type ApiToken = {
+  id: string;
+  kind: string;
+  token_prefix: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  request_count: number;
+  created_at: string;
+};
+
+export type ApiIntegration = {
+  id: string;
+  name: string;
+  client_id: string | null;
+  client_name: string | null;
+  scopes: string[];
+  last_used_at: string | null;
+  created_at: string;
+  tokens: ApiToken[];
+};
+
+export type ApiTokenIssued = { token: string; token_prefix: string; expires_at: string | null };
+
+export type ApiScopes = {
+  scopes: { key: string; description: string }[];
+  presets: Record<string, string[]>;
+};
+
 export type ContactTag = {
   id: string;
   name: string;

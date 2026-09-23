@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Eye, EyeOff, ImagePlus, LoaderCircle, Save, ShieldCheck, Trash2 } from "lucide-react";
 import { PageHead } from "@/components/ui";
 import { FormSkeleton } from "@/components/skeleton";
+import { ApiIntegrations } from "@/components/api-integrations";
 import { PreferencesSection } from "@/components/preferences-section";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
@@ -67,6 +68,10 @@ export default function SettingsPage() {
       {PROVIDERS.map((preset) => (
         <ProviderKeyCard key={preset.id} preset={preset} state={providers.find((x) => x.provider === preset.id)} busy={busy} onSave={saveKey} onRemove={removeKey} t={t} />
       ))}
+    </section>
+
+    <section className="section-block"><div className="section-heading"><div><h2>{t("settings.integrations.title")}</h2><p>{t("settings.integrations.copy")}</p></div></div>
+      <ApiIntegrations />
     </section>
 
     <PreferencesSection />

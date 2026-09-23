@@ -2077,6 +2077,16 @@ p .msg-time, .bubble .msg-time { float: none; position: absolute; right: 11px; b
 /* "?" hints that say what the AI receives from a field or section. */
 .label-row { display: inline-flex; align-items: center; gap: 6px; }
 .row-actions { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+
+.api-integrations { display: flex; flex-direction: column; gap: 14px; }
+.integration-detail td { background: var(--surface-2); }
+.integration-scopes { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.integration-scopes code { font-size: 11.5px; }
+.integration-tokens { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.integration-tokens li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.token-prefix { font-size: 12px; }
+.integration-scope-list { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.integration-scope-list .switch-row { margin: 0; }
 .row-end { text-align: right; width: 1%; }
 .name-line { display: inline-flex; align-items: center; gap: 8px; }
 .modal-head .icon-button { width: 34px; height: 34px; min-height: 0; padding: 0; flex: 0 0 auto; }
