@@ -19,6 +19,17 @@ WhatsApp QR lines run through a self-hosted Evolution API instance (`docker-comp
 
 Enable the pre-commit guard once per clone: `git config core.hooksPath .githooks`. It blocks committing local-only files (`work/`, `internal/`, `*.local.md`) and any staged content matching terms in `work/forbidden-words.txt` (gitignored) or a commit-blocking marker (spelled out in `.githooks/pre-commit`; this file cannot quote it without tripping the guard it describes). Keep internal notes/roadmap in `work/` (gitignored) — never in the repo.
 
+## Git workflow (multiple agents, one history)
+
+Several agents and worktrees work on this repo, so `main` is the single source of truth and every branch is short-lived. `origin` is `dgpro1/multiagentes` (where `main` lives); `upstream` is the original `sarrazola/openlivery`, fetch-only.
+
+- **Start from the latest `main`.** Before any task, fetch and branch from (or sync the worktree with) `origin/main`. Never start from a stale local `main` or another agent's feature branch.
+- **Finish by landing on `main`.** When a task is done, merge it into `main` and push `origin main` right away. Work left on a side branch is invisible to every other agent, so an unmerged branch counts as unfinished.
+- **Keep it linear and small.** Prefer fast-forward merges of small branches. Do not let a branch live for days, and never keep a long-running feature branch that only one agent knows about.
+- **No parallel edits of the same files.** Before touching a shared file (`globals.css`, `portal/[slug]/page.tsx`, `app-shell.tsx`, i18n dicts), check `git status` and `git log origin/main` for in-flight work on it.
+- **Never work directly in the root checkout.** Use a worktree per task; leave the root checkout on a clean `main`. Uncommitted changes there are not shared with anyone and get lost or duplicated.
+- **Clone must be full.** A shallow clone (`.git/shallow`) makes pushes to a fresh remote fail; run `git fetch --unshallow` if it exists.
+
 ## Commands
 
 ### Docker (recommended)
