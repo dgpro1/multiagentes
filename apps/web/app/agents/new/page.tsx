@@ -31,9 +31,7 @@ export default function NewAgentPage() {
   const [templateId, setTemplateId] = useState("");
   const [clientId, setClientId] = useState("");
   const [name, setName] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [personality, setPersonality] = useState("");
-  const [brief, setBrief] = useState({ summary: "", products: "", audience: "", policies: "", dos: "", donts: "" });
+  const [prompt, setPrompt] = useState("");
   const provider = DEFAULT_PROVIDER;
   const [model, setModel] = useState(defaultModelFor(provider));
   const [temperature, setTemperature] = useState(0.7);
@@ -54,19 +52,12 @@ export default function NewAgentPage() {
     }).catch(() => {});
   }, []);
 
-  const promptTokens = useMemo(() => estimateTokens([brief.summary, brief.products, brief.audience, brief.policies, instructions, brief.dos, brief.donts, personality].join("\n")), [brief, instructions, personality]);
+  const promptTokens = useMemo(() => estimateTokens(prompt), [prompt]);
 
   function applyTemplate(id: string) {
     setTemplateId(id);
     const tpl = agentTemplates.find((item) => item.id === id);
-    if (tpl) {
-      setInstructions(localize(tpl.instructions, lang));
-      setPersonality(localize(tpl.personality, lang));
-      setBrief({ summary: localize(tpl.brief.summary, lang), products: localize(tpl.brief.products, lang), audience: localize(tpl.brief.audience, lang), policies: localize(tpl.brief.policies, lang), dos: localize(tpl.brief.dos, lang), donts: localize(tpl.brief.donts, lang) });
-    } else {
-      setInstructions(""); setPersonality("");
-      setBrief({ summary: "", products: "", audience: "", policies: "", dos: "", donts: "" });
-    }
+    setPrompt(tpl ? localize(tpl.prompt, lang) : "");
     setStep(1);
   }
 
@@ -76,8 +67,7 @@ export default function NewAgentPage() {
     setBusy(true);
     try {
       const agent = await api<Agent>("/agents", { method: "POST", body: JSON.stringify({
-        client_id: clientId, name, instructions, personality,
-        brief_summary: brief.summary, brief_products: brief.products, brief_audience: brief.audience, brief_policies: brief.policies, brief_dos: brief.dos, brief_donts: brief.donts,
+        client_id: clientId, name, instructions: prompt,
         provider, model: model || "", prompt_language: lang,
         temperature, max_tokens: maxTokens, memory_limit: memoryLimit, phone_handover_minutes: phoneHandoverMinutes, reply_delay_min_seconds: replyDelayMin, reply_delay_max_seconds: replyDelayMax, is_active: true,
         image_enabled: imageEnabled, audio_enabled: audioEnabled,
@@ -150,9 +140,7 @@ export default function NewAgentPage() {
 
       {step === 2 && <div className="wizard-fields">
         <div className="wizard-copy"><h2>{t("agents.wizard.essentialsTitle")}</h2><p>{t("agents.wizard.essentialsSubtitle")}</p></div>
-        <label>{t("agents.detail.briefSummaryLabel")}<textarea value={brief.summary} onChange={(e) => setBrief({ ...brief, summary: e.target.value })} rows={2} autoFocus placeholder={t("agents.detail.briefSummaryPlaceholder")} /></label>
-        <label>{t("agents.detail.briefPoliciesLabel")}<textarea value={brief.policies} onChange={(e) => setBrief({ ...brief, policies: e.target.value })} rows={3} placeholder={t("agents.detail.briefPoliciesPlaceholder")} /></label>
-        <label>{t("agents.new.instructionsLabel")}<textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={5} placeholder={t("agents.new.instructionsPlaceholder")} /></label>
+        <label>{t("agents.new.promptLabel")}<textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={16} autoFocus placeholder={t("agents.new.promptPlaceholder")} /></label>
         <span className="field-help">{t("agents.wizard.essentialsLater")}</span>
       </div>}
 
@@ -179,7 +167,6 @@ export default function NewAgentPage() {
           <div><dt>{t("agents.new.nameLabel")}</dt><dd>{name}</dd></div>
           <div><dt>{t("agents.new.clientLabel")}</dt><dd>{clients.find((c) => c.id === clientId)?.name || ""}</dd></div>
           <div><dt>{t("agents.wizard.reviewTemplate")}</dt><dd>{templateId ? localize(agentTemplates.find((x) => x.id === templateId)!.name, lang) : t("agents.wizard.blankName")}</dd></div>
-          <div><dt>{t("agents.detail.briefSummaryLabel")}</dt><dd>{brief.summary.trim() || <span className="muted">{t("agents.wizard.reviewEmpty")}</span>}</dd></div>
           <div><dt>{t("agents.new.modelLabel")}</dt><dd>{modelOptionsFor(provider).find((item) => item.id === model)?.label || model}</dd></div>
           <div><dt>{t("agents.wizard.reviewPrompt")}</dt><dd><span className="token-pill"><Sparkles size={13} /> {t("agents.wizard.tokens", { count: promptTokens.toLocaleString(lang) })}</span></dd></div>
         </dl>

@@ -120,7 +120,7 @@ export default function AgentDetailPage() {
   async function saveConfig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true);
     const form = new FormData(event.currentTarget);
-    const payload = { name, instructions: form.get("instructions"), personality: form.get("personality"), brief_summary: form.get("brief_summary"), brief_products: form.get("brief_products"), brief_audience: form.get("brief_audience"), brief_policies: form.get("brief_policies"), brief_dos: form.get("brief_dos"), brief_donts: form.get("brief_donts"), provider, model, prompt_language: lang, temperature, max_tokens: maxTokens, memory_limit: memoryLimit, phone_handover_minutes: phoneHandoverMinutes, reply_delay_min_seconds: replyDelayMin, reply_delay_max_seconds: replyDelayMax, image_enabled: imageEnabled, image_model: imageModel, audio_enabled: audioEnabled, audio_model: audioModel };
+    const payload = { name, instructions: form.get("instructions"), provider, model, prompt_language: lang, temperature, max_tokens: maxTokens, memory_limit: memoryLimit, phone_handover_minutes: phoneHandoverMinutes, reply_delay_min_seconds: replyDelayMin, reply_delay_max_seconds: replyDelayMax, image_enabled: imageEnabled, image_model: imageModel, audio_enabled: audioEnabled, audio_model: audioModel };
     try {
       setAgent(await api<Agent>(`/agents/${id}`, { method: "PATCH", body: JSON.stringify(payload) }));
       api<{ prompt: string }>(`/agents/${id}/prompt`).then((r) => setPromptTokens(estimateTokens(r.prompt))).catch(() => {});
@@ -211,22 +211,8 @@ export default function AgentDetailPage() {
 
     {tab === "basics" && <form className="settings-form" onSubmit={saveConfig}>
       <section className="settings-section"><div className="settings-copy"><h3>{t("agents.detail.generalHeading")} <AiHint text={t("aiContext.agentName")} /></h3><p>{t("agents.detail.generalCopy")}</p></div><div className="settings-fields"><div className="form-grid"><label>{t("agents.detail.nameLabel")}<input value={name} required onChange={(e) => setName(e.target.value)} /></label><label>{t("agents.detail.clientLabel")}<input value={agent.client.name} readOnly /></label></div><p className="greeting-preview">{t("agents.detail.greetingPreview", { name: name.trim() || agent.name, client: agent.client.name })}</p></div></section>
-      <section className="settings-section"><div className="settings-copy"><h3>{t("agents.detail.briefBusinessHeading")} <AiHint text={t("aiContext.agentBusiness")} /></h3><p>{t("agents.detail.briefBusinessCopy")}</p></div><div className="settings-fields">
-        <label>{t("agents.detail.briefSummaryLabel")}<textarea name="brief_summary" rows={2} defaultValue={agent.brief_summary} placeholder={t("agents.detail.briefSummaryPlaceholder")} /></label>
-        <div className="form-grid">
-          <label>{t("agents.detail.briefProductsLabel")}<textarea name="brief_products" rows={3} defaultValue={agent.brief_products} placeholder={t("agents.detail.briefProductsPlaceholder")} /></label>
-          <label>{t("agents.detail.briefAudienceLabel")}<textarea name="brief_audience" rows={3} defaultValue={agent.brief_audience} placeholder={t("agents.detail.briefAudiencePlaceholder")} /></label>
-        </div>
-        <label>{t("agents.detail.briefPoliciesLabel")}<textarea name="brief_policies" rows={3} defaultValue={agent.brief_policies} placeholder={t("agents.detail.briefPoliciesPlaceholder")} /><span className="field-help">{t("agents.detail.briefPoliciesHelp")}</span></label>
-      </div></section>
-      <section className="settings-section"><div className="settings-copy"><h3>{t("agents.detail.briefJobHeading")} <AiHint text={t("aiContext.agentJob")} /></h3><p>{t("agents.detail.briefJobCopy")}</p></div><div className="settings-fields">
-        <label>{t("agents.detail.instructionsLabel")}<textarea name="instructions" rows={8} defaultValue={agent.instructions} placeholder={t("agents.detail.instructionsPlaceholder")} /></label>
-        <div className="form-grid">
-          <label>{t("agents.detail.briefDosLabel")}<textarea name="brief_dos" rows={3} defaultValue={agent.brief_dos} placeholder={t("agents.detail.briefDosPlaceholder")} /></label>
-          <label>{t("agents.detail.briefDontsLabel")}<textarea name="brief_donts" rows={3} defaultValue={agent.brief_donts} placeholder={t("agents.detail.briefDontsPlaceholder")} /></label>
-        </div>
-        <span className="field-help">{t("agents.detail.briefRulesHelp")}</span>
-        <label>{t("agents.detail.personalityLabel")}<textarea name="personality" rows={3} defaultValue={agent.personality} placeholder={t("agents.detail.personalityPlaceholder")} /></label>
+      <section className="settings-section"><div className="settings-copy"><h3>{t("agents.detail.promptHeading")} <AiHint text={t("aiContext.agentPrompt")} /></h3><p>{t("agents.detail.promptCopy")}</p></div><div className="settings-fields">
+        <label>{t("agents.detail.promptLabel")}<textarea name="instructions" rows={18} defaultValue={agent.instructions} placeholder={t("agents.detail.promptPlaceholder")} /><span className="field-help">{t("agents.detail.promptHelp")}</span></label>
       </div></section>
       <EscalationRulesEditor agentId={agent.id} clientId={agent.client_id} />
       <section className="settings-section"><div className="settings-copy"><h3>{t("agents.detail.aiModelHeading")}</h3><p>{t("agents.detail.aiModelCopy")}</p></div><div className="settings-fields">

@@ -43,6 +43,12 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- **One prompt per agent.** The agent's Basics tab and the creation wizard now
+  have a single **Prompt** field (`instructions`) instead of separate sections
+  for identity, the business, the agent's job, rules and tone. Migration `0057`
+  empties the old fields (`personality` and the `brief_*` columns) on existing
+  agents; each keeps its `instructions`. The API still accepts the old fields.
+  Business hours now go inside the prompt.
 - **The navigation folds.** The agency sidebar and the client portal's navigation both collapse into a 76px icon rail: each label gives way to its icon with a tooltip, the column animates, and the choice is remembered per browser (`localStorage`, one key per surface, so the agency and the portal do not move each other) and restored without a flash on reload. A control in the navigation's own header folds and unfolds it. Phones are untouched: the agency keeps its drawer and the portal its bottom tab bar.
 - **Messaging channels run through one provider key.** WhatsApp API numbers
   and Instagram/Messenger accounts now link through the hosted authorization

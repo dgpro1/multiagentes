@@ -38,9 +38,8 @@ Both features go through the same OpenRouter key as the chat model.
 | Setting | Field | What it does |
 | --- | --- | --- |
 | Client | `client_id` | The client that owns the agent. |
-| What the agent does | `instructions` | Its job, tasks and rules, in prose. Sent as part of the system prompt. |
-| Tone | `personality` | Tone and style guidance for replies. |
-| Business brief | `brief_summary`, `brief_products`, `brief_audience`, `brief_policies`, `brief_dos`, `brief_donts` | What the business is and offers, plus the agent's always/never rules. Composed into the system prompt. |
+| Prompt | `instructions` | The one place to write the agent's prompt: its job, the business, hours, rules and tone, in prose. Sent as part of the system prompt. |
+| Legacy prompt fields | `personality`, `brief_summary`, `brief_products`, `brief_audience`, `brief_policies`, `brief_dos`, `brief_donts` | No longer shown in the panel and emptied on existing agents. The API still accepts them and, when set, composes them into the system prompt after `instructions`; new integrations should write everything in `instructions`. |
 | Business identity | `industry`, `business_type`, `business_custom` (on the client) | Catalog codes (`GET /api/industries`) that name the kind of business in the prompt's first line; when the catalog only offers "other", `business_custom` holds the client's own words. |
 | Contact | from the conversation | Name, phone, e-mail, tags and channel of the person writing, added to the prompt at reply time so a form, an e-mail or a tool gets them instead of "not specified". Only what the contact record has is listed. Absent in the playground. |
 | Prompt language | `prompt_language` | `es` or `en`: the language of the prompt's headings and fixed sentences. Set from the UI language when the agent is saved. |
@@ -58,7 +57,7 @@ Sampling parameters are applied best-effort; models that reject a value fall bac
 
 ## Business hours and future requests
 
-Put the schedule in the agent's **Key information and policies** (`brief_policies`) and set the client's timezone. The prompt includes the current local weekday, date and time. Policies travel with every reply, even when no document is retrieved.
+Put the schedule in the agent's **Prompt** (`instructions`) and set the client's timezone. The prompt includes the current local weekday, date and time. The prompt travels with every reply, even when no document is retrieved.
 
 Describe service hours separately from what the assistant may do outside those hours. A clinic's reception being closed at 01:00 does not mean the assistant must stop answering or cannot book an available appointment for tomorrow. A restaurant may answer menu questions all night while accepting immediate orders only during kitchen hours. Specify delivery and pickup hours, last-order cutoffs, holidays, overnight shifts and whether scheduled orders are permitted where relevant.
 

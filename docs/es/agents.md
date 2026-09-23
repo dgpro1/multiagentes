@@ -38,9 +38,8 @@ Ambas funciones pasan por la misma clave de OpenRouter que el modelo de chat.
 | Ajuste | Campo | Qué hace |
 | --- | --- | --- |
 | Cliente | `client_id` | El cliente propietario del agente. |
-| Qué hace el agente | `instructions` | Su trabajo, tareas y reglas, en prosa. Va dentro del prompt del sistema. |
-| Tono | `personality` | Guía de tono y estilo para las respuestas. |
-| Brief del negocio | `brief_summary`, `brief_products`, `brief_audience`, `brief_policies`, `brief_dos`, `brief_donts` | Qué es y qué ofrece el negocio, más las reglas de siempre/nunca del agente. Se compone en el prompt del sistema. |
+| Prompt | `instructions` | El único lugar donde escribir el prompt del agente: su trabajo, el negocio, horarios, reglas y tono, en prosa. Va dentro del prompt del sistema. |
+| Campos de prompt heredados | `personality`, `brief_summary`, `brief_products`, `brief_audience`, `brief_policies`, `brief_dos`, `brief_donts` | Ya no se muestran en el panel y se vaciaron en los agentes existentes. La API aún los acepta y, si tienen contenido, los compone en el prompt del sistema después de `instructions`; las integraciones nuevas deben escribir todo en `instructions`. |
 | Identidad del negocio | `industry`, `business_type`, `business_custom` (en el cliente) | Códigos del catálogo (`GET /api/industries`) que nombran el tipo de negocio en la primera línea del prompt; cuando el catálogo solo ofrece "otro", `business_custom` guarda las palabras del propio cliente. |
 | Contacto | de la conversación | Nombre, teléfono, correo, etiquetas y canal de quien escribe, añadidos al prompt al responder para que un registro, un correo o una herramienta los reciba en vez de "no especificado". Solo se lista lo que la ficha del contacto tiene. No aparece en el playground. |
 | Idioma del prompt | `prompt_language` | `es` o `en`: el idioma de los títulos y frases fijas del prompt. Se toma del idioma de la interfaz al guardar el agente. |
