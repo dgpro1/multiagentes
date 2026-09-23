@@ -107,6 +107,9 @@ class Client(Base):
     )
     teams: Mapped[list["Team"]] = relationship(back_populates="client", cascade="all, delete-orphan")
     social_channels: Mapped[list["SocialChannel"]] = relationship(back_populates="client", cascade="all, delete-orphan")
+    calendar_members: Mapped[list["CalendarMember"]] = relationship(
+        back_populates="client", cascade="all, delete-orphan", order_by="CalendarMember.created_at"
+    )
 
     @property
     def logo_url(self) -> str | None:
@@ -1035,3 +1038,52 @@ class SocialHistoryImport(Base):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+class CalendarMember(Base):
+    """A person on a client's team whose own Google Calendar the agent reads
+    and books into: a dentist, a stylist, a consultant.
+
+    The person need not be a portal user. They connect through a share link
+    (connect_token) that opens Google's consent screen in their own browser;
+    the resulting refresh token is stored encrypted like every other secret.
+    """
+
+    __tablename__ = "calendar_members"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    # What they do, in the business's words ("Orthodontist"); the agent reads
+    # it to pick whose agenda fits a request.
+    role: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    color: Mapped[str] = mapped_column(String(16), default="#2f6df0", server_default="#2f6df0")
+    # pending: never connected; connected; error: Google refused the stored
+    # token (revoked or expired), so the person must connect again.
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    google_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    calendar_id: Mapped[str] = mapped_column(String(255), default="primary", server_default="primary")
+    encrypted_refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    connect_token: Mapped[str] = mapped_column(String(64), unique=True, default=new_public_id)
+    connect_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+    client: Mapped[Client] = relationship(back_populates="calendar_members")
+
+
+class CalendarOAuthState(Base):
+    """One trip to Google's consent screen: single use, short lived, stored
+    hashed. It names the link it started from, so replacing the link voids
+    authorizations still in flight."""
+
+    __tablename__ = "calendar_oauth_states"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("calendar_members.id", ondelete="CASCADE"), index=True)
+    connect_token: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

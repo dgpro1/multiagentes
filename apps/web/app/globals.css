@@ -466,6 +466,52 @@ textarea { line-height: 1.55; }
 .dns-table code { padding: 2px 6px; border-radius: 5px; background: var(--surface-3); }
 .domain-actions { display: flex; gap: 8px; }
 
+.calendar-view { display: flex; flex-direction: column; gap: 20px; }
+.calendar-member-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.calendar-member-card { padding: 14px; display: flex; align-items: flex-start; gap: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.calendar-avatar { width: 40px; height: 40px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: #fff; }
+.calendar-member-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.calendar-member-info strong { display: flex; align-items: baseline; gap: 2px; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-member-role { color: var(--subtle); font-weight: 400; }
+.calendar-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
+.calendar-status i { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.calendar-link-expired { color: var(--red-text); font-size: 12px; }
+.calendar-member-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+
+.calendar-week-section { margin-top: 4px; }
+.calendar-week-head { margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.calendar-week-head h2 { margin: 0; font-size: 18px; }
+.calendar-week-nav { display: flex; align-items: center; gap: 6px; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
+.calendar-day { min-height: 160px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.calendar-day-today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.calendar-day header { padding: 8px 10px; display: flex; align-items: baseline; justify-content: space-between; border-bottom: 1px solid var(--line-soft); background: var(--surface-2); }
+.calendar-day-name { color: var(--subtle); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+.calendar-day-num { font-size: 14px; font-weight: 700; }
+.calendar-day-today .calendar-day-num { color: var(--accent-text); }
+.calendar-day-events { padding: 8px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.calendar-day-empty { padding: 6px 2px; color: var(--faint); font-size: 12px; }
+.calendar-event { padding: 6px 8px; display: flex; align-items: center; gap: 6px; overflow: hidden; border: 1px solid; border-radius: 7px; text-decoration: none; }
+.calendar-event-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+.calendar-event-time { color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.calendar-event-title { color: var(--ink-2); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) { .calendar-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .calendar-grid { grid-template-columns: 1fr; } .calendar-member-grid { grid-template-columns: 1fr; } }
+
+.connect-page { min-height: 100vh; padding: 40px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: var(--canvas); --connect-accent: var(--accent); }
+.connect-card { width: min(420px, 100%); padding: 32px 28px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 12px 32px rgba(var(--shadow-rgb), calc(.08 * var(--shadow-k))); }
+.connect-avatar { width: 56px; height: 56px; margin-bottom: 4px; display: grid; place-items: center; border-radius: 50%; color: #fff; font-size: 22px; font-weight: 700; }
+.connect-card h1 { margin: 0; font-size: 19px; }
+.connect-card > p { margin: 0 0 6px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.connect-icon { color: var(--connect-accent); }
+.connect-icon.danger { color: var(--red-text); }
+.connect-icon.spin { color: var(--muted); }
+.connect-banner { width: 100%; padding: 10px 12px; display: flex; align-items: center; gap: 8px; border-radius: 8px; font-size: 12.5px; text-align: left; }
+.connect-banner-ok { color: var(--ink-2); border: 1px solid var(--green-line); background: var(--green-soft); }
+.connect-banner-warn { color: var(--ink-2); border: 1px solid var(--amber-line); background: var(--amber-soft); }
+.connect-google-button { width: 100%; justify-content: center; gap: 10px; background: var(--connect-accent); border-color: var(--connect-accent); }
+.connect-footer { color: var(--faint); font-size: 12px; }
+
 .section-block { margin-top: 38px; }
 .section-block .form-section + .form-section { margin-top: 16px; }
 .section-heading { margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }

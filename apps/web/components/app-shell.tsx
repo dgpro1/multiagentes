@@ -55,10 +55,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isLogin = pathname === "/login";
   const isPortal = pathname.startsWith("/portal/");
   const isWidget = pathname.startsWith("/widget/");
+  // The Google Calendar connection link: opened by a team member who has no
+  // OpenLivery account at all, straight from the link the agency or the
+  // client portal shared with them.
+  const isConnect = pathname.startsWith("/connect/");
   const isExtraPublic = EXTRA_PUBLIC_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
-  const isBare = isLogin || isPortal || isWidget || isExtraPublic;
+  const isBare = isLogin || isPortal || isWidget || isConnect || isExtraPublic;
 
   // Check the session on entry and revalidate it on every navigation, without
   // taking the shell off screen to do it: `loading` starts true and is only ever

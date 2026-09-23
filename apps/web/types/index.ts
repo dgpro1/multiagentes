@@ -509,3 +509,54 @@ export type ReportReply = {
   tools: number;
   tool_errors: number;
 };
+
+export type CalendarMemberStatus = "pending" | "connected" | "error";
+
+export type CalendarMember = {
+  id: string;
+  name: string;
+  role: string;
+  color: string;
+  status: CalendarMemberStatus;
+  google_email: string | null;
+  connected_at: string | null;
+  last_error: string | null;
+  connect_url: string;
+  connect_expires_at: string;
+  link_expired: boolean;
+};
+
+export type CalendarOverview = {
+  oauth_ready: boolean;
+  timezone: string;
+  members: CalendarMember[];
+};
+
+export type CalendarEvent = {
+  id: string;
+  member_id: string;
+  title: string;
+  start: string;
+  end: string;
+  all_day: boolean;
+  location: string;
+  url: string;
+};
+
+export type CalendarEventsResult = {
+  events: CalendarEvent[];
+  errors: { member_id: string; detail: string }[];
+};
+
+export type CalendarConnectInfo = {
+  member_name: string;
+  member_role: string;
+  color: string;
+  client_name: string;
+  has_logo: boolean;
+  status: CalendarMemberStatus;
+  google_email: string | null;
+  oauth_ready: boolean;
+  expired: boolean;
+  agency_name: string;
+};
