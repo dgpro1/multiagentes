@@ -2747,3 +2747,14 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 @media (max-width: 620px) {
   .section-tabs-wrap { display: none; }
 }
+
+/* The portal inbox is the whole screen: no title row, no gutter around it, and
+   the card runs edge to edge. On the phone layout the bottom tab bar keeps its
+   cushion and the inbox fills what is left above it. */
+.portal-main-inbox { padding: 0; }
+.portal-main-inbox > header { display: none; }
+.portal-main-inbox .portal-inbox { height: 100vh; border: 0; border-radius: 0; }
+@media (max-width: 850px) {
+  .portal-main-inbox { padding: 0 0 calc(72px + env(safe-area-inset-bottom)); }
+  .portal-main-inbox .portal-inbox { height: calc(100dvh - 72px - env(safe-area-inset-bottom)); }
+}
