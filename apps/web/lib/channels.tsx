@@ -9,6 +9,7 @@ const labels: Record<string, I18nKey> = {
   messenger: "social.messenger.title",
   widget: "inbox.channelWidget",
   playground: "inbox.channelPlayground",
+  manual: "inbox.channelManual",
 };
 
 export function channelLabel(value: string, t: (key: I18nKey) => string): string {

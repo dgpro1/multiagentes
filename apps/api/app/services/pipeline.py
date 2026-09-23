@@ -12,11 +12,12 @@ import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from ..models import Client, Conversation, PipelineStage, now_utc
-from ..schemas import PipelineStageCreate, PipelineStageUpdate
-from .conversation_state import set_pipeline_stage
+from ..models import Agent, Client, Contact, Conversation, PipelineStage, now_utc
+from ..schemas import PipelineStageCreate, PipelineStageUpdate, QuickLeadCreate
+from .contacts import normalize_phone, resolve_contact
+from .conversation_state import record_activity, set_pipeline_stage
 from .tools.specs import ToolSpec
 
 MAX_STAGES = 30
@@ -104,6 +105,7 @@ def board(db: Session, client: Client) -> dict:
     stages = list_stages(db, client)
     cards = db.scalars(
         select(Conversation)
+        .options(selectinload(Conversation.contact).selectinload(Contact.tags))
         .where(Conversation.client_id == client.id, Conversation.status == "open", Conversation.archived_at.is_(None))
         .order_by(Conversation.updated_at.desc())
         .limit(MAX_BOARD_CARDS)
@@ -112,15 +114,20 @@ def board(db: Session, client: Client) -> dict:
     return {
         "stages": [stage_out(db, stage) for stage in stages],
         "unassigned_count": unassigned_count,
-        "cards": [
-            {
-                "id": c.id, "title": c.title, "contact_name": c.contact_name, "channel": c.channel,
-                "account_label": c.account_label, "mode": c.mode, "status": c.status,
-                "pipeline_stage_id": c.pipeline_stage_id, "deal_value": c.deal_value,
-                "preview": (c.messages[-1].content[:140] if c.messages else ""), "updated_at": c.updated_at,
-            }
-            for c in cards
-        ],
+        "cards": [_card_dict(card) for card in cards],
+    }
+
+
+def _card_dict(card: Conversation) -> dict:
+    contact = card.contact
+    return {
+        "id": card.id, "title": card.title, "contact_name": card.contact_name,
+        "contact_id": card.contact_id,
+        "tags": [{"name": tag.name, "color": tag.color} for tag in (contact.tags if contact else [])],
+        "channel": card.channel,
+        "account_label": card.account_label, "mode": card.mode, "status": card.status,
+        "pipeline_stage_id": card.pipeline_stage_id, "deal_value": card.deal_value,
+        "preview": (card.messages[-1].content[:140] if card.messages else ""), "updated_at": card.updated_at,
     }
 
 
@@ -135,6 +142,69 @@ def move_conversation(
     db.commit()
     db.refresh(conversation)
     return conversation
+
+
+def create_quick_lead(db: Session, client: Client, payload: QuickLeadCreate, *, actor: str) -> dict:
+    """A manually created deal: contact plus an open, human-held case in the
+    given stage. There is no channel behind it yet, so nobody is notified
+    and the AI never answers it."""
+    agent = None
+    if payload.agent_id is not None:
+        agent = db.scalar(
+            select(Agent).where(
+                Agent.id == payload.agent_id,
+                Agent.client_id == client.id,
+                Agent.agency_id == client.agency_id,
+                Agent.deleted_at.is_(None),
+            )
+        )
+        if not agent:
+            raise HTTPException(status_code=400, detail="Select an agent that belongs to this client")
+    else:
+        agent = db.scalar(
+            select(Agent).where(
+                Agent.client_id == client.id,
+                Agent.agency_id == client.agency_id,
+                Agent.is_active.is_(True),
+                Agent.deleted_at.is_(None),
+            ).order_by(Agent.created_at).limit(1)
+        )
+        if not agent:
+            raise HTTPException(status_code=400, detail="Add an active agent to this client before creating leads")
+    stage = get_stage(db, client, payload.pipeline_stage_id) if payload.pipeline_stage_id else None
+    name = payload.contact_name.strip()
+    phone = normalize_phone(payload.contact_phone) if payload.contact_phone else None
+    if payload.contact_phone and not phone:
+        raise HTTPException(status_code=422, detail="The phone number is too short to be valid")
+    if phone:
+        contact = resolve_contact(db, client.id, phone=phone, name=name)
+    else:
+        from ..models import Contact as ContactModel
+
+        contact = ContactModel(client_id=client.id, name=name)
+        db.add(contact)
+        db.flush()
+    now = now_utc()
+    conversation = Conversation(
+        agency_id=client.agency_id,
+        client_id=client.id,
+        agent_id=agent.id,
+        channel="manual",
+        mode="human",
+        status="open",
+        title=name[:240],
+        contact_id=contact.id,
+        contact_name=name,
+        pipeline_stage_id=stage.id if stage else None,
+        deal_value=payload.deal_value,
+        taken_over_at=now,
+    )
+    db.add(conversation)
+    db.flush()
+    record_activity(db, conversation, "started", actor=actor)
+    db.commit()
+    db.refresh(conversation)
+    return _card_dict(conversation)
 
 
 # The built-in agent tool: the model moves the deal itself as the conversation

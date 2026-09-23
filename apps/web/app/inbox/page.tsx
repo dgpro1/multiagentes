@@ -148,7 +148,7 @@ export default function InboxPage() {
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) loadMore();
   }
 
-  async function choose(id: string) {
+  const choose = useCallback(async (id: string) => {
     setPendingFile(null);
     if (composerRef.current) composerRef.current.value = "";
     selectedIdRef.current = id;
@@ -160,7 +160,18 @@ export default function InboxPage() {
     }
     setItems((rows) => rows.map((row) => (row.id === id ? { ...row, unread: false, unread_count: 0 } : row)));
     api(`/conversations/${id}/read`, { method: "POST" }).catch(() => {});
-  }
+  }, [closeGoneThread]);
+
+  // A board card opens its thread in a new tab through ?conversation=<id>.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("conversation");
+    if (!id) return;
+    params.delete("conversation");
+    const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
+    window.history.replaceState(window.history.state, "", clean);
+    void choose(id).catch(() => {});
+  }, [choose]);
 
   async function toggleMode(next: "ai" | "human") {
     if (!selected) return;

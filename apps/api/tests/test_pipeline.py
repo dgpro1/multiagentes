@@ -185,3 +185,106 @@ def test_no_stages_means_the_tool_is_not_offered(authenticated_client: TestClien
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion", fake)
     response = _inbound(client, channel["id"], "hola")
     assert response.status_code == 200, response.text
+
+
+def test_quick_lead_creates_contact_and_case_in_stage(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, agent = _setup(client, "Quick Lead Co")
+    nuevo = _stage(client, customer["id"], "Nuevo")
+    created = client.post(f"/api/clients/{customer['id']}/pipeline/leads", json={
+        "agent_id": agent["id"], "contact_name": "Rita", "contact_phone": "573009998877",
+        "pipeline_stage_id": nuevo["id"], "deal_value": 1200,
+    })
+    assert created.status_code == 201, created.text
+    card = created.json()
+    assert card["pipeline_stage_id"] == nuevo["id"] and card["deal_value"] == 1200
+    assert card["contact_id"] is not None and card["channel"] == "manual"
+
+    detail = client.get(f"/api/conversations/{card['id']}").json()
+    assert detail["mode"] == "human" and detail["status"] == "open"
+    assert detail["contact_id"] == card["contact_id"]
+    events = [m["activity"]["event"] for m in detail["messages"] if m.get("kind") == "activity" and m.get("activity")]
+    assert "started" in events
+
+    board = client.get(f"/api/clients/{customer['id']}/pipeline/board").json()
+    assert [c["id"] for c in board["cards"]] == [card["id"]]
+    assert board["stages"][0]["conversation_count"] == 1
+
+
+def test_quick_lead_validation(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, agent = _setup(client, "Quick Lead Validation Co")
+    other, other_agent = _setup(client, "Other Co")
+    nuevo = _stage(client, customer["id"], "Nuevo")
+    foreign_stage = _stage(client, other["id"], "Ajeno")
+    base = f"/api/clients/{customer['id']}/pipeline/leads"
+    good = {"agent_id": agent["id"], "contact_name": "Sam"}
+
+    # An agent or a stage from another client is refused.
+    assert client.post(base, json={**good, "agent_id": other_agent["id"]}).status_code == 400
+    assert client.post(base, json={**good, "pipeline_stage_id": foreign_stage["id"]}).status_code == 404
+    # A phone too short is not a phone number.
+    assert client.post(base, json={**good, "contact_phone": "123"}).status_code == 422
+
+    # Without phone and stage the lead lands unassigned.
+    created = client.post(base, json=good)
+    assert created.status_code == 201, created.text
+    assert created.json()["pipeline_stage_id"] is None
+    board = client.get(f"/api/clients/{customer['id']}/pipeline/board").json()
+    assert board["unassigned_count"] == 1
+
+    # Without an agent the client's first active agent answers for it.
+    defaulted = client.post(base, json={"contact_name": "Noa"})
+    assert defaulted.status_code == 201, defaulted.text
+    assert defaulted.json()["contact_name"] == "Noa"
+
+
+def test_board_cards_carry_contact_tags(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, agent = _setup(client, "Tagged Lead Co")
+    slug = customer["portal_slug"]
+    client.post(
+        f"/api/clients/{customer['id']}/portal-users",
+        json={"name": "Owner", "email": f"owner@{slug}.com", "password": "secure-portal", "role": "admin"},
+    )
+    client.patch(f"/api/clients/{customer['id']}/portal", json={"portal_enabled": True})
+    _stage(client, customer["id"], "Nuevo")
+    lead = client.post(f"/api/clients/{customer['id']}/pipeline/leads", json={
+        "agent_id": agent["id"], "contact_name": "Vera", "contact_phone": "573001112233",
+    }).json()
+    vip = client.post(f"/api/clients/{customer['id']}/contact-tags", json={"name": "VIP", "color": "#EF4444"}).json()
+    portal = TestClient(client.app)
+    portal.post(f"/api/portal/{slug}/login", json={"email": f"owner@{slug}.com", "password": "secure-portal"})
+    assert portal.put(f"/api/portal/{slug}/contacts/{lead['contact_id']}/tags",
+                      json={"tag_ids": [vip["id"]]}).status_code == 200
+
+    card = client.get(f"/api/clients/{customer['id']}/pipeline/board").json()["cards"][0]
+    assert card["contact_id"] == lead["contact_id"]
+    assert card["tags"] == [{"name": "VIP", "color": "#ef4444"}]
+
+
+def test_portal_quick_lead_is_free_for_agents(authenticated_client: TestClient):
+    from conftest import login_legacy_owner
+
+    client = authenticated_client
+    customer, agent = _setup(client, "Portal Lead Co")
+    slug = customer["portal_slug"]
+    client.post(
+        f"/api/clients/{customer['id']}/portal-users",
+        json={"name": "Ana", "email": f"ana@{slug}.com", "password": "secure-portal", "role": "agent"},
+    )
+    client.patch(f"/api/clients/{customer['id']}/portal", json={"portal_enabled": True})
+    nuevo = _stage(client, customer["id"], "Nuevo")
+
+    portal = TestClient(client.app)
+    portal.post(f"/api/portal/{slug}/login", json={"email": f"ana@{slug}.com", "password": "secure-portal"})
+    created = portal.post(f"/api/portal/{slug}/pipeline/leads", json={
+        "agent_id": agent["id"], "contact_name": "Luis", "pipeline_stage_id": nuevo["id"], "deal_value": 300,
+    })
+    assert created.status_code == 201, created.text
+    assert created.json()["pipeline_stage_id"] == nuevo["id"]
+    board = portal.get(f"/api/portal/{slug}/pipeline/board").json()
+    assert [c["id"] for c in board["cards"]] == [created.json()["id"]]
+
+    login_legacy_owner(client)
+    assert client.get(f"/api/clients/{customer['id']}/pipeline/board").status_code == 404

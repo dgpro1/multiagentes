@@ -578,10 +578,17 @@ class PipelineStageReorder(BaseModel):
     stage_ids: list[uuid.UUID] = Field(min_length=1)
 
 
+class PipelineCardTag(BaseModel):
+    name: str
+    color: str
+
+
 class PipelineCardOut(BaseModel):
     id: uuid.UUID
     title: str
     contact_name: str | None = None
+    contact_id: uuid.UUID | None = None
+    tags: list[PipelineCardTag] = []
     channel: str
     account_label: str | None = None
     mode: str
@@ -603,6 +610,17 @@ class ConversationPipelineUpdate(BaseModel):
     the board always sends both fields, so dragging a card carries its value
     along and editing the value alone keeps the card in its column."""
 
+    pipeline_stage_id: uuid.UUID | None = None
+    deal_value: float | None = Field(default=None, ge=0)
+
+
+class QuickLeadCreate(BaseModel):
+    """A manually created deal: contact plus open case in a stage, with no
+    channel behind it yet. The case waits in human hands."""
+
+    agent_id: uuid.UUID | None = None
+    contact_name: str = Field(min_length=1, max_length=180)
+    contact_phone: str | None = Field(default=None, max_length=40)
     pipeline_stage_id: uuid.UUID | None = None
     deal_value: float | None = Field(default=None, ge=0)
 

@@ -279,6 +279,28 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
     markRead(item.id);
     setSelected(await api<Conversation>(`/portal/${slug}/conversations/${item.id}`));
   }
+
+  // A board card opens its thread in a new tab through ?conversation=<id>.
+  const chooseById = useCallback(async (id: string) => {
+    try {
+      const detail = await api<Conversation>(`/portal/${slug}/conversations/${id}`);
+      selectedIdRef.current = detail.id;
+      setSelected(detail);
+      setView("inbox");
+      markRead(detail.id);
+    } catch {
+      // Stale link: stay on the list instead of erroring.
+    }
+  }, [slug, markRead]);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("conversation");
+    if (!id) return;
+    params.delete("conversation");
+    const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
+    window.history.replaceState(window.history.state, "", clean);
+    void chooseById(id);
+  }, [chooseById]);
   async function sendReaction(message: Message, emoji: string) {
     if (!selected || (selected.channel !== "whatsapp" && selected.channel !== "whatsapp_cloud")) return;
     setReactingTo(null);

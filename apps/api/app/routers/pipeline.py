@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import Client, User
-from ..schemas import PipelineBoardOut, PipelineStageCreate, PipelineStageOut, PipelineStageReorder, PipelineStageUpdate
+from ..schemas import PipelineBoardOut, PipelineCardOut, PipelineStageCreate, PipelineStageOut, PipelineStageReorder, PipelineStageUpdate, QuickLeadCreate
 from ..services import pipeline as pipeline_service
 
 router = APIRouter(prefix="/clients/{client_id}/pipeline", tags=["Pipeline"])
@@ -58,3 +58,11 @@ def delete_stage(client_id: uuid.UUID, stage_id: uuid.UUID, db: Session = Depend
 @router.get("/board", response_model=PipelineBoardOut)
 def get_board(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return pipeline_service.board(db, _client(db, user, client_id))
+
+
+@router.post("/leads", response_model=PipelineCardOut, status_code=status.HTTP_201_CREATED)
+def create_lead(client_id: uuid.UUID, payload: QuickLeadCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """A manually created deal ("quick lead"): contact plus an open,
+    human-held case in the given stage. Nothing is sent anywhere."""
+    client = _client(db, user, client_id)
+    return pipeline_service.create_quick_lead(db, client, payload, actor=user.name)

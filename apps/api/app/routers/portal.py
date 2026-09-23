@@ -59,6 +59,8 @@ from ..schemas import (
     ConversationTeamUpdate,
     ConversationPipelineUpdate,
     PipelineBoardOut,
+    PipelineCardOut,
+    QuickLeadCreate,
     PipelineStageCreate,
     PipelineStageOut,
     PipelineStageReorder,
@@ -467,6 +469,16 @@ def portal_delete_pipeline_stage(slug: str, stage_id: uuid.UUID, client: Client 
 @router.get("/{slug}/pipeline/board", response_model=PipelineBoardOut)
 def portal_pipeline_board(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return pipeline_service.board(db, client)
+
+
+@router.post("/{slug}/pipeline/leads", response_model=PipelineCardOut, status_code=status.HTTP_201_CREATED)
+def portal_create_quick_lead(
+    slug: str, payload: QuickLeadCreate, client: Client = Depends(_portal_client),
+    sender_name: str = Depends(_sender_name), db: Session = Depends(get_db),
+):
+    """A manually created deal ("quick lead"), like creating a contact: free
+    for anyone signed in. Nothing is sent anywhere."""
+    return pipeline_service.create_quick_lead(db, client, payload, actor=sender_name)
 
 
 @router.patch("/{slug}/conversations/{conversation_id}/pipeline", response_model=ConversationDetail)

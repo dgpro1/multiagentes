@@ -23,6 +23,17 @@ const en = {
   editValue: "Edit deal value",
   totalLabel: "Total",
   done: "Done",
+  boardTotals: "{count} deals · {total}",
+  searchPlaceholder: "Search deals…",
+  columnDeals: "{count} deals",
+  quickLead: "Quick lead",
+  quickLeadTitle: "New quick lead in {stage}",
+  quickLeadName: "Name",
+  quickLeadPhone: "Phone (optional)",
+  quickLeadValue: "Value (optional)",
+  quickLeadCreate: "Create lead",
+  quickLeadCreated: "Lead created.",
+  openThread: "Open conversation",
 };
 
 const es: typeof en = {
@@ -48,6 +59,17 @@ const es: typeof en = {
   editValue: "Editar valor del negocio",
   totalLabel: "Total",
   done: "Listo",
+  boardTotals: "{count} negocios · {total}",
+  searchPlaceholder: "Buscar negocios…",
+  columnDeals: "{count} negocios",
+  quickLead: "Lead rápido",
+  quickLeadTitle: "Nuevo lead rápido en {stage}",
+  quickLeadName: "Nombre",
+  quickLeadPhone: "Teléfono (opcional)",
+  quickLeadValue: "Valor (opcional)",
+  quickLeadCreate: "Crear lead",
+  quickLeadCreated: "Lead creado.",
+  openThread: "Abrir conversación",
 };
 
 export const pipeline = { en, es };

@@ -180,6 +180,8 @@ export type PipelineCard = {
   id: string;
   title: string;
   contact_name: string | null;
+  contact_id: string | null;
+  tags: { name: string; color: string }[];
   channel: string;
   account_label: string | null;
   mode: "ai" | "human";
