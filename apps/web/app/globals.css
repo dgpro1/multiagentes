@@ -2727,3 +2727,23 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 @media (max-width: 900px) {
   .sidebar-toggle, .portal-nav-toggle { display: none; }
 }
+
+/* Tab strips wider than their column slide on their own (components/section-tabs).
+   The wrap owns the strip's outer spacing so the edge arrows line up with it;
+   the strip keeps its border and scrolls without a native bar, because the
+   arrows, the wheel and a mouse drag already move it. The phone layout swaps
+   the whole wrap for the pager, so the arrows are hidden there too. */
+.section-tabs-wrap { position: relative; margin: 28px 0 24px; }
+.portal-settings .section-tabs-wrap { margin: 0 0 20px; }
+.section-tabs-wrap > .tabs { margin: 0; position: relative; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+.section-tabs-wrap > .tabs::-webkit-scrollbar { display: none; }
+.section-tabs-wrap > .tabs button { flex: 0 0 auto; white-space: nowrap; }
+.section-tabs-wrap > .tabs.is-dragging { cursor: grabbing; user-select: none; }
+.section-tabs-wrap > .tabs.is-dragging button { pointer-events: none; }
+.section-tabs-arrow { width: 40px; position: absolute; z-index: 2; top: 0; bottom: 1px; display: grid; place-items: center; padding: 0; color: var(--muted); border: 0; }
+.section-tabs-arrow:hover { color: var(--ink); }
+.section-tabs-arrow.left { left: 0; justify-items: start; padding-left: 4px; background: linear-gradient(to right, var(--canvas) 45%, transparent); }
+.section-tabs-arrow.right { right: 0; justify-items: end; padding-right: 4px; background: linear-gradient(to left, var(--canvas) 45%, transparent); }
+@media (max-width: 620px) {
+  .section-tabs-wrap { display: none; }
+}
