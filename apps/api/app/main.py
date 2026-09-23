@@ -2,17 +2,18 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from .config import get_settings
 from .database import new_session
 from .services.conversation_state import resolve_idle_ai_conversations
-from .routers import (
-    agency,
+from .routers import (    agency,
     agent_tools,
     agents,
+    api_v1,
     auth,
     calendar,
     catalog,
@@ -142,11 +143,22 @@ def health():
     return {"status": "ok"}
 
 
+@app.exception_handler(HTTPException)
+async def v1_http_exception_handler(request: Request, exc: HTTPException):
+    return await api_v1.http_exception_response(request, exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def v1_validation_exception_handler(request: Request, exc: RequestValidationError):
+    return await api_v1.validation_exception_response(request, exc)
+
+
 app.include_router(auth.router, prefix="/api")
 app.include_router(agency.router, prefix="/api")
 app.include_router(clients.router, prefix="/api")
 app.include_router(industries.router, prefix="/api")
 app.include_router(integrations.router, prefix="/api")
+app.include_router(api_v1.router, prefix="/api")
 app.include_router(oauth.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")
 app.include_router(webchat.router, prefix="/api")
