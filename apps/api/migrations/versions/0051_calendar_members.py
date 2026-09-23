@@ -2,8 +2,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0049_calendar_members"
-down_revision = "0048_number_quality"
+revision = "0051_calendar_members"
+down_revision = "0050_whatsapp_line_toggles"
 branch_labels = None
 depends_on = None
 
