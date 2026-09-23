@@ -158,7 +158,7 @@ function PipelineCardView({ card, t, lang, threadUrl, onDragStart, onValueChange
     <div className="pipeline-card-top">
       <span className="pipeline-avatar" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
       <div className="pipeline-card-identity">
-        <a href={threadUrl} target="_blank" rel="noreferrer" draggable={false} title={t("pipeline.openThread")}><strong>{name}</strong></a>
+        <a className="pipeline-card-name" href={threadUrl} target="_blank" rel="noreferrer" draggable={false} title={t("pipeline.openThread")}><strong>{name}</strong></a>
         <small className="pipeline-card-date">{formatWhen(card.updated_at, lang)}</small>
       </div>
       <ChannelIcon channel={card.channel} size={13} />
