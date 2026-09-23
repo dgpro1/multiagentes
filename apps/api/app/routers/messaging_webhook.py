@@ -101,7 +101,7 @@ def _sender_chat(message: dict) -> tuple[str, str | None]:
     return str(sender.get("id") or ""), sender.get("name")
 
 
-def _parse_inbound(message: dict) -> InboundMessage | None:
+def parse_inbound(message: dict) -> InboundMessage | None:
     text = message.get("text") or ""
     metadata = message.get("metadata") or {}
     if not text and metadata.get("interactiveId"):
@@ -143,17 +143,17 @@ async def _dispatch_whatsapp(db: Session, name: str, event: dict, account_id: st
     if name == "message.received":
         if str(message.get("direction") or "") == "outgoing":
             return
-        await _handle_whatsapp_message(db, channel, event, message)
+        await handle_whatsapp_message(db, channel, event, message)
     elif name in ("message.delivered", "message.read", "message.sent"):
         if platform_id:
             state = {"message.sent": "sent", "message.delivered": "delivered", "message.read": "read"}[name]
-            _stamp_receipt(db, channel, platform_id, state, None)
+            stamp_receipt(db, channel, platform_id, state, None)
     elif name == "message.failed":
         if platform_id:
             detail = message.get("error") or (message.get("deliveryError") or {}).get("message") or "no error detail provided"
-            _stamp_receipt(db, channel, platform_id, "failed", str(detail)[:400])
+            stamp_receipt(db, channel, platform_id, "failed", str(detail)[:400])
     elif name == "reaction.received":
-        _apply_whatsapp_reaction(db, channel, event, message)
+        apply_whatsapp_reaction(db, channel, event, message)
     elif name == "message.edited":
         _apply_whatsapp_edit(db, channel, message)
     elif name == "message.deleted":
@@ -163,7 +163,7 @@ async def _dispatch_whatsapp(db: Session, name: str, event: dict, account_id: st
 _DELIVERY_ORDER = {"sent": 1, "delivered": 2, "read": 3, "failed": 4}
 
 
-def _stamp_receipt(db: Session, channel: WhatsAppCloudChannel, platform_id: str, state: str, error: str | None) -> None:
+def stamp_receipt(db: Session, channel: WhatsAppCloudChannel, platform_id: str, state: str, error: str | None) -> None:
     """Stamp the receipt on the message it concerns. Receipts can arrive out
     of order, so a later stage is never downgraded by an earlier one."""
     row = db.scalar(
@@ -194,7 +194,7 @@ def _find_whatsapp_message(db: Session, channel: WhatsAppCloudChannel, event: di
     return db.scalar(query), platform_id
 
 
-def _apply_whatsapp_reaction(db: Session, channel: WhatsAppCloudChannel, event: dict, message: dict) -> None:
+def apply_whatsapp_reaction(db: Session, channel: WhatsAppCloudChannel, event: dict, message: dict) -> None:
     reaction = event.get("reaction") or {}
     platform_id = str(reaction.get("platformMessageId") or message.get("platformMessageId") or "")
     if not platform_id:
@@ -279,10 +279,10 @@ def _adopt_phone(db: Session, channel: WhatsAppCloudChannel, conversation: Conve
     db.commit()
 
 
-async def _handle_whatsapp_message(db: Session, channel: WhatsAppCloudChannel, event: dict, message: dict) -> None:
+async def handle_whatsapp_message(db: Session, channel: WhatsAppCloudChannel, event: dict, message: dict) -> None:
     from ..services.whatsapp_cloud import fetch_media, send_text
 
-    inbound = _parse_inbound(message)
+    inbound = parse_inbound(message)
     if not inbound:
         return
     if getattr(inbound, "media_url", None) and inbound.media_kind:
@@ -490,3 +490,10 @@ async def ensure_webhook(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=409, detail="Set MESSAGING_PROVIDER_WEBHOOK_SECRET first")
     webhook = await provider.ensure_webhook("OpenLivery inbox", provider.webhook_url(), secret, provider.INBOX_EVENTS)
     return {"url": webhook.get("url"), "events": webhook.get("events"), "active": webhook.get("isActive", True)}
+
+
+# The names these had before they were public. Kept for one release.
+_parse_inbound = parse_inbound
+_stamp_receipt = stamp_receipt
+_apply_whatsapp_reaction = apply_whatsapp_reaction
+_handle_whatsapp_message = handle_whatsapp_message
