@@ -502,12 +502,27 @@ textarea { line-height: 1.55; }
 @media (max-width: 900px) { .calendar-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .calendar-grid { grid-template-columns: 1fr; } .calendar-member-grid { grid-template-columns: 1fr; } }
 
-.pipeline-view { display: flex; flex-direction: column; gap: 20px; }
+.portal-main-pipeline header { display: none !important; }
+.pipeline-view { display: flex; flex-direction: column; gap: 0; }
+.pipeline-topbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); height: 48px; }
+.pipeline-profile-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--line); cursor: pointer; color: var(--subtle); transition: all .12s; }
+.pipeline-profile-btn:hover { background: var(--surface-3); color: var(--ink); }
+.pipeline-name { font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; min-width: 100px; }
+.pipeline-view-toggle { display: flex; gap: 2px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 2px; }
+.pipeline-view-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--subtle); cursor: pointer; border-radius: 4px; transition: all .12s; }
+.pipeline-view-btn:hover { background: var(--surface-3); }
+.pipeline-view-btn.active { background: var(--surface); color: var(--ink); }
+.pipeline-search-compact { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--subtle); flex: 1; min-width: 180px; max-width: 300px; }
+.pipeline-search-compact input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); font-size: 13px; outline: none; }
+.pipeline-search-compact input::placeholder { color: var(--subtle); }
+.pipeline-totals-compact { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.pipeline-automate-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--accent); border-radius: 6px; background: transparent; color: var(--accent); font-size: 13px; font-weight: 500; cursor: pointer; transition: all .12s; }
+.pipeline-automate-btn:hover { background: var(--accent-soft); }
 .pipeline-toolbar { align-items: center; gap: 12px; flex-wrap: wrap; }
 .pipeline-totals { font-size: 14px; font-weight: 700; }
 .pipeline-search { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--subtle); flex: 1; min-width: 180px; max-width: 320px; margin-left: auto; }
 .pipeline-search input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); font-size: 13px; outline: none; }
-.pipeline-board { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; }
+.pipeline-board { display: flex; gap: 14px; overflow-x: auto; padding: 16px 0 8px; margin-top: 8px; }
 .pipeline-column { flex: 0 0 280px; min-height: 120px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); transition: box-shadow .12s, border-color .12s; }
 .pipeline-column-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft) inset; }
 .pipeline-column-head { padding: 10px 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line-soft); }

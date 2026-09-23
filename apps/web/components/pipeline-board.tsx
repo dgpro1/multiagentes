@@ -95,16 +95,19 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
   const totalValue = board.cards.reduce((sum, card) => sum + (card.deal_value ?? 0), 0);
 
   return <div className="pipeline-view">
-    <section className="form-section">
-      <div className="section-copy"><h2>{t("pipeline.title")}</h2><p>{t("pipeline.description")}</p></div>
-      {board.stages.length === 0 && !canManage
-        ? <EmptyState icon={<GripVertical />} title={t("pipeline.stagesEmptyTitle")} description={t("pipeline.stagesEmptyDescription")} />
-        : <div className="form-fields pipeline-toolbar">
-          <strong className="pipeline-totals">{t("pipeline.boardTotals", { count: totalDeals, total: money(totalValue) })}</strong>
-          <label className="pipeline-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("pipeline.searchPlaceholder")} aria-label={t("pipeline.searchPlaceholder")} /></label>
-          {canManage && <button type="button" className="button secondary align-start" onClick={() => setManaging(true)}><Wand2 size={15} /> {t("pipeline.automate")}</button>}
+    {board.stages.length === 0 && !canManage
+      ? <section className="form-section"><div className="section-copy"><h2>{t("pipeline.title")}</h2><p>{t("pipeline.description")}</p></div><EmptyState icon={<GripVertical />} title={t("pipeline.stagesEmptyTitle")} description={t("pipeline.stagesEmptyDescription")} /></section>
+      : <div className="pipeline-topbar">
+          <button type="button" className="pipeline-profile-btn" title="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6"></path><path d="M4.22 4.22l4.24 4.24m5.08 0l4.24-4.24"></path><path d="M1 12h6m6 0h6"></path><path d="M4.22 19.78l4.24-4.24m5.08 0l4.24 4.24"></path></svg></button>
+          <span className="pipeline-name">{t("pipeline.title")}</span>
+          <div className="pipeline-view-toggle">
+            <button type="button" className="pipeline-view-btn active" title="Kanban"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg></button>
+            <button type="button" className="pipeline-view-btn" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg></button>
+          </div>
+          <label className="pipeline-search-compact"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("pipeline.searchPlaceholder")} aria-label={t("pipeline.searchPlaceholder")} /></label>
+          <span className="pipeline-totals-compact">{money(totalValue)}</span>
+          {canManage && <button type="button" className="pipeline-automate-btn" onClick={() => setManaging(true)}><Wand2 size={15} /> {t("pipeline.automate")}</button>}
         </div>}
-    </section>
 
     {board.stages.length > 0 && <div className="pipeline-board">
       {columns.map((column) => {
