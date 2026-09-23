@@ -124,7 +124,7 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
             if (card) moveCard(card, column.id);
             setDragCardId(null);
           }}>
-          <header className="pipeline-column-head">
+          <header className="pipeline-column-head" style={{ backgroundColor: column.color }}>
             <strong>{column.name}</strong>
             <span className="pipeline-column-count">{t("pipeline.columnDeals", { count: column.count })}{column.total != null && column.total > 0 ? ` · ${money(column.total)}` : ""}</span>
           </header>
