@@ -48,6 +48,8 @@ _ACTIVITY_TEXT = {
     "started": "{actor} started the conversation",
     "team_assigned": "{actor} moved the conversation to {team}",
     "team_removed": "{actor} took the conversation out of {team}",
+    "pipeline_stage_changed": "{actor} moved the deal to {stage}",
+    "pipeline_stage_removed": "{actor} took the deal out of the pipeline",
     "escalated": "{actor} escalated the conversation to {target}: {reason}",
     "archived": "{actor} archived the conversation",
     "unarchived": "{actor} restored the conversation from the archive",
@@ -224,6 +226,39 @@ def set_team(
         conversation.assignee_id = None
         conversation.assigned_at = None
     record_activity(db, conversation, "team_assigned", actor=actor, details={"team": team.name})
+    return True
+
+
+def set_pipeline_stage(
+    db: Session,
+    conversation: Conversation,
+    stage,
+    *,
+    deal_value=...,
+    actor: str | None = None,
+) -> bool:
+    """Move the conversation's deal into ``stage`` (None takes it off the
+    pipeline). ``deal_value`` is left untouched unless a caller passes one
+    (including explicit ``None`` to clear it) — the sentinel default tells
+    "no change" apart from "clear it", the way ``stage=None`` cannot.
+    """
+    new_id = stage.id if stage else None
+    stage_changed = conversation.pipeline_stage_id != new_id
+    value_changed = deal_value is not ... and conversation.deal_value != deal_value
+    if not stage_changed and not value_changed:
+        return False
+    previous = conversation.pipeline_stage
+    conversation.pipeline_stage = stage
+    if value_changed:
+        conversation.deal_value = deal_value
+    if not stage_changed:
+        conversation.updated_at = now_utc()
+        return True
+    if stage is None:
+        record_activity(db, conversation, "pipeline_stage_removed", actor=actor,
+                         details={"stage": previous.name if previous else ""})
+        return True
+    record_activity(db, conversation, "pipeline_stage_changed", actor=actor, details={"stage": stage.name})
     return True
 
 

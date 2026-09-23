@@ -14,6 +14,7 @@ from ..schemas import (
     ConversationDetail,
     ConversationInboxOut,
     ConversationModeUpdate,
+    ConversationPipelineUpdate,
     ConversationStatusUpdate,
     ConversationOut,
     LocationSend,
@@ -407,6 +408,21 @@ def set_conversation_status(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if changed:
         db.commit()
+    return _conversation(db, user, conversation_id)
+
+
+@router.patch("/{conversation_id}/pipeline", response_model=ConversationDetail)
+def set_conversation_pipeline(
+    conversation_id: uuid.UUID,
+    payload: ConversationPipelineUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    conversation = _conversation(db, user, conversation_id)
+    from ..services import pipeline as pipeline_service
+    pipeline_service.move_conversation(
+        db, conversation.agent.client, conversation, payload.pipeline_stage_id, payload.deal_value, actor=user.name
+    )
     return _conversation(db, user, conversation_id)
 
 

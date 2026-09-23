@@ -31,6 +31,9 @@ REPORTS_VIEW = "reports.view"
 # Add, rename, recolor, delete and reconnect calendar members. Viewing the
 # calendar tab and its events is free.
 CALENDAR_MANAGE = "calendar.manage"
+# Create, rename, recolor, delete and reorder pipeline stages. Viewing the
+# board and dragging a card between existing stages is free.
+PIPELINE_MANAGE = "pipeline.manage"
 
 PERMISSIONS: tuple[str, ...] = (
     INBOX_DELETE,
@@ -41,6 +44,7 @@ PERMISSIONS: tuple[str, ...] = (
     TEAMS_MANAGE,
     REPORTS_VIEW,
     CALENDAR_MANAGE,
+    PIPELINE_MANAGE,
 )
 
 ROLES: dict[str, frozenset[str]] = {

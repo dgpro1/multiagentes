@@ -380,6 +380,10 @@ class ConversationOut(ORMModel):
     assignee_name: str | None = None
     team_id: uuid.UUID | None = None
     team_name: str | None = None
+    pipeline_stage_id: uuid.UUID | None = None
+    pipeline_stage_name: str | None = None
+    pipeline_stage_color: str | None = None
+    deal_value: float | None = None
     # WhatsApp Cloud API: free-form replies are allowed until this moment
     # (24 h after the contact's last message). None on other channels or
     # when the contact never wrote; ``reply_window_open`` says what applies.
@@ -549,6 +553,58 @@ class TeamUpsert(BaseModel):
 
 class ConversationTeamUpdate(BaseModel):
     team_id: uuid.UUID | None = None
+
+
+class PipelineStageOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    color: str
+    position: int
+    conversation_count: int = 0
+    deal_value_total: float = 0
+
+
+class PipelineStageCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str = Field(default="#2f6df0", pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class PipelineStageUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class PipelineStageReorder(BaseModel):
+    stage_ids: list[uuid.UUID] = Field(min_length=1)
+
+
+class PipelineCardOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    contact_name: str | None = None
+    channel: str
+    account_label: str | None = None
+    mode: str
+    status: str
+    pipeline_stage_id: uuid.UUID | None = None
+    deal_value: float | None = None
+    preview: str = ""
+    updated_at: datetime
+
+
+class PipelineBoardOut(BaseModel):
+    stages: list[PipelineStageOut]
+    unassigned_count: int = 0
+    cards: list[PipelineCardOut]
+
+
+class ConversationPipelineUpdate(BaseModel):
+    """The whole desired state, not a partial patch (like ConversationTeamUpdate):
+    the board always sends both fields, so dragging a card carries its value
+    along and editing the value alone keeps the card in its column."""
+
+    pipeline_stage_id: uuid.UUID | None = None
+    deal_value: float | None = Field(default=None, ge=0)
 
 
 class EscalationRuleIn(BaseModel):

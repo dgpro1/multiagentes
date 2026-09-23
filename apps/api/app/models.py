@@ -110,6 +110,9 @@ class Client(Base):
     calendar_members: Mapped[list["CalendarMember"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", order_by="CalendarMember.created_at"
     )
+    pipeline_stages: Mapped[list["PipelineStage"]] = relationship(
+        back_populates="client", cascade="all, delete-orphan", order_by="PipelineStage.position"
+    )
 
     @property
     def logo_url(self) -> str | None:
@@ -595,6 +598,14 @@ class Conversation(Base):
     team_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("teams.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # The pipeline column this conversation sits in (a Kommo-style sales
+    # board), and the deal's monetary value. Independent of team/assignee:
+    # a conversation can be in a stage with nobody assigned yet. Dropping the
+    # stage clears this rather than the conversation.
+    pipeline_stage_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("pipeline_stages.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    deal_value: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     # Set by an inbound message, cleared by the next reply: how long the
     # contact has been waiting for an answer.
     waiting_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -605,10 +616,19 @@ class Conversation(Base):
     contact: Mapped[Contact | None] = relationship(back_populates="conversations")
     assignee: Mapped["PortalUser | None"] = relationship(foreign_keys=[assignee_id])
     team: Mapped["Team | None"] = relationship(foreign_keys=[team_id])
+    pipeline_stage: Mapped["PipelineStage | None"] = relationship(foreign_keys=[pipeline_stage_id])
 
     @property
     def team_name(self) -> str | None:
         return self.team.name if self.team else None
+
+    @property
+    def pipeline_stage_name(self) -> str | None:
+        return self.pipeline_stage.name if self.pipeline_stage else None
+
+    @property
+    def pipeline_stage_color(self) -> str | None:
+        return self.pipeline_stage.color if self.pipeline_stage else None
     whatsapp_channel: Mapped[WhatsAppChannel | None] = relationship(back_populates="conversations")
     whatsapp_cloud_channel: Mapped[WhatsAppCloudChannel | None] = relationship(back_populates="conversations")
     widget_channel: Mapped["WidgetChannel | None"] = relationship(back_populates="conversations")
@@ -819,6 +839,30 @@ class Team(Base):
     )
 
     __table_args__ = (UniqueConstraint("client_id", "name", name="uq_teams_client_name"),)
+
+
+class PipelineStage(Base):
+    """One column of a client's sales pipeline (a Kommo-style board): a named,
+    ordered, colored step a conversation sits in on its way to a sale.
+
+    Each client defines its own stages, the way it already defines its own
+    teams and tags. A conversation belongs to at most one stage at a time;
+    dropping a stage clears it on every conversation that was in it rather
+    than deleting those conversations."""
+
+    __tablename__ = "pipeline_stages"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    color: Mapped[str] = mapped_column(String(16), default="#2f6df0", server_default="#2f6df0")
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+    client: Mapped["Client"] = relationship(back_populates="pipeline_stages")
+
+    __table_args__ = (UniqueConstraint("client_id", "name", name="uq_pipeline_stages_client_name"),)
 
 
 class EscalationRule(Base):

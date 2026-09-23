@@ -498,6 +498,29 @@ textarea { line-height: 1.55; }
 @media (max-width: 900px) { .calendar-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .calendar-grid { grid-template-columns: 1fr; } .calendar-member-grid { grid-template-columns: 1fr; } }
 
+.pipeline-view { display: flex; flex-direction: column; gap: 20px; }
+.pipeline-board { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; }
+.pipeline-column { flex: 0 0 280px; min-height: 120px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); transition: box-shadow .12s, border-color .12s; }
+.pipeline-column-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft) inset; }
+.pipeline-column-head { padding: 10px 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line-soft); }
+.pipeline-column-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.pipeline-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.pipeline-column-count { padding: 1px 7px; border-radius: 999px; color: var(--muted); background: var(--surface-3); font-size: 11.5px; font-weight: 700; }
+.pipeline-column-actions { display: flex; gap: 2px; flex: 0 0 auto; }
+.pipeline-column-total { padding: 6px 12px; color: var(--muted); border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+.pipeline-cards { padding: 8px; flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 60px; }
+.pipeline-empty-column { padding: 14px 4px; text-align: center; color: var(--faint); font-size: 12px; }
+.pipeline-card { padding: 10px; display: flex; flex-direction: column; gap: 5px; cursor: grab; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.pipeline-card:active { cursor: grabbing; }
+.pipeline-card-head { display: flex; align-items: center; gap: 6px; }
+.pipeline-card-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.pipeline-card-account { color: var(--subtle); font-size: 11px; }
+.pipeline-card-preview { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.pipeline-value { align-self: flex-start; padding: 2px 8px; color: var(--green-text); border: 1px solid var(--green-line); border-radius: 6px; background: var(--green-soft); font-size: 12px; font-weight: 700; }
+.pipeline-value-empty { color: var(--faint); font-weight: 400; }
+.pipeline-value-input { width: 100px; padding: 3px 7px; font-size: 12px; }
+@media (max-width: 560px) { .pipeline-column { flex-basis: 240px; } }
+
 .connect-page { min-height: 100vh; padding: 40px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: var(--canvas); --connect-accent: var(--accent); }
 .connect-card { width: min(420px, 100%); padding: 32px 28px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 12px 32px rgba(var(--shadow-rgb), calc(.08 * var(--shadow-k))); }
 .connect-avatar { width: 56px; height: 56px; margin-bottom: 4px; display: grid; place-items: center; border-radius: 50%; color: #fff; font-size: 22px; font-weight: 700; }

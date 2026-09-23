@@ -14,6 +14,7 @@ import { inbox } from "./dicts/inbox";
 import { tools } from "./dicts/tools";
 import { reports } from "./dicts/reports";
 import { calendar } from "./dicts/calendar";
+import { pipeline } from "./dicts/pipeline";
 
 export const en = {
   ...core.en,
@@ -29,6 +30,7 @@ export const en = {
   tools: tools.en,
   reports: reports.en,
   calendar: calendar.en,
+  pipeline: pipeline.en,
 };
 
 export type Dictionary = typeof en;
