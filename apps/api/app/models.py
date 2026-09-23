@@ -1202,3 +1202,28 @@ class ApiToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
     integration: Mapped[ApiIntegration] = relationship(back_populates="tokens")
+
+
+class ApiIdempotencyKey(Base):
+    """One receipt for a versioned API write, keyed per credential owner.
+
+    The first request with a key claims the row and stores its answer;
+    a retry with the same body replays it (marked ``api_replay``) instead
+    of acting twice, and a different body under the same key is refused.
+    ``response_status`` null means a request is still in flight.
+    """
+
+    __tablename__ = "api_idempotency_keys"
+    __table_args__ = (
+        UniqueConstraint("agency_id", "owner_key", "key_hash", name="uq_api_idempotency_owner_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    owner_key: Mapped[str] = mapped_column(String(80))
+    key_hash: Mapped[str] = mapped_column(String(64))
+    endpoint: Mapped[str] = mapped_column(String(200))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

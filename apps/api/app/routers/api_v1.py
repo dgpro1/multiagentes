@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -41,6 +41,7 @@ from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
 from ..services.contacts import find_contact, normalize_phone
 from ..services.conversation_state import note_reply
+from ..services.idempotency import abandon, complete, owner_of, use_key
 from ..services.whatsapp import send_channel_message
 
 router = APIRouter(prefix="/v1", tags=["Public API v1"])
@@ -256,22 +257,34 @@ def v1_get_contact(
 @router.post("/clients/{client_id}/contacts", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(CONTACTS_MANAGE))])
 def v1_create_contact(
     request: Request, client_id: uuid.UUID, payload: ContactCreate,
+    idempotency_key: str | None = Header(default=None),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     client = _agency_client(db, user, client_id)
-    phone = normalize_phone(payload.phone)
-    if not phone:
-        raise HTTPException(status_code=422, detail="Enter a phone number with its country code")
-    if find_contact(db, client.id, phone):
-        raise HTTPException(status_code=409, detail="A contact with this phone number already exists")
-    contact = Contact(
-        client_id=client.id, name=payload.name.strip(), phone=phone,
-        email=payload.email or None, notes=payload.notes.strip(),
-    )
-    db.add(contact)
-    db.commit()
-    db.refresh(contact)
-    return {**_contact_out(contact), "_links": {"self": f"/api/v1/clients/{client.id}/contacts/{contact.id}"}}
+    receipt = use_key(db, agency_id=user.agency_id, owner=owner_of(user), key=idempotency_key or "",
+                      endpoint="v1:create_contact", body=payload.model_dump())
+    if receipt.replay is not None:
+        replay = receipt.replay
+        return JSONResponse(status_code=replay["status"], content=replay["body"])
+    try:
+        phone = normalize_phone(payload.phone)
+        if not phone:
+            raise HTTPException(status_code=422, detail="Enter a phone number with its country code")
+        if find_contact(db, client.id, phone):
+            raise HTTPException(status_code=409, detail="A contact with this phone number already exists")
+        contact = Contact(
+            client_id=client.id, name=payload.name.strip(), phone=phone,
+            email=payload.email or None, notes=payload.notes.strip(),
+        )
+        db.add(contact)
+        db.commit()
+        db.refresh(contact)
+        body = jsonable_encoder({**_contact_out(contact), "_links": {"self": f"/api/v1/clients/{client.id}/contacts/{contact.id}"}})
+        complete(db, receipt, status=201, body=body)
+        return JSONResponse(status_code=201, content=body)
+    except HTTPException:
+        abandon(db, receipt)
+        raise
 
 
 @router.patch("/clients/{client_id}/contacts/{contact_id}", dependencies=[Depends(require(CONTACTS_MANAGE))])
@@ -341,6 +354,7 @@ def v1_get_conversation(
 @router.post("/clients/{client_id}/conversations/{conversation_id}/reply", dependencies=[Depends(require(INBOX_REPLY))])
 async def v1_reply(
     request: Request, client_id: uuid.UUID, conversation_id: uuid.UUID, payload: V1Reply,
+    idempotency_key: str | None = Header(default=None),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     """Answer as the operator, with the panel's own rules: the case must be
@@ -351,24 +365,37 @@ async def v1_reply(
         raise HTTPException(status_code=409, detail="Take control of the conversation before replying")
     if conversation.status != "open":
         raise HTTPException(status_code=409, detail="This conversation is resolved")
-    content = payload.content.strip()
-    if conversation.channel in ("instagram", "messenger"):
-        from ..services.social_delivery import queue_message
+    receipt = use_key(db, agency_id=user.agency_id, owner=owner_of(user), key=idempotency_key or "",
+                      endpoint="v1:reply", body={**payload.model_dump(), "conversation_id": str(conversation_id)})
+    if receipt.replay is not None:
+        replay = receipt.replay
+        return JSONResponse(status_code=replay["status"], content=replay["body"])
+    try:
+        content = payload.content.strip()
+        if conversation.channel in ("instagram", "messenger"):
+            from ..services.social_delivery import queue_message
 
-        message = Message(conversation_id=conversation.id, role="assistant", content=content,
-                          sender_type="human", sender_name=user.name)
-        db.add(message)
-        queue_message(db, conversation, message)
+            message = Message(conversation_id=conversation.id, role="assistant", content=content,
+                              sender_type="human", sender_name=user.name)
+            db.add(message)
+            queue_message(db, conversation, message)
+            conversation.updated_at = now_utc()
+            db.commit()
+            body = jsonable_encoder({**_conversation_out(conversation, request), "message_id": str(message.id)})
+            complete(db, receipt, status=200, body=body)
+            return JSONResponse(status_code=200, content=body)
+        external_message_id = await send_channel_message(db, conversation, content)
+        db.add(Message(conversation_id=conversation.id, role="assistant", content=content,
+                       sender_type="human", sender_name=user.name, external_message_id=external_message_id))
+        note_reply(conversation)
         conversation.updated_at = now_utc()
         db.commit()
-        return {**_conversation_out(conversation, request), "message_id": str(message.id)}
-    external_message_id = await send_channel_message(db, conversation, content)
-    db.add(Message(conversation_id=conversation.id, role="assistant", content=content,
-                   sender_type="human", sender_name=user.name, external_message_id=external_message_id))
-    note_reply(conversation)
-    conversation.updated_at = now_utc()
-    db.commit()
-    return {**_conversation_out(conversation, request)}
+        body = jsonable_encoder(_conversation_out(conversation, request))
+        complete(db, receipt, status=200, body=body)
+        return JSONResponse(status_code=200, content=body)
+    except HTTPException:
+        abandon(db, receipt)
+        raise
 
 
 # Pipeline --------------------------------------------------------------------

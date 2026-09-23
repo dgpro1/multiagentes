@@ -164,3 +164,56 @@ def test_calendar_events_shape(authenticated_client: TestClient):
     body = response.json()
     assert body["data"] == [] and body["total"] == 0
     assert f"/api/v1/clients/{customer['id']}/calendar/events" in body["_links"]["self"]
+
+
+def test_idempotent_reply_sends_once_and_marks_the_replay(authenticated_client: TestClient):
+    from sqlalchemy import select
+
+    from app.models import Message
+
+    from conftest import TestingSession
+
+    client = authenticated_client
+    customer, agent, token = _setup(client)
+    headers = {**_auth(token), "Idempotency-Key": "reply-1"}
+    conversation = customer_conversation(client, agent["id"])
+    assert client.patch(f"/api/conversations/{conversation['id']}/mode", json={"mode": "human"}).status_code == 200
+    url = f"/api/v1/clients/{customer['id']}/conversations/{conversation['id']}/reply"
+
+    first = client.post(url, headers=headers, json={"content": "Hi, Ana"})
+    assert first.status_code == 200, first.text
+    assert "api_replay" not in first.json()
+    second = client.post(url, headers=headers, json={"content": "Hi, Ana"})
+    assert second.status_code == 200
+    assert second.json()["api_replay"] is True
+    with TestingSession() as db:
+        assert db.scalars(select(Message).where(Message.role == "assistant")).all().__len__() == 1
+
+    # The same key with another body is refused, and keys never cross tokens.
+    assert client.post(url, headers=headers, json={"content": "Other"}).status_code == 422
+    other = _auth(_token(client, ["inbox.reply"]))
+    assert "api_replay" not in client.post(url, headers={**other, "Idempotency-Key": "reply-1"},
+                                           json={"content": "Hi, Ana"}).json()
+
+
+def test_idempotent_contact_create(authenticated_client: TestClient):
+    from sqlalchemy import select
+
+    from app.models import Contact
+
+    from conftest import TestingSession
+
+    client = authenticated_client
+    customer, _, token = _setup(client)
+    headers = {**_auth(token), "Idempotency-Key": "contact-1"}
+    url = f"/api/v1/clients/{customer['id']}/contacts"
+    payload = {"name": "Ana", "phone": "573001112233"}
+
+    first = client.post(url, headers=headers, json=payload)
+    assert first.status_code == 201, first.text
+    second = client.post(url, headers=headers, json=payload)
+    assert second.status_code == 201
+    assert second.json()["api_replay"] is True
+    assert second.json()["id"] == first.json()["id"]
+    with TestingSession() as db:
+        assert db.scalars(select(Contact)).all().__len__() == 1
