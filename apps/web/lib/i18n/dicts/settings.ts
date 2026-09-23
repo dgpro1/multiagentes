@@ -89,6 +89,14 @@ const en = {
     revoke: "Revoke",
     revokeTitle: "Revoke this token?",
     revokeCopy: "Calls with this token start failing at once. This cannot be undone.",
+    oauthTitle: "OAuth 2.0 client",
+    oauthCopy: "Let a third party install itself: it redirects here for approval and exchanges the code for tokens. One redirect URL per line.",
+    oauthClientId: "Client ID",
+    oauthRedirects: "Redirect URLs",
+    oauthSecret: "Client secret (shown once)",
+    oauthEnable: "Enable OAuth",
+    oauthRotate: "Save redirects and rotate secret",
+    oauthSaved: "OAuth client saved.",
   },
 };
 
@@ -182,6 +190,14 @@ const es: typeof en = {
     revoke: "Revocar",
     revokeTitle: "¿Revocar este token?",
     revokeCopy: "Las llamadas con este token empiezan a fallar de inmediato. No se puede deshacer.",
+    oauthTitle: "Cliente OAuth 2.0",
+    oauthCopy: "Permite que un tercero se instale solo: redirige aquí para aprobación e intercambia el código por tokens. Una URL de redirección por línea.",
+    oauthClientId: "Client ID",
+    oauthRedirects: "URLs de redirección",
+    oauthSecret: "Secreto de cliente (se muestra una vez)",
+    oauthEnable: "Habilitar OAuth",
+    oauthRotate: "Guardar redirects y rotar secreto",
+    oauthSaved: "Cliente OAuth guardado.",
   },
 };
 

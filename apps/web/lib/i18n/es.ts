@@ -12,6 +12,7 @@ import { inbox } from "./dicts/inbox";
 import { tools } from "./dicts/tools";
 import { reports } from "./dicts/reports";
 import { calendar } from "./dicts/calendar";
+import { oauth } from "./dicts/oauth";
 import { pipeline } from "./dicts/pipeline";
 
 // Spanish dictionary. Composed from the same modules; typed as Dictionary so it
@@ -30,5 +31,6 @@ export const es: Dictionary = {
   tools: tools.es,
   reports: reports.es,
   calendar: calendar.es,
+  oauth: oauth.es,
   pipeline: pipeline.es,
 };

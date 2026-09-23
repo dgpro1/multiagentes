@@ -1248,6 +1248,8 @@ class ApiIntegrationOut(ORMModel):
     client_id: uuid.UUID | None = None
     client_name: str | None = None
     scopes: list[str]
+    oauth_client_id: str | None = None
+    redirect_uris: list[str] = []
     last_used_at: datetime | None = None
     created_at: datetime
     tokens: list[ApiTokenOut] = []
@@ -1277,6 +1279,18 @@ class ApiTokenIssued(BaseModel):
     token: str
     token_prefix: str
     expires_at: datetime | None = None
+
+
+class ApiOAuthClientCreate(BaseModel):
+    redirect_uris: list[str] = Field(default_factory=list)
+
+
+class ApiOAuthClientOut(BaseModel):
+    integration_id: uuid.UUID
+    oauth_client_id: str
+    redirect_uris: list[str]
+    # Present only when a fresh secret was issued by this call.
+    client_secret: str | None = None
 
 
 class ApiScopeOut(BaseModel):

@@ -558,6 +558,12 @@ textarea { line-height: 1.55; }
 .connect-banner-warn { color: var(--ink-2); border: 1px solid var(--amber-line); background: var(--amber-soft); }
 .connect-google-button { width: 100%; justify-content: center; gap: 10px; background: var(--connect-accent); border-color: var(--connect-accent); }
 .connect-footer { color: var(--faint); font-size: 12px; }
+.connect-scopes-title { margin: 6px 0 0; font-size: 13px; }
+.connect-scopes { width: 100%; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.connect-scopes li { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; }
+.connect-scopes code { font-size: 12px; }
+.connect-scopes small { display: block; color: var(--muted); }
+.connect-actions { width: 100%; display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
 
 .section-block { margin-top: 38px; }
 .section-block .form-section + .form-section { margin-top: 16px; }
@@ -2087,6 +2093,8 @@ p .msg-time, .bubble .msg-time { float: none; position: absolute; right: 11px; b
 .token-prefix { font-size: 12px; }
 .integration-scope-list { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 .integration-scope-list .switch-row { margin: 0; }
+.integration-oauth { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 8px; }
+.integration-oauth textarea { width: 100%; min-height: 52px; font-family: monospace; font-size: 12px; }
 .row-end { text-align: right; width: 1%; }
 .name-line { display: inline-flex; align-items: center; gap: 8px; }
 .modal-head .icon-button { width: 34px; height: 34px; min-height: 0; padding: 0; flex: 0 0 auto; }

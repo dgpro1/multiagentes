@@ -151,6 +151,8 @@ def _token_principal(db: Session, raw: str, request: Request) -> Principal:
     token = db.scalar(select(ApiToken).where(ApiToken.token_hash == digest(raw)))
     if token is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API token")
+    if token.kind == "auth_code":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authorization codes are exchanged, not used as API tokens")
     if token.revoked_at is not None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This API token was revoked")
     if token.expires_at is not None and token.expires_at <= _now():
@@ -165,7 +167,7 @@ def _token_principal(db: Session, raw: str, request: Request) -> Principal:
         id=integration.created_by,
         name=f"API · {integration.name}",
         client_id=integration.client_id,
-        scopes=frozenset(integration.scopes or ()),
+        scopes=frozenset(token.scopes) if token.scopes is not None else frozenset(integration.scopes or ()),
         integration_id=integration.id,
         token_id=token.id,
         db=db,

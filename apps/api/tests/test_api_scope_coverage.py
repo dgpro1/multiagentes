@@ -17,6 +17,7 @@ from app.main import app
 # own. A token is refused everywhere these live, on purpose.
 CLOSED_PREFIXES = (
     "/api/auth",       # signing in, first-run setup, the session itself
+    "/api/oauth",      # the credential flows themselves: codes and secrets are exchanged here, never used as bearers
     "/api/agency",     # the agency's identity and logo
     "/api/providers",  # the AI keys
     "/api/catalog",    # reference data the panel reads
@@ -34,6 +35,9 @@ CLOSED_PREFIXES = (
 CLOSED_ROUTES = (
     ("POST", "/api/conversations"),                      # the playground is a panel feature
     ("DELETE", "/api/conversations/{conversation_id}"),  # and only deletes playground threads
+    ("GET", "/api/calendar/connect/{token}"),            # the public Google link landing
+    ("POST", "/api/calendar/connect/{token}/start"),     # and its OAuth handoff
+    ("GET", "/api/calendar/oauth/callback"),             # Google calls back here, not a person or a token
 )
 
 

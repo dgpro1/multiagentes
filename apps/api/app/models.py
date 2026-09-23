@@ -1152,6 +1152,13 @@ class ApiIntegration(Base):
     name: Mapped[str] = mapped_column(String(120))
     # Scope keys from app.api_scopes, resolved when the integration is saved.
     scopes: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
+    # OAuth 2.0 client identity. The id is public (shown in the interface);
+    # the secret is write-only and only its digest is stored. Redirects are
+    # pinned to the registered list; an integration without these fields
+    # cannot run the authorization-code flow.
+    oauth_client_id: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
+    oauth_client_secret_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    oauth_redirect_uris: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
     # The person who created it. Its tokens act with their identity for the
     # audit columns that point at users, while the lines they write into a
     # thread name the integration instead.
@@ -1176,11 +1183,18 @@ class ApiToken(Base):
     integration_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("api_integrations.id", ondelete="CASCADE"), index=True
     )
-    # "long_lived" today; OAuth's access and refresh tokens join it later.
+    # "long_lived" today; OAuth grants add "auth_code", "access", "refresh".
     kind: Mapped[str] = mapped_column(String(20), default="long_lived", server_default="long_lived")
     token_hash: Mapped[str] = mapped_column(String(64), index=True)
     # Kept in clear so a token can be told apart in a list without revealing it.
     token_prefix: Mapped[str] = mapped_column(String(16), default="", server_default="")
+    # Granted subset for OAuth tokens; null inherits the integration's scopes.
+    scopes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # The redirect the authorization code was bound to; checked at exchange.
+    redirect_uri: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Shared by the code, access and refresh tokens of one grant, so rotation
+    # and revocation can retire the whole grant at once.
+    grant_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

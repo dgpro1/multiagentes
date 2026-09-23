@@ -23,6 +23,8 @@ from ..schemas import (
     ApiIntegrationCreate,
     ApiIntegrationOut,
     ApiIntegrationUpdate,
+    ApiOAuthClientCreate,
+    ApiOAuthClientOut,
     ApiScopesOut,
     ApiTokenCreate,
     ApiTokenIssued,
@@ -60,6 +62,8 @@ def _out(db: Session, row: ApiIntegration) -> dict:
         "client_id": row.client_id,
         "client_name": client.name if client else None,
         "scopes": list(row.scopes or []),
+        "oauth_client_id": row.oauth_client_id,
+        "redirect_uris": list(row.oauth_redirect_uris or []),
         "last_used_at": row.last_used_at,
         "created_at": row.created_at,
         "tokens": list(row.tokens),
@@ -180,3 +184,54 @@ def revoke_token(
     db.delete(token)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _checked_redirect_uris(uris: list[str]) -> list[str]:
+    """Exact-match redirect allowlist: https everywhere, http only for
+    loopback development."""
+    from urllib.parse import urlsplit
+
+    cleaned = []
+    for uri in uris or []:
+        uri = (uri or "").strip()
+        if not uri:
+            continue
+        try:
+            parts = urlsplit(uri)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid redirect URL: {uri}") from exc
+        if parts.scheme == "https" and parts.hostname:
+            cleaned.append(uri)
+        elif parts.scheme == "http" and parts.hostname in ("localhost", "127.0.0.1", "[::1]"):
+            cleaned.append(uri)
+        else:
+            raise HTTPException(status_code=400, detail=f"Redirect URLs must be https (http only for localhost): {uri}")
+    if len(cleaned) > 10:
+        raise HTTPException(status_code=400, detail="Register at most 10 redirect URLs")
+    return cleaned
+
+
+@router.post("/{integration_id}/oauth-client", response_model=ApiOAuthClientOut, status_code=status.HTTP_201_CREATED)
+def setup_oauth_client(
+    integration_id: uuid.UUID,
+    payload: ApiOAuthClientCreate,
+    db: Session = Depends(get_db),
+    user=Depends(require(INTEGRATIONS_MANAGE)),
+):
+    """Turn the integration into an OAuth client: assign its public id on
+    first call, rotate its secret and replace its redirect list on every
+    call. The secret is returned only here, never again."""
+    row = _integration(db, user, integration_id)
+    if row.oauth_client_id is None:
+        row.oauth_client_id = api_credentials.new_oauth_client_id()
+    row.oauth_redirect_uris = _checked_redirect_uris(payload.redirect_uris)
+    secret = api_credentials.new_client_secret()
+    row.oauth_client_secret_hash = api_credentials.digest(secret)
+    db.commit()
+    db.refresh(row)
+    return {
+        "integration_id": row.id,
+        "oauth_client_id": row.oauth_client_id,
+        "redirect_uris": list(row.oauth_redirect_uris or []),
+        "client_secret": secret,
+    }

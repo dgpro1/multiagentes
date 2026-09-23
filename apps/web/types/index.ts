@@ -409,6 +409,8 @@ export type ApiIntegration = {
   client_id: string | null;
   client_name: string | null;
   scopes: string[];
+  oauth_client_id: string | null;
+  redirect_uris: string[];
   last_used_at: string | null;
   created_at: string;
   tokens: ApiToken[];
@@ -419,6 +421,13 @@ export type ApiTokenIssued = { token: string; token_prefix: string; expires_at: 
 export type ApiScopes = {
   scopes: { key: string; description: string }[];
   presets: Record<string, string[]>;
+};
+
+export type OAuthClientInfo = {
+  client_id: string;
+  name: string;
+  scopes: string[];
+  scope_descriptions: Record<string, string>;
 };
 
 export type ContactTag = {

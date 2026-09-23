@@ -165,8 +165,59 @@ function IntegrationRow({ item, showClient, expanded, onToggle, onEdit, onIssue,
           <button type="button" className="text-button danger-text" onClick={() => onRevoke(token.id)}>{t("settings.integrations.revoke")}</button>
         </li>)}
       </ul>}
+      <OAuthClientSection item={item} />
     </td></tr>}
   </>;
+}
+
+function OAuthClientSection({ item }: { item: ApiIntegration }) {
+  const t = useT();
+  const toast = useToast();
+  const [uris, setUris] = useState(item.redirect_uris.join("\n"));
+  const [secret, setSecret] = useState<string | null>(null);
+  const [clientId, setClientId] = useState<string | null>(item.oauth_client_id);
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // Follow the row when the list reloads underneath.
+  if (clientId !== item.oauth_client_id && secret === null) setClientId(item.oauth_client_id);
+
+  async function setup() {
+    setBusy(true);
+    try {
+      const result = await api<{ oauth_client_id: string; redirect_uris: string[]; client_secret: string | null }>(
+        `/integrations/${item.id}/oauth-client`,
+        { method: "POST", body: JSON.stringify({ redirect_uris: uris.split("\n").map((line) => line.trim()).filter(Boolean) }) },
+      );
+      setClientId(result.oauth_client_id);
+      setSecret(result.client_secret);
+      setCopied(false);
+      toast.success(t("settings.integrations.oauthSaved"));
+    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
+  }
+
+  async function copy(value: string) {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+
+  return <div className="integration-oauth">
+    <strong>{t("settings.integrations.oauthTitle")}</strong>
+    <p className="social-meta">{t("settings.integrations.oauthCopy")}</p>
+    {clientId && <p><small className="soft">{t("settings.integrations.oauthClientId")}: </small><code>{clientId}</code></p>}
+    <label>{t("settings.integrations.oauthRedirects")}
+      <textarea value={uris} rows={2} onChange={(e) => setUris(e.target.value)} disabled={busy}
+        placeholder="https://app.example.com/oauth/callback" /></label>
+    {secret && <div className="wa-copy-field">
+      <label>{t("settings.integrations.oauthSecret")}<input readOnly value={secret} onFocus={(e) => e.currentTarget.select()} /></label>
+      <button type="button" className="button secondary" onClick={() => copy(secret)}>
+        <ClipboardCopy size={15} /> {copied ? t("settings.integrations.copied") : t("settings.integrations.copyButton")}
+      </button>
+    </div>}
+    <div><button type="button" className="button secondary small" disabled={busy} onClick={setup}>
+      {busy ? <LoaderCircle className="spin" size={14} /> : null} {t(clientId ? "settings.integrations.oauthRotate" : "settings.integrations.oauthEnable")}
+    </button></div>
+  </div>;
 }
 
 function IntegrationFormModal({ open, catalog, clients, fixedClientId, initial, onClose, onSaved }: {
