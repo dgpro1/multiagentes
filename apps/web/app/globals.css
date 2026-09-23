@@ -327,6 +327,10 @@ input::placeholder, textarea::placeholder { color: var(--faint); font-weight: 40
 /* 2026 redesign: agency interface inspired by Stripe clarity and density. */
 :root {
   --shadow: 0 1px 2px rgba(var(--shadow-rgb), calc(.04 * var(--shadow-k))), 0 2px 8px rgba(var(--shadow-rgb), calc(.04 * var(--shadow-k)));
+  /* Width of the folded navigation rail, shared by the agency sidebar and the
+     client portal (see lib/sidebar.ts and the collapsible-navigation block at
+     the end of this file). */
+  --nav-rail: 76px;
 }
 
 body { background: var(--canvas); font-family: var(--font-text); font-size: var(--text-base); line-height: var(--lh-base); }
@@ -799,6 +803,10 @@ textarea { line-height: 1.55; }
 .portal-nav nav a { cursor: pointer; }
 .portal-nav nav a.disabled { cursor: default; opacity: .55; }
 .portal-nav nav a .nav-count { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; border-radius: 20px; color: white; background: var(--red); font-size: 11px; font-style: normal; font-weight: 700; }
+/* Folds the portal navigation into the icon rail; the same control the agency
+   sidebar carries in its brand row. */
+.portal-nav-toggle { width: 30px; height: 30px; flex: 0 0 auto; margin-left: auto; display: grid; place-items: center; color: var(--muted); border: 0; border-radius: 7px; background: transparent; }
+.portal-nav-toggle:hover { color: var(--ink); background: var(--surface-3); }
 /* Contacts: same two-column shell as the inbox. */
 .portal-contacts { height: calc(100vh - 125px); display: grid; grid-template-columns: 320px minmax(0,1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .portal-contacts > aside { overflow: auto; border-right: 1px solid var(--line); background: var(--surface-2); }
@@ -1281,7 +1289,10 @@ textarea { line-height: 1.55; }
   .portal-login { grid-template-columns: 1fr; }
   .portal-login > section { min-height: 360px; }
   .portal-app { grid-template-columns: 76px minmax(0,1fr); }
-  .portal-nav strong, .portal-nav nav a span, .portal-nav > button { font-size: 0; }
+  /* The link's label is a bare text node, so zeroing the link itself is what
+     hides it; the unread count sets its own size and survives, and the
+     availability switch is drawn in pixels. */
+  .portal-nav strong, .portal-nav nav a, .portal-nav nav a span, .portal-nav > button { font-size: 0; }
   .portal-nav-foot > button { font-size: 0; }
   .portal-nav .availability-toggle { justify-content: center; padding: 8px 0; }
   .portal-nav .availability-name { display: none; }
@@ -2646,3 +2657,58 @@ html[data-theme-transition], html[data-theme-transition] *, html[data-theme-tran
 textarea[data-overflow="true"] { scrollbar-width: thin; scrollbar-color: var(--subtle) transparent; scrollbar-gutter: stable; }
 textarea[data-overflow="true"]::-webkit-scrollbar { width: 8px; }
 textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; background: var(--subtle); }
+
+/* Collapsible navigation: the agency shell's sidebar and the client portal's
+   navigation both fold into the same 76px icon rail, each remembering its own
+   choice per browser (lib/sidebar.ts). The labels switch at once; only the
+   column animates.
+
+   Every rule here is guarded to >=901px on purpose. Above that width both
+   shells lay their navigation out as a real column; at <=900px the agency
+   sidebar is the phone drawer and the portal's navigation is its own rail
+   (851-900px) or the bottom tab bar (<=850px). Media queries add no
+   specificity, so an unguarded rule at the end of this file would beat those
+   blocks and put the desktop rail over the phone layouts. */
+@media (min-width: 901px) {
+  .sidebar { transition: width .18s ease; }
+  .main-content { transition: margin-left .18s ease; }
+  .portal-app { transition: grid-template-columns .18s ease; }
+
+  /* Agency shell: the brand mark sits above its control so both fit the
+     column, and every label gives way to its icon. */
+  .app-layout.nav-collapsed .sidebar { width: var(--nav-rail); padding-inline: 12px; }
+  .app-layout.nav-collapsed .main-content { margin-left: var(--nav-rail); }
+  .app-layout.nav-collapsed .brand-row { flex-direction: column; gap: 10px; padding: 0 0 14px; }
+  .app-layout.nav-collapsed .brand > span:last-of-type,
+  .app-layout.nav-collapsed .nav-label,
+  .app-layout.nav-collapsed .sidebar nav a > span,
+  .app-layout.nav-collapsed .sidebar-workspace > span,
+  .app-layout.nav-collapsed .user-meta { display: none; }
+  .app-layout.nav-collapsed .sidebar-workspace { justify-content: center; padding: 0; }
+  .app-layout.nav-collapsed .sidebar nav a { justify-content: center; gap: 0; padding: 0; }
+  .app-layout.nav-collapsed .sidebar-foot { flex-direction: column; gap: 10px; padding: 16px 0 0; }
+
+  /* Client portal: the same rail the 851-900px rule already draws, now for the
+     stored choice. The block padding is the narrowest that still fits the
+     availability switch beside its dot. */
+  .portal-app.nav-collapsed { grid-template-columns: var(--nav-rail) minmax(0,1fr); }
+  .portal-app.nav-collapsed .portal-nav { padding-inline: 11px; }
+  .portal-app.nav-collapsed .portal-brand { flex-direction: column; gap: 8px; padding: 0 0 16px; }
+  .portal-app.nav-collapsed .portal-nav-toggle { margin-left: 0; }
+  .portal-app.nav-collapsed .portal-nav strong,
+  .portal-app.nav-collapsed .portal-nav nav a,
+  .portal-app.nav-collapsed .portal-nav-foot > button { font-size: 0; }
+  .portal-app.nav-collapsed .portal-nav nav a { justify-content: center; gap: 5px; padding: 0; }
+  .portal-app.nav-collapsed .portal-nav nav a .nav-count { margin-left: 0; }
+  .portal-app.nav-collapsed .portal-nav .availability-toggle { justify-content: center; padding: 8px 0; }
+  .portal-app.nav-collapsed .portal-nav .availability-name { display: none; }
+}
+@media (min-width: 901px) and (prefers-reduced-motion: reduce) {
+  .sidebar, .main-content, .portal-app { transition: none; }
+}
+/* The control belongs to the desktop column: at <=900px the agency sidebar is
+   a drawer with its own close button and the portal navigates from the tab bar,
+   so folding is neither possible nor meaningful there. */
+@media (max-width: 900px) {
+  .sidebar-toggle, .portal-nav-toggle { display: none; }
+}

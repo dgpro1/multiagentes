@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
-import { BarChart3, Bot, Building2, CreditCard, Inbox, LayoutDashboard, LogOut, Menu, MessageSquareText, Radio, Settings, Sparkles, Wallet, X } from "lucide-react";
+import { BarChart3, Bot, Building2, CreditCard, Inbox, LayoutDashboard, LogOut, Menu, MessageSquareText, PanelLeftClose, PanelLeftOpen, Radio, Settings, Sparkles, Wallet, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useT, type I18nKey } from "@/lib/i18n";
+import { NAV_COLLAPSED_CLASS, useCollapsibleNav } from "@/lib/sidebar";
 import type { User } from "@/types";
 
 const navigation: { href: string; labelKey: I18nKey; icon: typeof LayoutDashboard }[] = [
@@ -52,6 +53,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(pathname !== "/login");
   const [mobileOpen, setMobileOpen] = useState(false);
+  // The rail is a desktop gesture only; below 901px the stylesheet hands the
+  // navigation back to the phone drawer. See lib/sidebar.ts.
+  const { collapsed, toggle } = useCollapsibleNav("agency");
   const isLogin = pathname === "/login";
   const isPortal = pathname.startsWith("/portal/");
   const isWidget = pathname.startsWith("/widget/");
@@ -93,32 +97,38 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (loading || !user) return <div className="app-loader"><span className="openlivery-icon"><img src="/brand/openlivery-logo-original.png" alt="" /></span><span>{t("shell.loading")}</span></div>;
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout ${collapsed ? NAV_COLLAPSED_CLASS : ""}`}>
       <button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label={t("shell.openMenu")}><Menu /></button>
       {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
-      <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}>
+      <aside id="app-sidebar" className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}>
         <div className="brand-row">
           <Link href="/" className="brand"><span className="openlivery-icon"><img src="/brand/openlivery-logo-original.png" alt="" /></span><span>OpenLivery</span></Link>
           <button className="sidebar-close" onClick={() => setMobileOpen(false)} aria-label={t("shell.closeMenu")}><X /></button>
+          {/* Folds the column into the icon rail. Hidden below 901px, where the
+              drawer and its own close button take over. */}
+          <button type="button" className="icon-button inverse sidebar-toggle" onClick={toggle} aria-expanded={!collapsed} aria-controls="app-sidebar" title={t(collapsed ? "shell.expandSidebar" : "shell.collapseSidebar")} aria-label={t(collapsed ? "shell.expandSidebar" : "shell.collapseSidebar")}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
         </div>
-        <div className="sidebar-workspace"><Building2 size={14} /><span>{user.agency.name}</span></div>
+        <div className="sidebar-workspace" title={collapsed ? user.agency.name : undefined}><Building2 size={14} /><span>{user.agency.name}</span></div>
         <nav>
           <span className="nav-label">{t("nav.section")}</span>
           {navigation.map((item) => {
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-            return <Link key={item.href} href={item.href} className={active ? "active" : ""} onClick={() => setMobileOpen(false)}><item.icon size={18} /><span>{t(item.labelKey)}</span></Link>;
+            const label = t(item.labelKey);
+            // Folded, the label is hidden by the stylesheet, so the icon carries
+            // it as both the accessible name and the tooltip.
+            return <Link key={item.href} href={item.href} className={active ? "active" : ""} title={collapsed ? label : undefined} aria-label={collapsed ? label : undefined} onClick={() => setMobileOpen(false)}><item.icon size={18} /><span>{label}</span></Link>;
           })}
           {EXTRA_NAV.map((item) => {
             const Icon = item.icon;
             const active = pathname.startsWith(item.href);
-            return <Link key={item.href} href={item.href} className={active ? "active" : ""} onClick={() => setMobileOpen(false)}><Icon size={18} /><span>{item.label}</span></Link>;
+            return <Link key={item.href} href={item.href} className={active ? "active" : ""} title={collapsed ? item.label : undefined} aria-label={collapsed ? item.label : undefined} onClick={() => setMobileOpen(false)}><Icon size={18} /><span>{item.label}</span></Link>;
           })}
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-foot">
             <div className="user-avatar">{user.name.slice(0, 1).toUpperCase()}</div>
             <div className="user-meta"><strong>{user.name}</strong><span>{user.email}</span></div>
-            <button className="icon-button inverse" onClick={logout} title={t("shell.logout")}><LogOut size={17} /></button>
+            <button className="icon-button inverse" onClick={logout} title={t("shell.logout")} aria-label={t("shell.logout")}><LogOut size={17} /></button>
           </div>
         </div>
       </aside>
