@@ -1226,3 +1226,64 @@ class WhatsAppOutgoing(BaseModel):
         if value is not None and value.utcoffset() is None:
             raise ValueError("The message timestamp must include a timezone")
         return value
+
+
+class ApiTokenOut(ORMModel):
+    """A token as it is listed: the prefix, never the secret."""
+
+    id: uuid.UUID
+    kind: str
+    token_prefix: str
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None
+    last_used_at: datetime | None = None
+    request_count: int
+    created_at: datetime
+
+
+class ApiIntegrationOut(ORMModel):
+    id: uuid.UUID
+    name: str
+    # Set when the integration is confined to one client of the agency.
+    client_id: uuid.UUID | None = None
+    client_name: str | None = None
+    scopes: list[str]
+    last_used_at: datetime | None = None
+    created_at: datetime
+    tokens: list[ApiTokenOut] = []
+
+
+class ApiIntegrationCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    client_id: uuid.UUID | None = None
+    preset: str = Field(default="read_only", max_length=40)
+    scopes: list[str] | None = None
+
+
+class ApiIntegrationUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    preset: str | None = Field(default=None, max_length=40)
+    scopes: list[str] | None = None
+
+
+class ApiTokenCreate(BaseModel):
+    # Kommo's long-lived tokens live from one day to five years.
+    expires_in_days: int = Field(default=365, ge=1, le=1825)
+
+
+class ApiTokenIssued(BaseModel):
+    """The one and only time the secret is returned."""
+
+    token: str
+    token_prefix: str
+    expires_at: datetime | None = None
+
+
+class ApiScopeOut(BaseModel):
+    key: str
+    description: str
+
+
+class ApiScopesOut(BaseModel):
+    scopes: list[ApiScopeOut]
+    presets: dict[str, list[str]]

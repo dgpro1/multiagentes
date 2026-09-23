@@ -5,7 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_user
+from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
+from ..deps import get_current_user, require
 from ..models import Agent, Client, User, WhatsAppCloudChannel, new_public_id, now_utc
 from ..schemas_whatsapp_cloud import WhatsAppCloudChannelOut, WhatsAppCloudChannelUpdate
 from ..services import messaging_provider as provider
@@ -86,7 +87,7 @@ def _public_channel(channel: WhatsAppCloudChannel, connect_url: str | None = Non
     }
 
 
-@router.get("/clients/{client_id}/channels", response_model=list[WhatsAppCloudChannelOut])
+@router.get("/clients/{client_id}/channels", response_model=list[WhatsAppCloudChannelOut], dependencies=[Depends(require(CHANNELS_READ))])
 def list_channels(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Every WhatsApp API number of the client, oldest first."""
     client = _owned_client(db, user, client_id)
@@ -105,7 +106,7 @@ def _apply_update(db: Session, user: User, channel: WhatsAppCloudChannel, payloa
     channel.updated_at = now_utc()
 
 
-@router.post("/clients/{client_id}/channels", response_model=WhatsAppCloudChannelOut, status_code=201)
+@router.post("/clients/{client_id}/channels", response_model=WhatsAppCloudChannelOut, status_code=201, dependencies=[Depends(require(CHANNELS_MANAGE))])
 def create_channel(
     client_id: uuid.UUID,
     payload: WhatsAppCloudChannelUpdate,
@@ -125,7 +126,7 @@ def create_channel(
     return _public_channel(channel)
 
 
-@router.get("/channels/{ref}", response_model=WhatsAppCloudChannelOut)
+@router.get("/channels/{ref}", response_model=WhatsAppCloudChannelOut, dependencies=[Depends(require(CHANNELS_READ))])
 def get_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return _public_channel(_channel_for_user(db, user, ref))
 
@@ -157,14 +158,14 @@ async def _sync_from_provider(db: Session, channel: WhatsAppCloudChannel) -> Non
     db.refresh(channel)
 
 
-@router.post("/channels/{ref}/refresh", response_model=WhatsAppCloudChannelOut)
+@router.post("/channels/{ref}/refresh", response_model=WhatsAppCloudChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def refresh_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     channel = _channel_for_user(db, user, ref)
     await _sync_from_provider(db, channel)
     return _public_channel(channel)
 
 
-@router.put("/channels/{ref}", response_model=WhatsAppCloudChannelOut)
+@router.put("/channels/{ref}", response_model=WhatsAppCloudChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 def configure_channel(
     ref: uuid.UUID,
     payload: WhatsAppCloudChannelUpdate,
@@ -193,7 +194,7 @@ def configure_channel(
     return _public_channel(channel)
 
 
-@router.delete("/channels/{channel_id}", status_code=204)
+@router.delete("/channels/{channel_id}", status_code=204, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def remove_channel(channel_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Remove a number. Its conversations stay as history; the provider-side
     profile is released so the name can be used again (best-effort)."""
@@ -209,7 +210,7 @@ async def remove_channel(channel_id: uuid.UUID, db: Session = Depends(get_db), u
     db.commit()
 
 
-@router.post("/channels/{ref}/connect", response_model=WhatsAppCloudChannelOut)
+@router.post("/channels/{ref}/connect", response_model=WhatsAppCloudChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Link the number through the provider's hosted page. When the number
     is already linked this verifies it instead and returns the channel;
@@ -238,7 +239,7 @@ async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: U
     return _public_channel(channel, connect_url=link["authorization_url"])
 
 
-@router.post("/channels/{ref}/disconnect", response_model=WhatsAppCloudChannelOut)
+@router.post("/channels/{ref}/disconnect", response_model=WhatsAppCloudChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 def disconnect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     channel = _channel_for_user(db, user, ref)
     channel.status = "disconnected"

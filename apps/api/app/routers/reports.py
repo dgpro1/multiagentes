@@ -20,7 +20,8 @@ from sqlalchemy import Date, String, cast, func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_user
+from ..api_scopes import REPORTS_READ
+from ..deps import get_current_user, require
 from ..models import Agent, Client, Conversation, Message, UsageRecord, User
 from ..schemas import CostReport, RepliesPage
 from ..services.model_catalog import get_model
@@ -150,7 +151,7 @@ def _fold(rows, key_width: int, label) -> list[dict]:
     return sorted(result, key=lambda item: item["cost_usd"], reverse=True)
 
 
-@router.get("/costs", response_model=CostReport)
+@router.get("/costs", response_model=CostReport, dependencies=[Depends(require(REPORTS_READ))])
 def cost_report(
     date_from: date = Query(alias="from"),
     date_to: date = Query(alias="to"),
@@ -235,7 +236,7 @@ def _reply(row) -> dict:
     }
 
 
-@router.get("/replies", response_model=RepliesPage, responses={200: {"content": {"text/csv": {}}}})
+@router.get("/replies", response_model=RepliesPage, responses={200: {"content": {"text/csv": {}}}}, dependencies=[Depends(require(REPORTS_READ))])
 def replies(
     date_from: date = Query(alias="from"),
     date_to: date = Query(alias="to"),
@@ -273,7 +274,7 @@ def replies(
     return {"items": items, "total": int(total)}
 
 
-@router.get("/operations")
+@router.get("/operations", dependencies=[Depends(require(REPORTS_READ))])
 def operations_report(
     date_from: date = Query(alias="from"),
     date_to: date = Query(alias="to"),
@@ -295,7 +296,7 @@ def operations_report(
     return operations(db, filters)
 
 
-@router.get("/filters")
+@router.get("/filters", dependencies=[Depends(require(REPORTS_READ))])
 def report_filters(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """The clients, agents, channels and models for the report dropdowns."""
     return filter_options(db, user.agency_id)

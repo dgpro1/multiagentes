@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_user
+from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
+from ..deps import get_current_user, require
 from ..models import Agent, Client, User, WidgetChannel
 from ..schemas import WidgetChannelOut, WidgetChannelUpdate
 
@@ -22,7 +23,7 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     return client
 
 
-@router.get("/channels/{client_id}", response_model=WidgetChannelOut)
+@router.get("/channels/{client_id}", response_model=WidgetChannelOut, dependencies=[Depends(require(CHANNELS_READ))])
 def get_channel(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     channel = db.scalar(select(WidgetChannel).where(WidgetChannel.client_id == client.id))
@@ -31,7 +32,7 @@ def get_channel(client_id: uuid.UUID, db: Session = Depends(get_db), user: User 
     return channel
 
 
-@router.put("/channels/{client_id}", response_model=WidgetChannelOut)
+@router.put("/channels/{client_id}", response_model=WidgetChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 def configure_channel(
     client_id: uuid.UUID,
     payload: WidgetChannelUpdate,

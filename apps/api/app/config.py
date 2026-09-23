@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # Rate limiting on public/unauthenticated endpoints (per client IP). Disable
     # only for tests or when a proxy in front already enforces limits.
     rate_limit_enabled: bool = True
+    # Requests per second allowed to each API token, counted per token (Kommo's
+    # public limit is 7). Over it, the token answers 429 with retry_after.
+    api_token_rate_limit_per_second: int = 7
     # SSRF guard for agent HTTP tools: URLs resolving to private/loopback
     # addresses are rejected. Enable only on self-hosted deployments that need
     # tools to reach internal services.

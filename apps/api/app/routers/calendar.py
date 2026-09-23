@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from ..database import get_db
-from ..deps import get_current_user
+from ..api_scopes import CALENDAR_MANAGE, CALENDAR_READ
+from ..deps import get_current_user, require
 from ..models import Client, User
 from ..schemas_calendar import (
     CalendarConnectInfoOut,
@@ -39,12 +40,12 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     return client
 
 
-@router.get("/clients/{client_id}/calendar", response_model=CalendarOverviewOut)
+@router.get("/clients/{client_id}/calendar", response_model=CalendarOverviewOut, dependencies=[Depends(require(CALENDAR_READ))])
 def client_calendar(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return calendar_service.overview(db, _client(db, user, client_id))
 
 
-@router.get("/clients/{client_id}/calendar/events", response_model=CalendarEventsOut)
+@router.get("/clients/{client_id}/calendar/events", response_model=CalendarEventsOut, dependencies=[Depends(require(CALENDAR_READ))])
 async def client_calendar_events(
     client_id: uuid.UUID, start: datetime = Query(...), end: datetime = Query(...),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
@@ -52,14 +53,14 @@ async def client_calendar_events(
     return await calendar_service.events(db, _client(db, user, client_id), start, end)
 
 
-@router.post("/clients/{client_id}/calendar/members", response_model=CalendarMemberOut, status_code=status.HTTP_201_CREATED)
+@router.post("/clients/{client_id}/calendar/members", response_model=CalendarMemberOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(CALENDAR_MANAGE))])
 def client_create_calendar_member(
     client_id: uuid.UUID, payload: CalendarMemberCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     return calendar_service.member_out(calendar_service.create_member(db, _client(db, user, client_id), payload))
 
 
-@router.patch("/clients/{client_id}/calendar/members/{member_id}", response_model=CalendarMemberOut)
+@router.patch("/clients/{client_id}/calendar/members/{member_id}", response_model=CalendarMemberOut, dependencies=[Depends(require(CALENDAR_MANAGE))])
 def client_update_calendar_member(
     client_id: uuid.UUID, member_id: uuid.UUID, payload: CalendarMemberUpdate,
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
@@ -67,21 +68,21 @@ def client_update_calendar_member(
     return calendar_service.member_out(calendar_service.update_member(db, _client(db, user, client_id), member_id, payload))
 
 
-@router.post("/clients/{client_id}/calendar/members/{member_id}/renew-link", response_model=CalendarMemberOut)
+@router.post("/clients/{client_id}/calendar/members/{member_id}/renew-link", response_model=CalendarMemberOut, dependencies=[Depends(require(CALENDAR_MANAGE))])
 def client_renew_calendar_link(
     client_id: uuid.UUID, member_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     return calendar_service.member_out(calendar_service.renew_link(db, _client(db, user, client_id), member_id))
 
 
-@router.post("/clients/{client_id}/calendar/members/{member_id}/disconnect", response_model=CalendarMemberOut)
+@router.post("/clients/{client_id}/calendar/members/{member_id}/disconnect", response_model=CalendarMemberOut, dependencies=[Depends(require(CALENDAR_MANAGE))])
 async def client_disconnect_calendar_member(
     client_id: uuid.UUID, member_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     return calendar_service.member_out(await calendar_service.disconnect(db, _client(db, user, client_id), member_id))
 
 
-@router.delete("/clients/{client_id}/calendar/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/clients/{client_id}/calendar/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(CALENDAR_MANAGE))])
 async def client_delete_calendar_member(
     client_id: uuid.UUID, member_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):

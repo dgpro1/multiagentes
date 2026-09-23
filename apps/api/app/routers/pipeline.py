@@ -9,8 +9,9 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..api_scopes import PIPELINE_MANAGE, PIPELINE_READ
 from ..database import get_db
-from ..deps import get_current_user
+from ..deps import get_current_user, require
 from ..models import Client, User
 from ..schemas import PipelineBoardOut, PipelineCardOut, PipelineStageCreate, PipelineStageOut, PipelineStageReorder, PipelineStageUpdate, QuickLeadCreate
 from ..services import pipeline as pipeline_service
@@ -25,42 +26,42 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     return client
 
 
-@router.get("/stages", response_model=list[PipelineStageOut])
+@router.get("/stages", response_model=list[PipelineStageOut], dependencies=[Depends(require(PIPELINE_READ))])
 def list_stages(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     return [pipeline_service.stage_out(db, stage) for stage in pipeline_service.list_stages(db, client)]
 
 
-@router.post("/stages", response_model=PipelineStageOut, status_code=status.HTTP_201_CREATED)
+@router.post("/stages", response_model=PipelineStageOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(PIPELINE_MANAGE))])
 def create_stage(client_id: uuid.UUID, payload: PipelineStageCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     return pipeline_service.stage_out(db, pipeline_service.create_stage(db, client, payload))
 
 
-@router.patch("/stages/{stage_id}", response_model=PipelineStageOut)
+@router.patch("/stages/{stage_id}", response_model=PipelineStageOut, dependencies=[Depends(require(PIPELINE_MANAGE))])
 def update_stage(client_id: uuid.UUID, stage_id: uuid.UUID, payload: PipelineStageUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     return pipeline_service.stage_out(db, pipeline_service.update_stage(db, client, stage_id, payload))
 
 
-@router.post("/stages/reorder", response_model=list[PipelineStageOut])
+@router.post("/stages/reorder", response_model=list[PipelineStageOut], dependencies=[Depends(require(PIPELINE_MANAGE))])
 def reorder_stages(client_id: uuid.UUID, payload: PipelineStageReorder, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     return [pipeline_service.stage_out(db, stage) for stage in pipeline_service.reorder_stages(db, client, payload.stage_ids)]
 
 
-@router.delete("/stages/{stage_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/stages/{stage_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(PIPELINE_MANAGE))])
 def delete_stage(client_id: uuid.UUID, stage_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     pipeline_service.delete_stage(db, _client(db, user, client_id), stage_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/board", response_model=PipelineBoardOut)
+@router.get("/board", response_model=PipelineBoardOut, dependencies=[Depends(require(PIPELINE_READ))])
 def get_board(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return pipeline_service.board(db, _client(db, user, client_id))
 
 
-@router.post("/leads", response_model=PipelineCardOut, status_code=status.HTTP_201_CREATED)
+@router.post("/leads", response_model=PipelineCardOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(PIPELINE_MANAGE))])
 def create_lead(client_id: uuid.UUID, payload: QuickLeadCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """A manually created deal ("quick lead"): contact plus an open,
     human-held case in the given stage. Nothing is sent anywhere."""

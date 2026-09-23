@@ -13,7 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_user
+from ..api_scopes import AGENTS_TOOLS
+from ..deps import get_current_user, require
 from ..models import AgentTool, User, now_utc
 from ..schemas_tools import AgentToolIn, AgentToolOut, HttpToolUpdate, McpTestIn, McpTestOut
 from ..security import decrypt_secret, encrypt_secret
@@ -74,14 +75,14 @@ async def _discover_or_502(url: str, transport: str, headers: dict[str, str] | N
         ) from exc
 
 
-@router.get("", response_model=list[AgentToolOut])
+@router.get("", response_model=list[AgentToolOut], dependencies=[Depends(require(AGENTS_TOOLS))])
 def list_tools(agent_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _agent(db, user, agent_id)
     rows = db.scalars(select(AgentTool).where(AgentTool.agent_id == agent_id).order_by(AgentTool.created_at)).all()
     return [_out(row) for row in rows]
 
 
-@router.post("", response_model=AgentToolOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=AgentToolOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(AGENTS_TOOLS))])
 async def create_tool(
     agent_id: uuid.UUID, payload: AgentToolIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
@@ -101,7 +102,7 @@ async def create_tool(
     return _out(tool)
 
 
-@router.patch("/{tool_id}", response_model=AgentToolOut)
+@router.patch("/{tool_id}", response_model=AgentToolOut, dependencies=[Depends(require(AGENTS_TOOLS))])
 async def update_tool(
     agent_id: uuid.UUID,
     tool_id: uuid.UUID,
@@ -135,7 +136,7 @@ async def update_tool(
     return _out(tool)
 
 
-@router.delete("/{tool_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{tool_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(AGENTS_TOOLS))])
 def delete_tool(agent_id: uuid.UUID, tool_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     tool = _tool(db, user, agent_id, tool_id)
     db.delete(tool)
@@ -143,7 +144,7 @@ def delete_tool(agent_id: uuid.UUID, tool_id: uuid.UUID, db: Session = Depends(g
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/test-mcp", response_model=McpTestOut)
+@router.post("/test-mcp", response_model=McpTestOut, dependencies=[Depends(require(AGENTS_TOOLS))])
 async def test_mcp(
     agent_id: uuid.UUID, payload: McpTestIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):

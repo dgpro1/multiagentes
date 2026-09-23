@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..config import get_settings
 from ..database import get_db
-from ..deps import get_current_user
+from ..api_scopes import AGENTS_KNOWLEDGE, AGENTS_READ, AGENTS_WRITE
+from ..deps import get_current_user, require
 from ..models import Agent, AgentQA, AgentTool, Client, EscalationRule, KnowledgeChunk, KnowledgeDocument, PortalUser, Team, User, WhatsAppChannel, WhatsAppCloudChannel, WidgetChannel, now_utc
 from ..schemas import AgentCreate, AgentOut, AgentPromptOut, AgentUpdate, DocumentOut, EscalationConfigIn, EscalationConfigOut, QAPairCreate, QAPairOut, check_reply_delay
 from ..services.knowledge import build_system_prompt, embed_document_chunks, reindex_agent, reindex_document
@@ -48,7 +49,7 @@ def _channels_of(db: Session, agent: Agent) -> list[WhatsAppChannel | WhatsAppCl
     ]
 
 
-@router.get("", response_model=list[AgentOut])
+@router.get("", response_model=list[AgentOut], dependencies=[Depends(require(AGENTS_READ))])
 def list_agents(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return db.scalars(
         select(Agent)
@@ -58,7 +59,7 @@ def list_agents(db: Session = Depends(get_db), user: User = Depends(get_current_
     ).unique().all()
 
 
-@router.post("", response_model=AgentOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=AgentOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(AGENTS_WRITE))])
 def create_agent(payload: AgentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _validate_client(db, user, payload.client_id)
     agent = Agent(agency_id=user.agency_id, **payload.model_dump())
@@ -67,12 +68,12 @@ def create_agent(payload: AgentCreate, db: Session = Depends(get_db), user: User
     return _agent(db, user, agent.id)
 
 
-@router.get("/{agent_id}", response_model=AgentOut)
+@router.get("/{agent_id}", response_model=AgentOut, dependencies=[Depends(require(AGENTS_READ))])
 def get_agent(agent_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return _agent(db, user, agent_id)
 
 
-@router.patch("/{agent_id}", response_model=AgentOut)
+@router.patch("/{agent_id}", response_model=AgentOut, dependencies=[Depends(require(AGENTS_WRITE))])
 def update_agent(agent_id: uuid.UUID, payload: AgentUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     agent = _agent(db, user, agent_id)
     values = payload.model_dump(exclude_unset=True)
@@ -96,7 +97,7 @@ def update_agent(agent_id: uuid.UUID, payload: AgentUpdate, db: Session = Depend
     return _agent(db, user, agent_id)
 
 
-@router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(AGENTS_WRITE))])
 def delete_agent(agent_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Delete the agent's configuration and knowledge; keep its conversations.
 
@@ -122,7 +123,7 @@ def delete_agent(agent_id: uuid.UUID, db: Session = Depends(get_db), user: User 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{agent_id}/prompt", response_model=AgentPromptOut)
+@router.get("/{agent_id}/prompt", response_model=AgentPromptOut, dependencies=[Depends(require(AGENTS_READ))])
 def get_prompt(agent_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """What the model receives on every message, minus the knowledge retrieved per message."""
     agent = _agent(db, user, agent_id)
@@ -143,7 +144,7 @@ def _document_out(doc: KnowledgeDocument) -> dict:
     }
 
 
-@router.post("/{agent_id}/documents/reindex", response_model=list[DocumentOut])
+@router.post("/{agent_id}/documents/reindex", response_model=list[DocumentOut], dependencies=[Depends(require(AGENTS_KNOWLEDGE))])
 async def reindex_documents(agent_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Re-embed every processed document with the agent's current embedding
     model. Needed after changing the model, or when an upload was indexed
@@ -159,7 +160,7 @@ async def reindex_documents(agent_id: uuid.UUID, db: Session = Depends(get_db), 
     return [_document_out(doc) for doc in docs]
 
 
-@router.get("/{agent_id}/documents", response_model=list[DocumentOut])
+@router.get("/{agent_id}/documents", response_model=list[DocumentOut], dependencies=[Depends(require(AGENTS_READ))])
 def list_documents(agent_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     agent = _agent(db, user, agent_id)
     docs = db.scalars(
@@ -170,7 +171,7 @@ def list_documents(agent_id: uuid.UUID, db: Session = Depends(get_db), user: Use
     return [_document_out(doc) for doc in docs]
 
 
-@router.post("/{agent_id}/documents", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{agent_id}/documents", response_model=DocumentOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(AGENTS_KNOWLEDGE))])
 async def upload_document(
     agent_id: uuid.UUID,
     file: UploadFile = File(...),
@@ -209,7 +210,7 @@ async def upload_document(
     return _document_out(document)
 
 
-@router.post("/{agent_id}/documents/{document_id}/reindex", response_model=DocumentOut)
+@router.post("/{agent_id}/documents/{document_id}/reindex", response_model=DocumentOut, dependencies=[Depends(require(AGENTS_KNOWLEDGE))])
 async def reindex_one_document(
     agent_id: uuid.UUID, document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
@@ -229,7 +230,7 @@ async def reindex_one_document(
     return _document_out(document)
 
 
-@router.delete("/{agent_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{agent_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(AGENTS_KNOWLEDGE))])
 def delete_document(agent_id: uuid.UUID, document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     agent = _agent(db, user, agent_id)
     document = db.scalar(
@@ -245,13 +246,13 @@ def delete_document(agent_id: uuid.UUID, document_id: uuid.UUID, db: Session = D
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{agent_id}/qa", response_model=list[QAPairOut])
+@router.get("/{agent_id}/qa", response_model=list[QAPairOut], dependencies=[Depends(require(AGENTS_READ))])
 def list_qa(agent_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     agent = _agent(db, user, agent_id)
     return db.scalars(select(AgentQA).where(AgentQA.agent_id == agent.id).order_by(AgentQA.position, AgentQA.created_at)).all()
 
 
-@router.post("/{agent_id}/qa", response_model=QAPairOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{agent_id}/qa", response_model=QAPairOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(AGENTS_KNOWLEDGE))])
 def create_qa(agent_id: uuid.UUID, payload: QAPairCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     agent = _agent(db, user, agent_id)
     position = db.scalar(select(func.count(AgentQA.id)).where(AgentQA.agent_id == agent.id)) or 0
@@ -262,7 +263,7 @@ def create_qa(agent_id: uuid.UUID, payload: QAPairCreate, db: Session = Depends(
     return pair
 
 
-@router.delete("/{agent_id}/qa/{qa_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{agent_id}/qa/{qa_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(AGENTS_KNOWLEDGE))])
 def delete_qa(agent_id: uuid.UUID, qa_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     agent = _agent(db, user, agent_id)
     pair = db.scalar(select(AgentQA).where(AgentQA.id == qa_id, AgentQA.agent_id == agent.id))
@@ -302,12 +303,12 @@ def _escalation_out(db: Session, agent: Agent) -> dict:
     }
 
 
-@router.get("/{agent_id}/escalation-rules", response_model=EscalationConfigOut)
+@router.get("/{agent_id}/escalation-rules", response_model=EscalationConfigOut, dependencies=[Depends(require(AGENTS_READ))])
 def get_escalation_config(agent_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return _escalation_out(db, _agent(db, user, agent_id))
 
 
-@router.put("/{agent_id}/escalation-rules", response_model=EscalationConfigOut)
+@router.put("/{agent_id}/escalation-rules", response_model=EscalationConfigOut, dependencies=[Depends(require(AGENTS_WRITE))])
 def replace_escalation_config(
     agent_id: uuid.UUID,
     config: EscalationConfigIn,

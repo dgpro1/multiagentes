@@ -49,10 +49,15 @@ class RateLimiter:
                 self._hits = {k: v for k, v in self._hits.items() if now - v[1] < self.seconds}
         return count, window_start
 
-    def __call__(self, request: Request) -> None:
+    def check(self, identifier: str) -> None:
+        """Count one hit for ``identifier`` and refuse over the budget.
+
+        Callers that can name the credential itself (an API token) use this
+        directly; the dependency form below names the client address.
+        """
         if not get_settings().rate_limit_enabled:
             return
-        count, window_start = self._register(f"{self.name}:{client_ip(request)}")
+        count, window_start = self._register(f"{self.name}:{identifier}")
         if count > self.times:
             retry_after = max(1, int(self.seconds - (time.monotonic() - window_start)))
             raise HTTPException(
@@ -60,6 +65,9 @@ class RateLimiter:
                 detail="Too many requests. Please slow down and try again.",
                 headers={"Retry-After": str(retry_after)},
             )
+
+    def __call__(self, request: Request) -> None:
+        self.check(client_ip(request))
 
 
 # Shared limiters. Credential endpoints are strict (brute-force defense); the
@@ -73,3 +81,7 @@ public_asset_rate_limit = RateLimiter(60, 60, name="public-asset")
 # The Meta webhook is authenticated by its HMAC signature; this generous limit
 # only guards against floods of unsigned traffic.
 whatsapp_cloud_webhook_rate_limit = RateLimiter(300, 60, name="whatsapp-cloud-webhook")
+# The API's own budget, counted per token rather than per address: a shared
+# office address must not throttle a well-behaved integration. Kommo allows 7
+# requests per second per credential and answers 429 with retry_after.
+api_token_rate_limit = RateLimiter(get_settings().api_token_rate_limit_per_second, 1, name="api-token")

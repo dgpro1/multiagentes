@@ -4,8 +4,18 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, Up
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from ..api_scopes import (
+    CLIENTS_READ,
+    CLIENTS_WRITE,
+    TAGS_MANAGE,
+    TAGS_READ,
+    TEAMS_MANAGE,
+    TEAMS_READ,
+    TEMPLATES_MANAGE,
+    TEMPLATES_READ,
+)
 from ..database import get_db
-from ..deps import get_current_user
+from ..deps import get_current_user, require
 from .. import industries
 from ..models import Agent, Client, Contact, Conversation, PortalUser, PushDevice, User, new_domain_token, Team
 from ..portal_permissions import DEFAULT_ROLE
@@ -81,7 +91,7 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     return client
 
 
-@router.get("", response_model=list[ClientOut])
+@router.get("", response_model=list[ClientOut], dependencies=[Depends(require(CLIENTS_READ))])
 def list_clients(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return db.scalars(
         select(Client)
@@ -91,7 +101,7 @@ def list_clients(db: Session = Depends(get_db), user: User = Depends(get_current
     ).all()
 
 
-@router.post("", response_model=ClientOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ClientOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(CLIENTS_WRITE))])
 def create_client(payload: ClientCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _check_industry(payload.industry, payload.business_type)
     client = Client(
@@ -104,12 +114,12 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db), user: Us
     return _client(db, user, client.id)
 
 
-@router.get("/{client_id}", response_model=ClientOut)
+@router.get("/{client_id}", response_model=ClientOut, dependencies=[Depends(require(CLIENTS_READ))])
 def get_client(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return _client(db, user, client_id)
 
 
-@router.patch("/{client_id}", response_model=ClientOut)
+@router.patch("/{client_id}", response_model=ClientOut, dependencies=[Depends(require(CLIENTS_WRITE))])
 def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     values = payload.model_dump(exclude_unset=True)
@@ -126,7 +136,7 @@ def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Dep
     return _client(db, user, client_id)
 
 
-@router.post("/{client_id}/logo", response_model=ClientOut)
+@router.post("/{client_id}/logo", response_model=ClientOut, dependencies=[Depends(require(CLIENTS_WRITE))])
 async def upload_client_logo(
     client_id: uuid.UUID,
     file: UploadFile = File(...),
@@ -145,7 +155,7 @@ async def upload_client_logo(
     return _client(db, user, client_id)
 
 
-@router.get("/{client_id}/logo")
+@router.get("/{client_id}/logo", dependencies=[Depends(require(CLIENTS_READ))])
 def get_client_logo(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     if not client.logo_data or not client.logo_mime:
@@ -153,7 +163,7 @@ def get_client_logo(client_id: uuid.UUID, db: Session = Depends(get_db), user: U
     return logo_response(client.logo_data, client.logo_mime)
 
 
-@router.delete("/{client_id}/logo", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{client_id}/logo", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(CLIENTS_WRITE))])
 def delete_client_logo(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     client.logo_data = None
@@ -162,7 +172,7 @@ def delete_client_logo(client_id: uuid.UUID, db: Session = Depends(get_db), user
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.patch("/{client_id}/portal", response_model=ClientOut)
+@router.patch("/{client_id}/portal", response_model=ClientOut, dependencies=[Depends(require(CLIENTS_WRITE))])
 def update_client_portal(
     client_id: uuid.UUID,
     payload: ClientPortalUpdate,
@@ -190,12 +200,12 @@ def update_client_portal(
     return _client(db, user, client_id)
 
 
-@router.get("/{client_id}/domain", response_model=ClientDomainOut)
+@router.get("/{client_id}/domain", response_model=ClientDomainOut, dependencies=[Depends(require(CLIENTS_READ))])
 def get_client_domain(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return _domain_out(_client(db, user, client_id))
 
 
-@router.put("/{client_id}/domain", response_model=ClientDomainOut)
+@router.put("/{client_id}/domain", response_model=ClientDomainOut, dependencies=[Depends(require(CLIENTS_WRITE))])
 def set_client_domain(
     client_id: uuid.UUID,
     payload: ClientDomainSet,
@@ -216,7 +226,7 @@ def set_client_domain(
     return _domain_out(_client(db, user, client_id))
 
 
-@router.post("/{client_id}/domain/verify", response_model=ClientDomainOut)
+@router.post("/{client_id}/domain/verify", response_model=ClientDomainOut, dependencies=[Depends(require(CLIENTS_WRITE))])
 def verify_client_domain(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     if not client.portal_domain:
@@ -228,7 +238,7 @@ def verify_client_domain(client_id: uuid.UUID, db: Session = Depends(get_db), us
     return _domain_out(_client(db, user, client_id))
 
 
-@router.delete("/{client_id}/domain", response_model=ClientDomainOut)
+@router.delete("/{client_id}/domain", response_model=ClientDomainOut, dependencies=[Depends(require(CLIENTS_WRITE))])
 def delete_client_domain(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     client.portal_domain = None
@@ -238,7 +248,7 @@ def delete_client_domain(client_id: uuid.UUID, db: Session = Depends(get_db), us
     return _domain_out(_client(db, user, client_id))
 
 
-@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(CLIENTS_WRITE))])
 async def delete_client(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Delete the client and everything under it: agents, channels, contacts,
     conversations, portal users. The UI shows the counts and asks for the
@@ -268,7 +278,7 @@ async def delete_client(client_id: uuid.UUID, db: Session = Depends(get_db), use
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{client_id}/deletion-preview", response_model=ClientDeletionPreview)
+@router.get("/{client_id}/deletion-preview", response_model=ClientDeletionPreview, dependencies=[Depends(require(CLIENTS_READ))])
 def client_deletion_preview(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """What deleting this client takes with it."""
     client = _client(db, user, client_id)
@@ -312,7 +322,7 @@ def _portal_user_out(db: Session, portal_user: PortalUser) -> PortalUserOut:
     )
 
 
-@router.get("/{client_id}/portal-users", response_model=list[PortalUserOut])
+@router.get("/{client_id}/portal-users", response_model=list[PortalUserOut], dependencies=[Depends(require(CLIENTS_READ))])
 def list_portal_users(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -331,26 +341,26 @@ def list_portal_users(
 # service code; only the way the client is resolved differs.
 
 
-@router.get("/{client_id}/members", response_model=list[PortalMemberOut])
+@router.get("/{client_id}/members", response_model=list[PortalMemberOut], dependencies=[Depends(require(TEAMS_READ))])
 def client_members(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """The active portal users, as the team editor needs them."""
     return members_out(db, _client(db, user, client_id))
 
 
-@router.get("/{client_id}/teams", response_model=list[TeamOut])
+@router.get("/{client_id}/teams", response_model=list[TeamOut], dependencies=[Depends(require(TEAMS_READ))])
 def client_teams(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """The client's trays, for this page and for pickers like the escalation rule editor."""
     client = _client(db, user, client_id)
     return [team_out(db, team) for team in list_teams(db, client)]
 
 
-@router.post("/{client_id}/teams", response_model=TeamOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{client_id}/teams", response_model=TeamOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(TEAMS_MANAGE))])
 def client_create_team(client_id: uuid.UUID, payload: TeamUpsert, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     return team_out(db, create_team(db, client, payload))
 
 
-@router.patch("/{client_id}/teams/{team_id}", response_model=TeamOut)
+@router.patch("/{client_id}/teams/{team_id}", response_model=TeamOut, dependencies=[Depends(require(TEAMS_MANAGE))])
 def client_update_team(
     client_id: uuid.UUID, team_id: uuid.UUID, payload: TeamUpsert, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
@@ -358,18 +368,18 @@ def client_update_team(
     return team_out(db, update_team(db, client, team_id, payload))
 
 
-@router.delete("/{client_id}/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{client_id}/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(TEAMS_MANAGE))])
 def client_delete_team(client_id: uuid.UUID, team_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     delete_team(db, _client(db, user, client_id), team_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{client_id}/templates", response_model=list[TemplateOut])
+@router.get("/{client_id}/templates", response_model=list[TemplateOut], dependencies=[Depends(require(TEMPLATES_READ))])
 async def client_templates(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return await list_templates(template_account(db, _client(db, user, client_id)))
 
 
-@router.post("/{client_id}/templates", response_model=TemplateOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{client_id}/templates", response_model=TemplateOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(TEMPLATES_MANAGE))])
 async def client_create_template(
     client_id: uuid.UUID, payload: TemplateCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
@@ -386,7 +396,7 @@ async def client_create_template(
     )
 
 
-@router.post("/{client_id}/templates/samples", response_model=TemplateSampleOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{client_id}/templates/samples", response_model=TemplateSampleOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(TEMPLATES_MANAGE))])
 async def client_upload_template_sample(
     client_id: uuid.UUID, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
@@ -395,7 +405,7 @@ async def client_upload_template_sample(
     return {"handle": await upload_sample(account_id, data=data, mime=mime, filename=filename)}
 
 
-@router.delete("/{client_id}/templates/{name}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{client_id}/templates/{name}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(TEMPLATES_MANAGE))])
 async def client_delete_template(
     client_id: uuid.UUID,
     name: str,
@@ -406,19 +416,19 @@ async def client_delete_template(
     await delete_template(template_account(db, _client(db, user, client_id)), name=validate_template_name(name), hsm_id=hsm_id)
 
 
-@router.get("/{client_id}/contact-tags", response_model=list[ContactTagOut])
+@router.get("/{client_id}/contact-tags", response_model=list[ContactTagOut], dependencies=[Depends(require(TAGS_READ))])
 def client_contact_tags(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """The client's contact tags, with where each one routes. Managed here and
     in the client portal alike; routing only here."""
     return list_tags(db, _client(db, user, client_id))
 
 
-@router.post("/{client_id}/contact-tags", response_model=ContactTagOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{client_id}/contact-tags", response_model=ContactTagOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(TAGS_MANAGE))])
 def client_create_contact_tag(client_id: uuid.UUID, payload: ContactTagCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return tag_out(create_tag(db, _client(db, user, client_id), payload.name, payload.color))
 
 
-@router.patch("/{client_id}/contact-tags/{tag_id}", response_model=ContactTagOut)
+@router.patch("/{client_id}/contact-tags/{tag_id}", response_model=ContactTagOut, dependencies=[Depends(require(TAGS_MANAGE))])
 def client_update_contact_tag(
     client_id: uuid.UUID, tag_id: uuid.UUID, payload: ContactTagUpdate,
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
@@ -449,13 +459,13 @@ def client_update_contact_tag(
     return tag_out(tag, tag_count(db, tag))
 
 
-@router.delete("/{client_id}/contact-tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{client_id}/contact-tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(TAGS_MANAGE))])
 def client_delete_contact_tag(client_id: uuid.UUID, tag_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     delete_tag(db, _client(db, user, client_id), tag_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/{client_id}/portal-users", response_model=PortalUserOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{client_id}/portal-users", response_model=PortalUserOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(CLIENTS_WRITE))])
 def create_portal_user(
     client_id: uuid.UUID,
     payload: PortalUserCreate,
@@ -488,7 +498,7 @@ def create_portal_user(
     return _portal_user_out(db, portal_user)
 
 
-@router.patch("/{client_id}/portal-users/{portal_user_id}", response_model=PortalUserOut)
+@router.patch("/{client_id}/portal-users/{portal_user_id}", response_model=PortalUserOut, dependencies=[Depends(require(CLIENTS_WRITE))])
 def update_portal_user(
     client_id: uuid.UUID,
     portal_user_id: uuid.UUID,
@@ -522,7 +532,7 @@ def update_portal_user(
     return _portal_user_out(db, portal_user)
 
 
-@router.delete("/{client_id}/portal-users/{portal_user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{client_id}/portal-users/{portal_user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(CLIENTS_WRITE))])
 def delete_portal_user(
     client_id: uuid.UUID,
     portal_user_id: uuid.UUID,

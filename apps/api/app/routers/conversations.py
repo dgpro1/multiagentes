@@ -6,7 +6,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..database import get_db
-from ..deps import get_current_user
+from ..api_scopes import INBOX_MANAGE, INBOX_READ, INBOX_REPLY, PIPELINE_MANAGE
+from ..deps import get_current_user, require
 from ..services.conversation_state import ConversationClosed, STATUSES, note_reply, set_mode, set_status
 from ..models import Agent, Contact, Conversation, Message, now_utc, User
 from ..schemas import (
@@ -59,7 +60,7 @@ def _conversation(db: Session, user: User, conversation_id: uuid.UUID) -> Conver
     return conversation
 
 
-@router.get("", response_model=list[ConversationOut])
+@router.get("", response_model=list[ConversationOut], dependencies=[Depends(require(INBOX_READ))])
 def list_conversations(
     agent_id: uuid.UUID | None = None,
     client_id: uuid.UUID | None = None,
@@ -86,7 +87,7 @@ def list_conversations(
     return items
 
 
-@router.get("/inbox", response_model=list[ConversationInboxOut])
+@router.get("/inbox", response_model=list[ConversationInboxOut], dependencies=[Depends(require(INBOX_READ))])
 def inbox(
     agent_id: uuid.UUID | None = None,
     channel: str | None = None,
@@ -199,7 +200,7 @@ def create_conversation(payload: ConversationCreate, db: Session = Depends(get_d
     return _conversation(db, user, conversation.id)
 
 
-@router.post("/{conversation_id}/read", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{conversation_id}/read", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(INBOX_MANAGE))])
 async def mark_read(conversation_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     conversation = _conversation(db, user, conversation_id)
     conversation.operator_read_at = now_utc()
@@ -221,7 +222,7 @@ async def mark_read(conversation_id: uuid.UUID, db: Session = Depends(get_db), u
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{conversation_id}", response_model=ConversationDetail)
+@router.get("/{conversation_id}", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_READ))])
 def get_conversation(conversation_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return _conversation(db, user, conversation_id)
 
@@ -285,7 +286,7 @@ async def _generate_reply(
     return _conversation(db, user, conversation.id)
 
 
-@router.post("/{conversation_id}/messages", response_model=ConversationDetail)
+@router.post("/{conversation_id}/messages", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
 async def send_message(
     conversation_id: uuid.UUID,
     payload: SendMessageRequest,
@@ -304,7 +305,7 @@ async def send_message(
     return await _generate_reply(db, user, conversation, agent, credentials, content)
 
 
-@router.post("/{conversation_id}/media", response_model=ConversationDetail)
+@router.post("/{conversation_id}/media", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
 async def send_media_message(
     conversation_id: uuid.UUID,
     file: UploadFile = File(...),
@@ -366,7 +367,7 @@ def delete_conversation(conversation_id: uuid.UUID, db: Session = Depends(get_db
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{conversation_id}/attachments/{attachment_id}")
+@router.get("/{conversation_id}/attachments/{attachment_id}", dependencies=[Depends(require(INBOX_READ))])
 def get_attachment(
     conversation_id: uuid.UUID,
     attachment_id: uuid.UUID,
@@ -377,7 +378,7 @@ def get_attachment(
     return attachment_response(conversation_attachment(db, conversation, attachment_id))
 
 
-@router.patch("/{conversation_id}/mode", response_model=ConversationDetail)
+@router.patch("/{conversation_id}/mode", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_MANAGE))])
 def set_conversation_mode(
     conversation_id: uuid.UUID,
     payload: ConversationModeUpdate,
@@ -394,7 +395,7 @@ def set_conversation_mode(
     return _conversation(db, user, conversation_id)
 
 
-@router.patch("/{conversation_id}/status", response_model=ConversationDetail)
+@router.patch("/{conversation_id}/status", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_MANAGE))])
 def set_conversation_status(
     conversation_id: uuid.UUID,
     payload: ConversationStatusUpdate,
@@ -411,7 +412,7 @@ def set_conversation_status(
     return _conversation(db, user, conversation_id)
 
 
-@router.patch("/{conversation_id}/pipeline", response_model=ConversationDetail)
+@router.patch("/{conversation_id}/pipeline", response_model=ConversationDetail, dependencies=[Depends(require(PIPELINE_MANAGE))])
 def set_conversation_pipeline(
     conversation_id: uuid.UUID,
     payload: ConversationPipelineUpdate,
@@ -426,7 +427,7 @@ def set_conversation_pipeline(
     return _conversation(db, user, conversation_id)
 
 
-@router.post("/{conversation_id}/reply", response_model=ConversationDetail)
+@router.post("/{conversation_id}/reply", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
 async def reply_as_human(
     conversation_id: uuid.UUID,
     payload: SendMessageRequest,
@@ -473,7 +474,7 @@ async def reply_as_human(
     return _conversation(db, user, conversation_id)
 
 
-@router.post("/{conversation_id}/location", response_model=ConversationDetail)
+@router.post("/{conversation_id}/location", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
 async def send_location(
     conversation_id: uuid.UUID,
     payload: LocationSend,
@@ -525,7 +526,7 @@ async def send_location(
     return _conversation(db, user, conversation_id)
 
 
-@router.post("/{conversation_id}/messages/{message_id}/reaction", response_model=ConversationDetail)
+@router.post("/{conversation_id}/messages/{message_id}/reaction", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
 async def react_to_message(
     conversation_id: uuid.UUID,
     message_id: uuid.UUID,
@@ -548,7 +549,7 @@ async def react_to_message(
     return _conversation(db, user, conversation_id)
 
 
-@router.post("/{conversation_id}/reply-media", response_model=ConversationDetail)
+@router.post("/{conversation_id}/reply-media", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
 async def reply_media_as_human(
     conversation_id: uuid.UUID,
     file: UploadFile = File(...),

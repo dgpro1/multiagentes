@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_user
+from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
+from ..deps import get_current_user, require
 from ..models import SocialChannel, User, now_utc
 from ..schemas_social import SocialChannelOut, SocialChannelRename, SocialChannelUpdate, SocialOAuthComplete, SocialOAuthStart
 from ..services import social_connections as connections
@@ -16,7 +17,7 @@ from ..services.social_graph import PROVIDERS, provider_name
 router = APIRouter(prefix="/social", tags=["Messaging channels"])
 
 
-@router.get("/config")
+@router.get("/config", dependencies=[Depends(require(CHANNELS_READ))])
 def configuration(user: User = Depends(get_current_user)):
     result = {}
     for provider in sorted(PROVIDERS):
@@ -26,18 +27,18 @@ def configuration(user: User = Depends(get_current_user)):
     return result
 
 
-@router.get("/{provider}/clients/{client_id}/channels", response_model=list[SocialChannelOut])
+@router.get("/{provider}/clients/{client_id}/channels", response_model=list[SocialChannelOut], dependencies=[Depends(require(CHANNELS_READ))])
 def list_channels(provider: str, client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Every account of the provider connected to the client, oldest first."""
     return [connections.public_channel(item) for item in connections.client_channels(db, user, client_id, provider)]
 
 
-@router.get("/{provider}/channels/{ref}", response_model=SocialChannelOut)
+@router.get("/{provider}/channels/{ref}", response_model=SocialChannelOut, dependencies=[Depends(require(CHANNELS_READ))])
 def get_channel(provider: str, ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return connections.public_channel(connections.owned_channel(db, user, ref, provider))
 
 
-@router.patch("/{provider}/channels/{channel_id}", response_model=SocialChannelOut)
+@router.patch("/{provider}/channels/{channel_id}", response_model=SocialChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 def rename_channel(provider: str, channel_id: uuid.UUID, payload: SocialChannelRename,
                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Change the agent or the name of an account without touching its authorization."""
@@ -56,7 +57,7 @@ def rename_channel(provider: str, channel_id: uuid.UUID, payload: SocialChannelR
     return connections.public_channel(channel)
 
 
-@router.put("/{provider}/channels/{ref}", response_model=SocialChannelOut)
+@router.put("/{provider}/channels/{ref}", response_model=SocialChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def configure_channel(provider: str, ref: uuid.UUID, payload: SocialChannelUpdate,
                             db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Manual credentials are retired: every account arrives through the
@@ -65,7 +66,7 @@ async def configure_channel(provider: str, ref: uuid.UUID, payload: SocialChanne
     raise HTTPException(403, "Use the account authorization flow to connect this channel")
 
 
-@router.post("/{provider}/channels/{ref}/connect", response_model=SocialChannelOut)
+@router.post("/{provider}/channels/{ref}/connect", response_model=SocialChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def connect_channel(provider: str, ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Verify a linked account, or return the hosted page that links one."""
     from ..services import messaging_provider as provider_client
@@ -103,36 +104,36 @@ async def connect_channel(provider: str, ref: uuid.UUID, db: Session = Depends(g
     return connections.public_channel(channel, connect_url=link["authorization_url"])
 
 
-@router.post("/{provider}/channels/{ref}/disconnect", status_code=204)
+@router.post("/{provider}/channels/{ref}/disconnect", status_code=204, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def disconnect_channel(provider: str, ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     await connections.disconnect_account(db, connections.owned_channel(db, user, ref, provider))
 
 
-@router.post("/{provider}/oauth/start")
+@router.post("/{provider}/oauth/start", dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def start_oauth(provider: str, payload: SocialOAuthStart, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     provider_name(provider)
     return {"authorization_url": await connections.begin_oauth(db, user, provider, payload.client_id, payload.agent_id, payload.next_path)}
 
 
-@router.get("/{provider}/oauth/pending")
+@router.get("/{provider}/oauth/pending", dependencies=[Depends(require(CHANNELS_READ))])
 async def pending_oauth(provider: str, client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     provider_name(provider)
     return await connections.pending_oauth(db, user, provider, client_id)
 
 
-@router.post("/{provider}/oauth/complete", response_model=SocialChannelOut)
+@router.post("/{provider}/oauth/complete", response_model=SocialChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def complete_oauth(provider: str, payload: SocialOAuthComplete, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     provider_name(provider)
     return connections.public_channel(await connections.complete_oauth(db, user, provider, payload.setup_id, payload.external_account_id))
 
 
-@router.post("/{provider}/channels/{ref}/import-history", status_code=202)
+@router.post("/{provider}/channels/{ref}/import-history", status_code=202, dependencies=[Depends(require(CHANNELS_MANAGE))])
 def import_history(provider: str, ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from ..services.social_history import public_job, request_import
     return public_job(request_import(db, user, ref, provider))
 
 
-@router.get("/{provider}/channels/{ref}/import-history")
+@router.get("/{provider}/channels/{ref}/import-history", dependencies=[Depends(require(CHANNELS_READ))])
 def history_import_status(provider: str, ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from ..services.social_history import latest_job, public_job
     channel = connections.owned_channel(db, user, ref, provider)

@@ -1131,3 +1131,60 @@ class CalendarOAuthState(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class ApiIntegration(Base):
+    """One API connection an agency hands to a third party.
+
+    It says who the connection acts for and what it may do; the secrets are
+    its tokens. ``client_id`` confines every token of the integration to a
+    single client of the agency, and an integration without it acts for the
+    whole agency. Deleting it takes its tokens with it.
+    """
+
+    __tablename__ = "api_integrations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    # Scope keys from app.api_scopes, resolved when the integration is saved.
+    scopes: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
+    # The person who created it. Its tokens act with their identity for the
+    # audit columns that point at users, while the lines they write into a
+    # thread name the integration instead.
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+    tokens: Mapped[list["ApiToken"]] = relationship(
+        back_populates="integration", cascade="all, delete-orphan", order_by="ApiToken.created_at"
+    )
+
+
+class ApiToken(Base):
+    """A bearer credential. Only its digest is stored, so it is shown once."""
+
+    __tablename__ = "api_tokens"
+    __table_args__ = (UniqueConstraint("token_hash", name="uq_api_tokens_hash"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    integration_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("api_integrations.id", ondelete="CASCADE"), index=True
+    )
+    # "long_lived" today; OAuth's access and refresh tokens join it later.
+    kind: Mapped[str] = mapped_column(String(20), default="long_lived", server_default="long_lived")
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
+    # Kept in clear so a token can be told apart in a list without revealing it.
+    token_prefix: Mapped[str] = mapped_column(String(16), default="", server_default="")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    request_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    integration: Mapped[ApiIntegration] = relationship(back_populates="tokens")

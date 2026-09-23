@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..config import get_settings
 from ..database import get_db
-from ..deps import get_current_user
+from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
+from ..deps import get_current_user, require
 from ..models import Agent, Client, Conversation, Message, User, WhatsAppChannel, now_utc
 from ..schemas import (
     WhatsAppChannelOut,
@@ -135,7 +136,7 @@ def _internal_channel(db: Session, channel_id: uuid.UUID) -> WhatsAppChannel:
     return channel
 
 
-@router.get("/clients/{client_id}/channels", response_model=list[WhatsAppChannelOut])
+@router.get("/clients/{client_id}/channels", response_model=list[WhatsAppChannelOut], dependencies=[Depends(require(CHANNELS_READ))])
 def list_channels(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Every QR line of the client, oldest first."""
     client = _owned_client(db, user, client_id)
@@ -145,7 +146,7 @@ def list_channels(client_id: uuid.UUID, db: Session = Depends(get_db), user: Use
     return [_public_channel(item) for item in rows]
 
 
-@router.post("/clients/{client_id}/channels", response_model=WhatsAppChannelOut, status_code=status.HTTP_201_CREATED)
+@router.post("/clients/{client_id}/channels", response_model=WhatsAppChannelOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(CHANNELS_MANAGE))])
 def create_channel(
     client_id: uuid.UUID,
     payload: WhatsAppChannelUpdate,
@@ -163,12 +164,12 @@ def create_channel(
     return _public_channel(channel)
 
 
-@router.get("/channels/{ref}", response_model=WhatsAppChannelOut)
+@router.get("/channels/{ref}", response_model=WhatsAppChannelOut, dependencies=[Depends(require(CHANNELS_READ))])
 def get_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return _public_channel(_channel_for_user(db, user, ref))
 
 
-@router.put("/channels/{ref}", response_model=WhatsAppChannelOut)
+@router.put("/channels/{ref}", response_model=WhatsAppChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def configure_channel(
     ref: uuid.UUID,
     payload: WhatsAppChannelUpdate,
@@ -201,7 +202,7 @@ async def configure_channel(
     return _public_channel(channel)
 
 
-@router.delete("/channels/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/channels/{channel_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def remove_channel(channel_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Remove a line. The phone is logged out first (best effort) and the
     line's conversations stay as history."""
@@ -217,7 +218,7 @@ async def remove_channel(channel_id: uuid.UUID, db: Session = Depends(get_db), u
     db.commit()
 
 
-@router.post("/channels/{ref}/connect", response_model=WhatsAppChannelOut)
+@router.post("/channels/{ref}/connect", response_model=WhatsAppChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     channel = _channel_for_user(db, user, ref)
     channel.status = "connecting"
@@ -236,7 +237,7 @@ async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: U
     return _public_channel(channel)
 
 
-@router.post("/channels/{ref}/disconnect", response_model=WhatsAppChannelOut)
+@router.post("/channels/{ref}/disconnect", response_model=WhatsAppChannelOut, dependencies=[Depends(require(CHANNELS_MANAGE))])
 async def disconnect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     channel = _channel_for_user(db, user, ref)
     await evolution_driver.disconnect(channel)
