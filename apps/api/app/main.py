@@ -23,6 +23,7 @@ from .routers import (
     industries,
     messaging_webhook,
     mobile,
+    pipeline,
     portal,
     providers,
     reports,
@@ -163,4 +164,5 @@ app.include_router(widget.router, prefix="/api")
 app.include_router(domains.public_router, prefix="/api")
 app.include_router(social.router, prefix="/api")
 app.include_router(calendar.router, prefix="/api")
+app.include_router(pipeline.router, prefix="/api")
 app.include_router(social_webhook.public_router, prefix="/api")

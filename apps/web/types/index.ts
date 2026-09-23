@@ -166,6 +166,35 @@ export type Team = {
   open_count: number;
   unassigned_count: number;
 };
+
+export type PipelineStage = {
+  id: string;
+  name: string;
+  color: string;
+  position: number;
+  conversation_count: number;
+  deal_value_total: number;
+};
+
+export type PipelineCard = {
+  id: string;
+  title: string;
+  contact_name: string | null;
+  channel: string;
+  account_label: string | null;
+  mode: "ai" | "human";
+  status: "open" | "resolved";
+  pipeline_stage_id: string | null;
+  deal_value: number | null;
+  preview: string;
+  updated_at: string;
+};
+
+export type PipelineBoard = {
+  stages: PipelineStage[];
+  unassigned_count: number;
+  cards: PipelineCard[];
+};
 export type Conversation = {
   id: string;
   client_id: string;
@@ -183,6 +212,10 @@ export type Conversation = {
   assignee_name?: string | null;
   team_id?: string | null;
   team_name?: string | null;
+  pipeline_stage_id?: string | null;
+  pipeline_stage_name?: string | null;
+  pipeline_stage_color?: string | null;
+  deal_value?: number | null;
   reply_window_until?: string | null;
   reply_window_open?: boolean;
   human_reply_window_open?: boolean;

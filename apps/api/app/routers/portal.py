@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import get_settings
 from ..database import get_db
 from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTag, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
-from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CONTACTS_MANAGE, INBOX_DELETE, REPORTS_VIEW, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
+from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CONTACTS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, REPORTS_VIEW, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
 from ..ratelimit import login_rate_limit, public_asset_rate_limit
 from ..schemas import (
     ContactBlockUpdate,
@@ -57,12 +57,19 @@ from ..schemas import (
     ReactionRequest,
     SendMessageRequest,
     ConversationTeamUpdate,
+    ConversationPipelineUpdate,
+    PipelineBoardOut,
+    PipelineStageCreate,
+    PipelineStageOut,
+    PipelineStageReorder,
+    PipelineStageUpdate,
     TeamOut,
     TeamUpsert,
 )
 from ..security import create_portal_token, decode_portal_token, verify_password
 from ..schemas_calendar import CalendarEventsOut, CalendarMemberCreate, CalendarMemberOut, CalendarMemberUpdate, CalendarOverviewOut
 from ..services import calendar as calendar_service
+from ..services import pipeline as pipeline_service
 from ..services import channel_accounts
 from ..services.contacts import display_name, merge_contacts, normalize_phone, rename_conversations
 from ..services.tags import create_tag, delete_tag, get_tag, list_tags, rename_tag, tag_count, tag_out
@@ -425,6 +432,51 @@ async def portal_disconnect_calendar_member(slug: str, member_id: uuid.UUID, cli
 async def portal_delete_calendar_member(slug: str, member_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     await calendar_service.delete_member(db, client, member_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{slug}/pipeline/stages", response_model=list[PipelineStageOut])
+def portal_pipeline_stages(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return [pipeline_service.stage_out(db, stage) for stage in pipeline_service.list_stages(db, client)]
+
+
+@router.post("/{slug}/pipeline/stages", response_model=PipelineStageOut, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_permission(PIPELINE_MANAGE))])
+def portal_create_pipeline_stage(slug: str, payload: PipelineStageCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return pipeline_service.stage_out(db, pipeline_service.create_stage(db, client, payload))
+
+
+@router.patch("/{slug}/pipeline/stages/{stage_id}", response_model=PipelineStageOut,
+              dependencies=[Depends(require_permission(PIPELINE_MANAGE))])
+def portal_update_pipeline_stage(slug: str, stage_id: uuid.UUID, payload: PipelineStageUpdate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return pipeline_service.stage_out(db, pipeline_service.update_stage(db, client, stage_id, payload))
+
+
+@router.post("/{slug}/pipeline/stages/reorder", response_model=list[PipelineStageOut],
+             dependencies=[Depends(require_permission(PIPELINE_MANAGE))])
+def portal_reorder_pipeline_stages(slug: str, payload: PipelineStageReorder, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return [pipeline_service.stage_out(db, stage) for stage in pipeline_service.reorder_stages(db, client, payload.stage_ids)]
+
+
+@router.delete("/{slug}/pipeline/stages/{stage_id}", status_code=status.HTTP_204_NO_CONTENT,
+               dependencies=[Depends(require_permission(PIPELINE_MANAGE))])
+def portal_delete_pipeline_stage(slug: str, stage_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    pipeline_service.delete_stage(db, client, stage_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{slug}/pipeline/board", response_model=PipelineBoardOut)
+def portal_pipeline_board(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return pipeline_service.board(db, client)
+
+
+@router.patch("/{slug}/conversations/{conversation_id}/pipeline", response_model=ConversationDetail)
+def portal_set_conversation_pipeline(
+    slug: str, conversation_id: uuid.UUID, payload: ConversationPipelineUpdate,
+    client: Client = Depends(_portal_client), sender_name: str = Depends(_sender_name), db: Session = Depends(get_db),
+):
+    conversation = _detail(db, client, conversation_id)
+    pipeline_service.move_conversation(db, client, conversation, payload.pipeline_stage_id, payload.deal_value, actor=sender_name)
+    return _present(_detail(db, client, conversation_id))
 
 
 @router.patch("/{slug}/me", response_model=PortalMemberOut)

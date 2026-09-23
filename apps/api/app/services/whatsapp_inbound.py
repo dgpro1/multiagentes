@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..database import new_session
 from .contacts import display_name, phone_from_chat_id, previous_conversation_recap, rename_conversations, resolve_contact
-from .conversation_state import exchanged_only, note_inbound, note_reply
+from .conversation_state import exchanged_only, note_inbound, note_reply, set_pipeline_stage
 from ..models import Agent, Conversation, Message, MessageAttachment, now_utc
 from .attachments import llm_text, store_attachment
 from .knowledge import contact_context, build_system_prompt, llm_turns, retrieve_knowledge
@@ -37,6 +37,7 @@ from .escalation import (
     escalation_enabled,
     escalation_prompt,
 )
+from .pipeline import build_pipeline_spec, list_stages as pipeline_stages, pipeline_enabled, pipeline_prompt
 from .whatsapp import deliver_reaction, send_channel_media, send_channel_message, signal_channel_read
 from .whatsapp_format import parse_reply_directives
 from .whatsapp_identity import resolve_peer_contact
@@ -469,17 +470,22 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
     recap = previous_conversation_recap(db, conversation)
     if recap:
         system_content += "\n\n" + recap
-    escalation_specs = None
+    extra_specs: list = []
     escalation_holder: list = []
+    pipeline_holder: list = []
     if conversation.channel in ("whatsapp", "whatsapp_cloud"):
         system_content += "\n\n" + _gesture_rules(burst)
     if conversation.channel in ("whatsapp", "whatsapp_cloud", "instagram", "messenger"):
         rules = escalation_active_rules(db, agent)
         if escalation_enabled(db, agent, rules):
             system_content += "\n\n" + escalation_prompt(rules, builtin_enabled=agent.escalation_builtin_enabled)
-            escalation_specs = [
+            extra_specs.append(
                 build_escalation_spec(rules, escalation_holder, builtin_enabled=agent.escalation_builtin_enabled)
-            ]
+            )
+        stages = pipeline_stages(db, agent.client)
+        if pipeline_enabled(stages):
+            system_content += "\n\n" + pipeline_prompt(stages)
+            extra_specs.append(build_pipeline_spec(stages, pipeline_holder))
     messages = [
         {"role": "system", "content": system_content},
         *llm_turns(history, agent.prompt_language),
@@ -494,7 +500,7 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
             messages,
             temperature=agent.temperature,
             max_tokens=agent.max_tokens,
-            extra_specs=escalation_specs,
+            extra_specs=extra_specs or None,
         )
     except Exception as exc:
         channel.last_error = ("Message received, but the agent could not reply. A person must continue this conversation."
@@ -575,6 +581,8 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
     record_usage(db, agent.agency_id, agent.id, agent.provider, agent.model.strip(), completion, conversation=conversation, message=outbound)
     conversation.updated_at = now_utc()
     channel.last_error = None
+    if pipeline_holder:
+        set_pipeline_stage(db, conversation, pipeline_holder[-1], actor=agent.name)
     if escalation_holder and conversation.channel in ("instagram", "messenger"):
         request = escalation_holder[-1]
         conversation.social_pending_escalation = {
