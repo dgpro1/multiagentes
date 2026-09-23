@@ -521,6 +521,16 @@ textarea { line-height: 1.55; }
 .pipeline-value-input { width: 100px; padding: 3px 7px; font-size: 12px; }
 @media (max-width: 560px) { .pipeline-column { flex-basis: 240px; } }
 
+.pipeline-automation-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.pipeline-automation-row { padding: 6px 8px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.pipeline-automation-order { display: flex; flex-direction: column; gap: 1px; }
+.pipeline-automation-order .icon-button.small { width: 20px; height: 16px; }
+.pipeline-automation-color { width: 28px; height: 28px; padding: 2px; flex: 0 0 auto; border-radius: 7px; }
+.pipeline-automation-name { flex: 1; min-width: 0; }
+.pipeline-automation-confirm { display: flex; align-items: center; gap: 4px; }
+.pipeline-automation-add { margin-top: 4px; display: flex; gap: 8px; }
+.pipeline-automation-add input { flex: 1; }
+
 .connect-page { min-height: 100vh; padding: 40px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: var(--canvas); --connect-accent: var(--accent); }
 .connect-card { width: min(420px, 100%); padding: 32px 28px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 12px 32px rgba(var(--shadow-rgb), calc(.08 * var(--shadow-k))); }
 .connect-avatar { width: 56px; height: 56px; margin-bottom: 4px; display: grid; place-items: center; border-radius: 50%; color: #fff; font-size: 22px; font-weight: 700; }

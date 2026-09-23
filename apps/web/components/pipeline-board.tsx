@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { GripVertical, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, GripVertical, LoaderCircle, Plus, Trash2, Wand2, X } from "lucide-react";
 import { Alert, EmptyState, Modal } from "@/components/ui";
 import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
@@ -11,6 +11,8 @@ import { useT } from "@/lib/i18n";
 import type { PipelineBoard as PipelineBoardData, PipelineCard, PipelineStage } from "@/types";
 
 const UNASSIGNED = "__unassigned__";
+// Distinct on both themes, in the order new stages take them.
+const PALETTE = ["#2f6df0", "#00a67d", "#7c5cff", "#d4932f", "#c83b82", "#0891b2", "#c43d4b", "#65a30d"];
 
 function money(value: number | null | undefined): string {
   if (value === null || value === undefined) return "";
@@ -20,7 +22,9 @@ function money(value: number | null | undefined): string {
 /** The sales pipeline: a client's own stages as kanban columns, with every
  * open conversation as a draggable card — including those not yet in any
  * stage, which sit in a virtual first column so dragging one in needs no
- * separate picker anywhere else. Shared by the client page and the portal. */
+ * separate picker anywhere else. Shared by the client page and the portal.
+ * Every edit to the stages themselves (add, rename, recolor, reorder,
+ * delete) lives behind the single "Automatiza" button, Kommo-style. */
 export function PipelineBoard({ base, canManage }: { base: string; canManage: boolean }) {
   const t = useT();
   const toast = useToast();
@@ -32,9 +36,7 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
   }, [base]);
   useEffect(() => { load(); }, [load]);
 
-  const [editing, setEditing] = useState<PipelineStage | "new" | null>(null);
-  const [deleting, setDeleting] = useState<PipelineStage | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [dragCardId, setDragCardId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
 
@@ -46,37 +48,6 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
     }
     return map;
   }, [board]);
-
-  async function saveStage(name: string, color: string) {
-    setBusy(true);
-    try {
-      if (editing && editing !== "new") {
-        const updated = await api<PipelineStage>(`${base}/pipeline/stages/${editing.id}`, { method: "PATCH", body: JSON.stringify({ name, color }) });
-        setBoard((current) => current && { ...current, stages: current.stages.map((s) => (s.id === updated.id ? updated : s)) });
-        toast.success(t("pipeline.stageSaved"));
-      } else {
-        const created = await api<PipelineStage>(`${base}/pipeline/stages`, { method: "POST", body: JSON.stringify({ name, color }) });
-        setBoard((current) => current && { ...current, stages: [...current.stages, created] });
-        toast.success(t("pipeline.stageAdded"));
-      }
-      setEditing(null);
-    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
-  }
-
-  async function removeStage() {
-    if (!deleting) return;
-    setBusy(true);
-    try {
-      await api(`${base}/pipeline/stages/${deleting.id}`, { method: "DELETE" });
-      setBoard((current) => current && {
-        ...current,
-        stages: current.stages.filter((s) => s.id !== deleting.id),
-        cards: current.cards.map((c) => (c.pipeline_stage_id === deleting.id ? { ...c, pipeline_stage_id: null } : c)),
-        unassigned_count: current.unassigned_count + (cardsByStage.get(deleting.id)?.length ?? 0),
-      });
-      setDeleting(null);
-    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
-  }
 
   async function moveCard(card: PipelineCard, stageId: string | null) {
     if (card.pipeline_stage_id === stageId) return;
@@ -110,8 +81,8 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
       <div className="section-copy"><h2>{t("pipeline.title")}</h2><p>{t("pipeline.description")}</p></div>
       {board.stages.length === 0 && !canManage
         ? <EmptyState icon={<GripVertical />} title={t("pipeline.stagesEmptyTitle")} description={t("pipeline.stagesEmptyDescription")} />
-        : <div className="form-fields">
-          {canManage && <button type="button" className="button secondary align-start" onClick={() => setEditing("new")}><Plus size={15} /> {t("pipeline.addStage")}</button>}
+        : canManage && <div className="form-fields">
+          <button type="button" className="button secondary align-start" onClick={() => setManaging(true)}><Wand2 size={15} /> {t("pipeline.automate")}</button>
         </div>}
     </section>
 
@@ -132,10 +103,6 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
             <span className="pipeline-dot" style={{ background: column.color }} />
             <strong>{column.name}</strong>
             <span className="pipeline-column-count">{column.count}</span>
-            {column.id && canManage && <span className="pipeline-column-actions">
-              <button type="button" className="icon-button small" onClick={() => setEditing(board.stages.find((s) => s.id === column.id) || null)} aria-label={t("common.edit")} title={t("common.edit")}><Pencil size={13} /></button>
-              <button type="button" className="icon-button small danger-icon" onClick={() => setDeleting(board.stages.find((s) => s.id === column.id) || null)} aria-label={t("pipeline.deleteStage")} title={t("pipeline.deleteStage")}><Trash2 size={13} /></button>
-            </span>}
           </header>
           {column.id && column.total > 0 && <div className="pipeline-column-total">{t("pipeline.totalLabel")}: {money(column.total)}</div>}
           <div className="pipeline-cards">
@@ -147,16 +114,8 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
       })}
     </div>}
 
-    <Modal open={editing !== null} title={editing === "new" ? t("pipeline.addStageTitle") : t("pipeline.editStageTitle")} onClose={() => setEditing(null)}>
-      <StageForm stage={editing !== "new" ? editing : null} busy={busy} isNew={editing === "new"} onCancel={() => setEditing(null)} onSave={saveStage} />
-    </Modal>
-
-    <Modal open={deleting !== null} title={t("pipeline.deleteStageConfirmTitle", { name: deleting?.name || "" })} onClose={() => setDeleting(null)}>
-      <div className="modal-form"><p className="modal-copy">{t("pipeline.deleteStageConfirmCopy")}</p>
-        <div className="modal-actions"><button type="button" className="button" onClick={() => setDeleting(null)}>{t("common.cancel")}</button>
-          <button type="button" className="button danger" disabled={busy} onClick={removeStage}>{busy ? <LoaderCircle className="spin" size={16} /> : <><Trash2 size={15} /> {t("pipeline.deleteStageConfirm")}</>}</button></div>
-      </div>
-    </Modal>
+    <AutomationModal open={managing} base={base} stages={board.stages} onClose={() => setManaging(false)}
+      onChange={(stages) => setBoard((current) => current && { ...current, stages })} />
   </div>;
 }
 
@@ -188,16 +147,99 @@ function PipelineCardView({ card, t, onDragStart, onValueChange }: {
   </article>;
 }
 
-function StageForm({ stage, isNew, busy, onCancel, onSave }: {
-  stage: PipelineStage | null; isNew: boolean; busy: boolean; onCancel: () => void; onSave: (name: string, color: string) => void;
+/** The "Automatiza" screen: every edit to the stage list in one place — add,
+ * rename, recolor, reorder (up/down; this is a short list, so arrows beat a
+ * drag target that's easy to miss inside a modal), delete. Each row saves
+ * itself as soon as it changes, so there is no separate save step. */
+function AutomationModal({ open, base, stages, onClose, onChange }: {
+  open: boolean; base: string; stages: PipelineStage[]; onClose: () => void; onChange: (stages: PipelineStage[]) => void;
 }) {
   const t = useT();
-  const [name, setName] = useState(stage?.name || "");
-  const [color, setColor] = useState(stage?.color || "#2f6df0");
-  return <form className="modal-form" onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave(name.trim(), color); }}>
-    <label>{t("pipeline.stageName")}<input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("pipeline.stageNamePlaceholder")} required autoFocus maxLength={80} /></label>
-    <label>{t("pipeline.stageColor")}<div className="color-input"><input type="color" value={color} onChange={(e) => setColor(e.target.value)} /><input value={color} readOnly /></div></label>
-    <div className="modal-actions"><button type="button" className="button" onClick={onCancel}>{t("common.cancel")}</button>
-      <button className="button primary" disabled={busy || !name.trim()}>{busy ? <LoaderCircle className="spin" size={16} /> : isNew ? t("pipeline.add") : t("pipeline.save")}</button></div>
-  </form>;
+  const toast = useToast();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+
+  async function rename(stage: PipelineStage, name: string) {
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === stage.name) return;
+    setBusyId(stage.id);
+    try {
+      const updated = await api<PipelineStage>(`${base}/pipeline/stages/${stage.id}`, { method: "PATCH", body: JSON.stringify({ name: trimmed }) });
+      onChange(stages.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));
+    } catch (err) { toast.error(messageFrom(err)); } finally { setBusyId(null); }
+  }
+
+  async function recolor(stage: PipelineStage, color: string) {
+    onChange(stages.map((s) => (s.id === stage.id ? { ...s, color } : s)));
+    try {
+      await api<PipelineStage>(`${base}/pipeline/stages/${stage.id}`, { method: "PATCH", body: JSON.stringify({ color }) });
+    } catch (err) { toast.error(messageFrom(err)); }
+  }
+
+  async function move(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= stages.length) return;
+    const reordered = [...stages];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    onChange(reordered);
+    try {
+      const saved = await api<PipelineStage[]>(`${base}/pipeline/stages/reorder`, { method: "POST", body: JSON.stringify({ stage_ids: reordered.map((s) => s.id) }) });
+      onChange(saved);
+    } catch (err) { toast.error(messageFrom(err)); }
+  }
+
+  async function remove(stage: PipelineStage) {
+    setBusyId(stage.id);
+    try {
+      await api(`${base}/pipeline/stages/${stage.id}`, { method: "DELETE" });
+      onChange(stages.filter((s) => s.id !== stage.id));
+      setConfirmingDelete(null);
+    } catch (err) { toast.error(messageFrom(err)); } finally { setBusyId(null); }
+  }
+
+  async function addStage(event: React.FormEvent) {
+    event.preventDefault();
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setAddBusy(true);
+    try {
+      const color = PALETTE[stages.length % PALETTE.length];
+      const created = await api<PipelineStage>(`${base}/pipeline/stages`, { method: "POST", body: JSON.stringify({ name: trimmed, color }) });
+      onChange([...stages, created]);
+      setNewName("");
+      toast.success(t("pipeline.stageAdded"));
+    } catch (err) { toast.error(messageFrom(err)); } finally { setAddBusy(false); }
+  }
+
+  return <Modal open={open} title={t("pipeline.automate")} description={t("pipeline.automateCopy")} onClose={onClose} wide>
+    <div className="modal-form">
+      <div className="pipeline-automation-list">
+        {stages.length === 0 && <p className="field-help">{t("pipeline.stagesEmptyDescription")}</p>}
+        {stages.map((stage, index) => <div key={stage.id} className="pipeline-automation-row">
+          <div className="pipeline-automation-order">
+            <button type="button" className="icon-button small" disabled={index === 0} onClick={() => move(index, -1)} aria-label={t("pipeline.moveUp")} title={t("pipeline.moveUp")}><ArrowUp size={13} /></button>
+            <button type="button" className="icon-button small" disabled={index === stages.length - 1} onClick={() => move(index, 1)} aria-label={t("pipeline.moveDown")} title={t("pipeline.moveDown")}><ArrowDown size={13} /></button>
+          </div>
+          <input type="color" className="pipeline-automation-color" value={stage.color} onChange={(e) => recolor(stage, e.target.value)} title={t("pipeline.stageColor")} />
+          <input className="pipeline-automation-name" defaultValue={stage.name} maxLength={80}
+            onBlur={(e) => rename(stage, e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+          {busyId === stage.id && <LoaderCircle size={14} className="spin" />}
+          {confirmingDelete === stage.id
+            ? <span className="pipeline-automation-confirm">
+                <button type="button" className="button danger small" onClick={() => remove(stage)}>{t("pipeline.deleteStageConfirm")}</button>
+                <button type="button" className="icon-button small" onClick={() => setConfirmingDelete(null)} aria-label={t("common.cancel")}><X size={13} /></button>
+              </span>
+            : <button type="button" className="icon-button small danger-icon" onClick={() => setConfirmingDelete(stage.id)} aria-label={t("pipeline.deleteStage")} title={t("pipeline.deleteStage")}><Trash2 size={14} /></button>}
+        </div>)}
+      </div>
+      <form className="pipeline-automation-add" onSubmit={addStage}>
+        <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t("pipeline.stageNamePlaceholder")} maxLength={80} />
+        <button type="submit" className="button secondary" disabled={addBusy || !newName.trim()}>{addBusy ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />} {t("pipeline.addStage")}</button>
+      </form>
+      <div className="modal-actions"><button type="button" className="button primary" onClick={onClose}>{t("pipeline.done")}</button></div>
+    </div>
+  </Modal>;
 }
