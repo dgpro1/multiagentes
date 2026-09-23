@@ -217,3 +217,181 @@ def test_idempotent_contact_create(authenticated_client: TestClient):
     assert second.json()["id"] == first.json()["id"]
     with TestingSession() as db:
         assert db.scalars(select(Contact)).all().__len__() == 1
+
+
+def _setup6(client: TestClient) -> tuple[dict, dict, str]:
+    customer = client.post("/api/clients", json={"name": "Acme", "is_active": True}).json()
+    client.put("/api/providers/openrouter", json={"api_key": "secret"})
+    agent = client.post(
+        "/api/agents",
+        json={"client_id": customer["id"], "provider": "openrouter", "model": "gpt-4.1-mini",
+              "name": "Vera", "instructions": "", "personality": "", "is_active": True},
+    ).json()
+    token = _token(client, ["agents.read", "agents.write", "agents.knowledge", "channels.read",
+                            "inbox.read", "inbox.reply", "reports.read", "calendar.read", "calendar.manage"])
+    return customer, agent, token
+
+
+def test_agents_crud_and_prompt(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, agent, token = _setup6(client)
+    headers = _auth(token)
+    base = f"/api/v1/clients/{customer['id']}/agents"
+
+    listed = client.get(base, headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert [row["id"] for row in listed.json()["data"]] == [agent["id"]]
+    assert listed.json()["data"][0]["_links"]["self"].endswith(f"/agents/{agent['id']}")
+
+    one = client.get(f"{base}/{agent['id']}", headers=headers)
+    assert one.status_code == 200 and one.json()["name"] == "Vera"
+
+    # The path owns the client: a body naming another one is refused.
+    assert client.post(base, headers=headers, json={
+        "client_id": "00000000-0000-0000-0000-000000000000", "name": "Nope"}).status_code == 409
+    created = client.post(base, headers=headers, json={
+        "client_id": customer["id"], "provider": "openrouter", "model": "gpt-4.1-mini", "name": "Api"})
+    assert created.status_code == 201, created.text
+    assert created.json()["name"] == "Api"
+
+    patched = client.patch(f"{base}/{created.json()['id']}", headers=headers, json={"temperature": 0.2})
+    assert patched.status_code == 200 and patched.json()["temperature"] == 0.2
+    assert client.patch(f"{base}/{created.json()['id']}", headers=headers,
+                        json={"reply_delay_min_seconds": 50, "reply_delay_max_seconds": 5}).status_code == 422
+    assert client.patch(f"{base}/{created.json()['id']}", headers=headers,
+                        json={"client_id": "00000000-0000-0000-0000-000000000000"}).status_code == 409
+
+    prompt = client.get(f"{base}/{agent['id']}/prompt", headers=headers)
+    assert prompt.status_code == 200 and "Vera" in prompt.json()["prompt"]
+
+    # Another client's path never names this agent.
+    other = client.post("/api/clients", json={"name": "Other", "is_active": True}).json()
+    assert client.get(f"/api/v1/clients/{other['id']}/agents/{agent['id']}", headers=headers).status_code == 404
+
+    assert client.delete(f"{base}/{created.json()['id']}", headers=headers).status_code == 204
+    assert client.get(f"/api/agents/{created.json()['id']}").status_code == 404
+
+
+def test_knowledge_documents_and_qa(authenticated_client: TestClient, monkeypatch):
+    from app.routers import api_v1 as api_v1_router
+
+    class _FakePage:
+        def extract_text(self):
+            return "Hello knowledge"
+
+    class _Reader:
+        def __init__(self, _data):
+            self.pages = [_FakePage()]
+
+    monkeypatch.setattr(api_v1_router, "PdfReader", _Reader)
+
+    client = authenticated_client
+    customer, agent, token = _setup6(client)
+    headers = _auth(token)
+    base = f"/api/v1/clients/{customer['id']}/agents/{agent['id']}"
+
+    assert client.get(f"{base}/documents", headers=headers).json() == {
+        "data": [], "total": 0, "_links": {"self": f"/api/v1/clients/{customer['id']}/agents/{agent['id']}/documents"}}
+    assert client.post(f"{base}/documents", headers=headers,
+                       files={"file": ("notes.txt", b"hello", "text/plain")}).status_code == 400
+
+    uploaded = client.post(f"{base}/documents", headers=headers,
+                           files={"file": ("notes.pdf", b"%PDF-test", "application/pdf")})
+    assert uploaded.status_code == 201, uploaded.text
+    document = uploaded.json()
+    assert document["filename"] == "notes.pdf" and document["status"] == "processed"
+    assert document["character_count"] > 0
+    assert document["_links"]["self"].endswith(f"/documents/{document['id']}")
+
+    assert client.delete(f"{base}/documents/{document['id']}", headers=headers).status_code == 204
+    assert client.delete(f"{base}/documents/{document['id']}", headers=headers).status_code == 404
+
+    qa_headers = {**headers, "Idempotency-Key": "qa-1"}
+    first = client.post(f"{base}/qa", headers=qa_headers, json={"question": "Hours?", "answer": "Nine to five."})
+    assert first.status_code == 201, first.text
+    second = client.post(f"{base}/qa", headers=qa_headers, json={"question": "Hours?", "answer": "Nine to five."})
+    assert second.json()["api_replay"] is True and second.json()["id"] == first.json()["id"]
+
+    pairs = client.get(f"{base}/qa", headers=headers).json()
+    assert [row["id"] for row in pairs["data"]] == [first.json()["id"]]
+    assert client.delete(f"{base}/qa/{first.json()['id']}", headers=headers).status_code == 204
+
+
+def test_channels_list(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, agent, token = _setup6(client)
+    channel = client.put(f"/api/whatsapp/channels/{customer['id']}", json={"agent_id": agent["id"]}).json()
+
+    response = client.get(f"/api/v1/clients/{customer['id']}/channels", headers=_auth(token))
+    assert response.status_code == 200, response.text
+    rows = {row["id"]: row for row in response.json()["data"]}
+    assert rows[channel["id"]]["type"] == "whatsapp_qr"
+    assert set(rows[channel["id"]]) >= {"id", "client_id", "type", "label", "status", "connected",
+                                        "agent_id", "last_error", "last_connected_at", "_links"}
+    assert rows[channel["id"]]["agent_id"] == agent["id"]
+
+
+def test_messages_list(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, agent, token = _setup6(client)
+    headers = _auth(token)
+    conversation = customer_conversation(client, agent["id"])
+    assert client.patch(f"/api/conversations/{conversation['id']}/mode", json={"mode": "human"}).status_code == 200
+    assert client.post(f"/api/v1/clients/{customer['id']}/conversations/{conversation['id']}/reply",
+                       headers=headers, json={"content": "Hi, Ana"}).status_code == 200
+
+    response = client.get(f"/api/v1/clients/{customer['id']}/conversations/{conversation['id']}/messages", headers=headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] >= 1
+    assert body["data"][-1]["content"] == "Hi, Ana"
+    assert body["data"][-1]["kind"] == "message"
+    assert body["data"][-1]["_links"]["self"].endswith(f"/messages/{body['data'][-1]['id']}")
+    assert {row["kind"] for row in body["data"]} <= {"message", "activity"}
+
+
+def test_reports_costs_replies_operations(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, agent, token = _setup6(client)
+    headers = _auth(token)
+    params = {"from": "2026-01-01", "to": "2026-02-01"}
+
+    costs = client.get(f"/api/v1/clients/{customer['id']}/reports/costs", headers=headers, params=params)
+    assert costs.status_code == 200, costs.text
+    assert set(costs.json()["totals"]) >= {"cost_usd", "replies", "conversations", "input_tokens", "output_tokens"}
+    assert costs.json()["by_agent"] == [] and costs.json()["_links"]["self"].endswith("/reports/costs")
+
+    replies = client.get(f"/api/v1/clients/{customer['id']}/reports/replies", headers=headers, params=params)
+    assert replies.status_code == 200 and replies.json()["total"] == 0
+
+    operations = client.get(f"/api/v1/clients/{customer['id']}/reports/operations", headers=headers, params=params)
+    assert operations.status_code == 200, operations.text
+    assert operations.json()["_links"]["self"].endswith("/reports/operations")
+
+    # An agent of another client cannot scope this client's numbers.
+    other = client.post("/api/clients", json={"name": "Other", "is_active": True}).json()
+    foreign = client.post("/api/agents", json={"client_id": other["id"], "provider": "openrouter",
+                                               "model": "gpt-4.1-mini", "name": "Away", "is_active": True}).json()
+    assert client.get(f"/api/v1/clients/{customer['id']}/reports/costs", headers=headers,
+                      params={**params, "agent_id": foreign["id"]}).status_code == 400
+
+
+def test_calendar_overview_and_members(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, _, token = _setup6(client)
+    headers = _auth(token)
+    base = f"/api/v1/clients/{customer['id']}/calendar"
+
+    overview = client.get(base, headers=headers)
+    assert overview.status_code == 200, overview.text
+    assert overview.json()["members"] == []
+
+    member_headers = {**headers, "Idempotency-Key": "cal-1"}
+    first = client.post(f"{base}/members", headers=member_headers, json={"name": "Ventas", "role": "sales"})
+    assert first.status_code == 201, first.text
+    second = client.post(f"{base}/members", headers=member_headers, json={"name": "Ventas", "role": "sales"})
+    assert second.json()["api_replay"] is True and second.json()["id"] == first.json()["id"]
+
+    assert client.get(base, headers=headers).json()["members"].__len__() == 1
+    assert client.delete(f"{base}/members/{first.json()['id']}", headers=headers).status_code == 204
+    assert client.get(base, headers=headers).json()["members"] == []
