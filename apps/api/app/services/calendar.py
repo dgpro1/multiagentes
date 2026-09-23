@@ -18,7 +18,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import CalendarMember, CalendarOAuthState, Client, new_public_id, now_utc
+from ..models import Agency, CalendarMember, CalendarOAuthState, Client, new_public_id, now_utc
 from ..schemas_calendar import CalendarMemberCreate, CalendarMemberUpdate
 from ..security import decrypt_secret, encrypt_secret
 from . import google_calendar as google
@@ -255,6 +255,7 @@ def member_by_link(db: Session, token: str) -> CalendarMember:
 def link_info(db: Session, token: str) -> dict:
     member = member_by_link(db, token)
     client = member.client
+    agency = db.get(Agency, client.agency_id)
     return {
         "member_name": member.name,
         "member_role": member.role,
@@ -265,6 +266,7 @@ def link_info(db: Session, token: str) -> dict:
         "google_email": member.google_email,
         "oauth_ready": google.configured(),
         "expired": member.connect_expires_at <= now_utc(),
+        "agency_name": agency.name if agency else "",
     }
 
 

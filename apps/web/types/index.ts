@@ -549,4 +549,5 @@ export type CalendarConnectInfo = {
   google_email: string | null;
   oauth_ready: boolean;
   expired: boolean;
+  agency_name: string;
 };

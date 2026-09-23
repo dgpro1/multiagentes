@@ -67,6 +67,7 @@ class CalendarConnectInfoOut(BaseModel):
     google_email: str | None = None
     oauth_ready: bool
     expired: bool
+    agency_name: str = ""
 
 
 class CalendarConnectStartOut(BaseModel):

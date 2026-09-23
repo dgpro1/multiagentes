@@ -44,7 +44,7 @@ export default function CalendarConnectPage() {
 
   if (!info) return <ConnectShell><LoaderCircle size={32} className="connect-icon spin" /></ConnectShell>;
 
-  if (info.expired) return <ConnectShell color={info.color}>
+  if (info.expired) return <ConnectShell color={info.color} agency={info.agency_name}>
     <XCircle size={40} className="connect-icon danger" />
     <h1>{t("calendar.connect.expiredTitle")}</h1>
     <p>{t("calendar.connect.expiredCopy", { client: info.client_name })}</p>
@@ -53,7 +53,7 @@ export default function CalendarConnectPage() {
   const roleSuffix = info.member_role ? t("calendar.connect.roleSuffix", { role: info.member_role }) : "";
   const alreadyConnected = info.status === "connected" && result !== "denied" && result !== "scope" && result !== "error";
 
-  return <ConnectShell color={info.color}>
+  return <ConnectShell color={info.color} agency={info.agency_name}>
     <div className="connect-avatar" style={{ background: info.color }}>{info.member_name.slice(0, 1).toUpperCase()}</div>
     <h1>{t("calendar.connect.heading")}</h1>
     <p>{t("calendar.connect.intro", { client: info.client_name, name: info.member_name, role: roleSuffix })}</p>
@@ -83,10 +83,10 @@ function GoogleMark() {
   </svg>;
 }
 
-function ConnectShell({ children, color }: { children: React.ReactNode; color?: string }) {
+function ConnectShell({ children, color, agency }: { children: React.ReactNode; color?: string; agency?: string }) {
   const t = useT();
   return <div className="connect-page" style={color ? ({ "--connect-accent": color } as React.CSSProperties) : undefined}>
     <div className="connect-card">{children}</div>
-    <small className="connect-footer">{t("calendar.connect.poweredBy")}</small>
+    <small className="connect-footer">{agency ? t("calendar.connect.poweredByWithAgency", { agency }) : t("calendar.connect.poweredBy")}</small>
   </div>;
 }

@@ -70,7 +70,8 @@ const en = {
     resultError: "Something went wrong",
     resultErrorCopy: "The connection could not be completed. Try again.",
     tryAgain: "Try again",
-    poweredBy: "Powered by OpenLivery",
+    poweredBy: "HunterAI",
+    poweredByWithAgency: "{agency} & HunterAI",
   },
 };
 
@@ -144,7 +145,8 @@ const es: typeof en = {
     resultError: "Algo salió mal",
     resultErrorCopy: "No se pudo completar la conexión. Intenta de nuevo.",
     tryAgain: "Intentar de nuevo",
-    poweredBy: "Con tecnología de OpenLivery",
+    poweredBy: "HunterAI",
+    poweredByWithAgency: "{agency} & HunterAI",
   },
 };
 
