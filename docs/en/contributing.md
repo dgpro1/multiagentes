@@ -50,6 +50,15 @@ WhatsApp QR lines need a running Evolution API instance — either `docker compo
 
 ## Tests
 
+All changes to `main`, including documentation, go through a pull request.
+The required GitHub Actions checks are `api`, `web`, and `whatsapp` from the
+`Tests` workflow. Wait for all three to pass before merging. Direct pushes to
+`main` are blocked, including for repository administrators.
+
+If a check fails, read its log in the pull request's **Checks** tab and push the
+fix to the same branch; the workflow runs again automatically. Workflows for
+external contributors require maintainer approval before they run.
+
 The backend tests need a **separate** database — never point them at your dev DB. They default to `openlivery_test` on localhost and create/drop all tables per test. Override the target with `TEST_DATABASE_URL`:
 
 ```bash
@@ -83,6 +92,27 @@ Every pull request runs the `Tests` workflow: the API suite, the migrations appl
 ## Conventions
 
 All code, identifiers, comments, commit messages and docs are written in **English**, always. The only thing localized is the end-user UI, through the typed i18n system in `apps/web/lib/i18n` (English default, Spanish for now). Never introduce non-English in code or docs — put user-facing copy behind i18n keys instead.
+
+## Extension points
+
+A deployment that runs OpenLivery for others may need to add to it without
+forking. These are the places that are meant for that, kept stable on purpose;
+changing their shape is a breaking change and gets a line in the changelog:
+
+- `app.database.get_db` (a FastAPI dependency) and `new_session()`: the one
+  place sessions come from, so a substituted session reaches every query.
+- `app.services.providers.register_credential_fallback(fn, available=probe)`:
+  lends a key to an agency that stored none; `credential_source()` says which
+  one would answer, and `GET /api/providers` reports it as `source`.
+- `app.services.usage.register_usage_hook(fn)`: sees every usage record as it
+  is written, inside the caller's session; it cannot fail the reply.
+- `app.services.notifications.register_provider(name, fn)`: delivers push
+  notifications; `PUSH_PROVIDER` selects one.
+- `apps/web/lib/extensions/agent-tools.tsx`: keeps deployment-managed tools out
+  of the agent editor's custom list and renders a section under it. Replaced at
+  build time.
+- `NEXT_PUBLIC_EXTRA_NAV`, `NEXT_PUBLIC_PUBLIC_PATHS`, `NEXT_PUBLIC_COMMUNITY_LINKS`:
+  build-time hooks of the web shell.
 
 ## Command reference
 
