@@ -124,7 +124,7 @@ current authenticated session.
 | `src/screens/` | Sign-in, inbox and conversation screens |
 | `src/components/` | Composer and attachment UI |
 
-The app is a separate package: it is not installed by the API, web or bridge
+The app is a separate package: it is not installed by the API or web
 packages. Its API dependencies still have to exist on the server before a new
 binary can be distributed; test the app against the server revision being
 released.

@@ -134,7 +134,7 @@ export type AgentTool = {
 export type ToolCallMeta = { name: string; arguments: Record<string, unknown>; result_preview: string; is_error: boolean };
 
 export type Source = { id: string; filename: string; excerpt: string };
-export type Attachment = { id: string; kind: "image" | "audio" | "video" | "file"; mime: string; filename: string | null; size_bytes: number };
+export type Attachment = { id: string; kind: "image" | "audio" | "video" | "file" | "location"; mime: string; filename: string | null; size_bytes: number };
 export type Message = { id: string; role: "user" | "assistant" | "system"; kind?: "message" | "activity"; delivery_status?: "pending" | "sent" | "delivered" | "read" | "failed" | "unknown" | null; delivery_error?: string | null; activity?: { event: string; hours?: number | string; assignee?: string; from?: string; team?: string; target?: string; reason?: string; tag?: string } | null; content: string; sources: Source[]; tool_calls?: ToolCallMeta[] | null; sender_type: "visitor" | "ai" | "human"; sender_name: string | null; reaction?: string | null; incoming_reaction?: string | null; quoted_message_id?: string | null; created_at: string; attachments?: Attachment[] };
 
 export type ConversationInbox = {
@@ -216,6 +216,9 @@ export type WhatsAppChannel = {
   qr_code: string | null;
   last_error: string | null;
   is_enabled: boolean;
+  groups_enabled: boolean;
+  calls_enabled: boolean;
+  calls_message: string | null;
   has_session: boolean;
   last_connected_at: string | null;
   created_at: string;
@@ -245,6 +248,10 @@ export type WhatsAppCloudChannel = {
   label: string | null;
   phone_number_id: string;
   waba_id: string | null;
+  external_account_id: string;
+  provider_profile_id: string | null;
+  /** Present while the number is not linked: the hosted page to open. */
+  connect_url: string | null;
   coexistence: boolean;
   coexistence_sync: {
     started_at?: string;
@@ -415,7 +422,7 @@ export type ChannelCapabilities = {
 export type SocialConfig = Record<SocialProvider, {
   oauth_ready: boolean;
   manual_available: boolean;
-  source: "operator" | "managed";
+  source: "operator" | "managed" | "provider";
   webhook_url: string;
 }>;
 export type SocialChannel = {
@@ -433,6 +440,8 @@ export type SocialChannel = {
   has_app_secret: boolean;
   webhook_url: string;
   webhook_verify_token: string | null;
+  /** Present while no account is linked: the hosted page to open. */
+  connect_url?: string | null;
   token_expires_at: string | null;
   last_error: string | null;
   human_agent_enabled: boolean;

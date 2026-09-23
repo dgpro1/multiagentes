@@ -1,7 +1,6 @@
 """Recorded AAC survives voice conversion and both outbound channel contracts."""
 
 import asyncio
-import base64
 import json
 import shutil
 import subprocess
@@ -10,7 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.services import audio, whatsapp
+from app.services import audio, evolution as evolution_driver, whatsapp
 
 pytestmark = pytest.mark.skipif(
     not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="ffmpeg and ffprobe are required",
@@ -66,40 +65,37 @@ def test_recorded_mp4_voice_preserves_audio_duration_and_samples(tmp_path, fragm
 @pytest.mark.parametrize("channel", ["whatsapp", "whatsapp_cloud"])
 def test_both_outbound_channels_receive_valid_voice_media(tmp_path, monkeypatch, channel):
     original = _recording(tmp_path)
-    bridge = AsyncMock(return_value={"external_message_id": "message-1"})
-    upload = AsyncMock(return_value="media-1")
+    evolution_send = AsyncMock(return_value="message-1")
     send = AsyncMock(return_value="message-1")
     caption = AsyncMock(return_value="caption-1")
-    monkeypatch.setattr(whatsapp, "bridge_command", bridge)
-    monkeypatch.setattr(whatsapp, "upload_media", upload)
+    monkeypatch.setattr(evolution_driver, "send_media", evolution_send)
     monkeypatch.setattr(whatsapp, "send_media", send)
     monkeypatch.setattr(whatsapp, "send_text", caption)
-    monkeypatch.setattr(whatsapp, "decrypt_secret", lambda value: "test-token")
     conversation = SimpleNamespace(
         channel=channel, whatsapp_channel_id="qr-line", whatsapp_cloud_channel_id="api-line",
-        external_chat_id="573001234567",
+        external_chat_id="573001234567", provider_conversation_id="thread-1",
     )
-    db = SimpleNamespace(get=lambda model, key: SimpleNamespace(encrypted_access_token="encrypted", phone_number_id="phone-id", coexistence=False))
+    cloud = SimpleNamespace(external_account_id="acct-1", coexistence=False)
+    db = SimpleNamespace(get=lambda model, key: cloud)
     result = asyncio.run(whatsapp.send_channel_media(
         db, conversation, kind="audio", data=original, mime="audio/mp4", filename="voice-note.m4a", caption="Listen to this",
     ))
     assert result == "message-1"
     if channel == "whatsapp":
-        payload = bridge.call_args.args[2]
-        assert payload["media_kind"] == "audio"
-        assert payload["media_mime"] == "audio/ogg"
-        assert payload["media_seconds"] == 10
+        payload = evolution_send.call_args.kwargs
+        assert payload["kind"] == "audio"
+        assert payload["mime"] == "audio/ogg"
         assert payload["filename"] == "voice-note.ogg"
-        assert payload["text"] == "Listen to this"
-        _assert_voice(base64.b64decode(payload["media_base64"]), tmp_path)
-        upload.assert_not_called()
+        assert payload["caption"] == "Listen to this"
+        _assert_voice(payload["data"], tmp_path)
+        send.assert_not_called()
     else:
-        _, _, converted, mime, filename = upload.call_args.args
-        assert mime == "audio/ogg" and filename == "voice-note.ogg"
-        _assert_voice(converted, tmp_path)
-        assert send.call_args.args[3:5] == ("audio", "media-1")
-        assert caption.call_args.args[-1] == "Listen to this"
-        bridge.assert_not_called()
+        assert send.call_args.args[:2] == ("acct-1", "thread-1")
+        assert send.call_args.kwargs["mime"] == "audio/ogg"
+        assert send.call_args.kwargs["filename"] == "voice-note.ogg"
+        assert send.call_args.kwargs["voice_note"] is True
+        _assert_voice(send.call_args.kwargs["data"], tmp_path)
+        evolution_send.assert_not_called()
 
 
 def test_portal_voice_upload_keeps_the_recording_original(authenticated_client, monkeypatch, tmp_path):
@@ -125,8 +121,8 @@ def test_portal_voice_upload_keeps_the_recording_original(authenticated_client, 
         row.external_chat_id = "573001234567@s.whatsapp.net"
         row.mode = "human"
         db.commit()
-    bridge = AsyncMock(return_value={"external_message_id": "voice-1"})
-    monkeypatch.setattr(whatsapp, "bridge_command", bridge)
+    evolution_send = AsyncMock(return_value="voice-1")
+    monkeypatch.setattr(evolution_driver, "send_media", evolution_send)
     original = _recording(tmp_path)
     path = f"/api/portal/{customer['portal_slug']}/conversations/{conversation['id']}"
     response = client.post(f"{path}/reply-media", headers=headers,
@@ -137,5 +133,4 @@ def test_portal_voice_upload_keeps_the_recording_original(authenticated_client, 
     assert attachment["filename"] == "voice-note.m4a" and attachment["size_bytes"] == len(original)
     downloaded = client.get(f"{path}/attachments/{attachment['id']}", headers=headers)
     assert downloaded.status_code == 200 and downloaded.content == original
-    converted = base64.b64decode(bridge.call_args.args[2]["media_base64"])
-    _assert_voice(converted, tmp_path)
+    _assert_voice(evolution_send.call_args.kwargs["data"], tmp_path)

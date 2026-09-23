@@ -31,7 +31,8 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_TEST_DB}
       BACKEND_URL: http://api:8000
-      WHATSAPP_BRIDGE_URL: http://whatsapp:3101
+      EVOLUTION_API_URL: http://evolution:8080
+      EVOLUTION_WEBHOOK_URL: http://api:8000/api/public/whatsapp/evolution/webhook
       STORAGE_DIR: /app/backend/storage
     volumes:
       - backend_storage:/app/backend/storage
@@ -40,6 +41,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      evolution:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 10s
@@ -70,33 +73,70 @@ services:
       start_period: 15s
     restart: unless-stopped
 
-  whatsapp:
-    build:
-      context: ./apps/whatsapp
-      dockerfile: Dockerfile
-    image: ${OPENLIVERY_IMAGE_PREFIX:-ghcr.io/sarrazola/openlivery}-whatsapp:${OPENLIVERY_VERSION:-latest}
-    container_name: openlivery_whatsapp
+  # WhatsApp QR driver (Baileys under the hood, Node). The backend creates one
+  # instance per line and talks to it over the internal network; no ports are
+  # exposed. Its Postgres and Redis are exclusive to Evolution.
+  evolution-db:
+    image: postgres:15-alpine
+    container_name: openlivery_evolution_db
     env_file:
       - .env.docker
     environment:
-      BACKEND_URL: http://api:8000
-      WHATSAPP_BRIDGE_HOST: 0.0.0.0
-      WHATSAPP_BRIDGE_PORT: 3101
-      # whatsmeow session store: its own schema in the shared Postgres.
-      WHATSAPP_STORE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable&search_path=whatsmeow
-    expose:
-      - "3101"
-    depends_on:
-      api:
-        condition: service_healthy
-      db:
-        condition: service_healthy
+      POSTGRES_DB: evolution
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD}
+    volumes:
+      - evolution_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "/app/bridge", "-healthcheck"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 5s
       timeout: 5s
-      retries: 12
-      start_period: 15s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  evolution-redis:
+    image: redis:7-alpine
+    container_name: openlivery_evolution_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - evolution_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: openlivery_evolution
+    env_file:
+      - .env.docker
+    environment:
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_DB_PASSWORD}@evolution-db:5432/evolution
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://evolution-redis:6379
+      CACHE_REDIS_PREFIX_KEY: evolution
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      DEL_INSTANCE: "false"
+      # Instances must survive container replacements.
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_DATA_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      evolution-db:
+        condition: service_healthy
+      evolution-redis:
+        condition: service_healthy
     restart: unless-stopped
 
   # Single-origin gateway: the app is served here; "/api/*" goes to the backend
@@ -117,3 +157,6 @@ services:
 volumes:
   postgres_data:
   backend_storage:
+  evolution_postgres_data:
+  evolution_redis_data:
+  evolution_instances:

@@ -10,7 +10,8 @@ One OpenLivery installation serves one agency, which creates and manages AI agen
 
 - `apps/api/` — FastAPI (Python 3.12) + SQLAlchemy + Alembic
 - `apps/web/` — Next.js 16 (App Router) + React 19 + TypeScript + Tailwind
-- `apps/whatsapp/` — Go bridge over whatsmeow (WhatsApp Web protocol)
+
+WhatsApp QR lines run through a self-hosted Evolution API instance (`docker-compose.yml` brings it up alongside the app); there is no bundled bridge service.
 
 **Language convention (always follow):** all code — routes, identifiers, comments, commit messages, and docs — is written in English, always. The only thing that is localized is the end-user UI, through a typed i18n system (`apps/web/lib/i18n`): English (default) and Spanish for now. Never introduce non-English in code or docs; put user-facing copy behind i18n keys instead. (The system prompt sent to the LLM in `apps/api/app/services/knowledge.py` is a deliberate exception, kept in the customer's language.)
 
@@ -27,7 +28,7 @@ A `Makefile` wraps compose: `make up` builds and starts everything; also `make d
 ```bash
 ./scripts/generate-docker-env.sh                       # create .env.docker with random secrets
 docker compose --env-file .env.docker up --build -d
-docker compose --env-file .env.docker logs -f api  # or: web, whatsapp, db
+docker compose --env-file .env.docker logs -f api  # or: web, evolution, db
 docker compose --env-file .env.docker exec api pytest -q
 ```
 
@@ -44,12 +45,9 @@ uvicorn app.main:app --reload --port 8000
 cd apps/web && npm install && npm run dev    # http://localhost:3000
 npm run lint                                 # eslint
 npm run build
-
-# WhatsApp bridge
-cd apps/whatsapp && go run .                 # listens on :3101
-go test ./...                                # unit tests
-go vet ./...                                 # static checks
 ```
+
+WhatsApp QR lines need a running Evolution API instance (`docker compose up evolution evolution-db evolution-redis` covers it locally, or point `EVOLUTION_API_URL`/`EVOLUTION_API_KEY` at any instance) — other channels and the rest of the app work without it.
 
 ### Backend tests
 
@@ -80,7 +78,11 @@ Everything is agency-scoped: `Agency → Users, Clients, AIConnections`; `Client
 
 ### WhatsApp flow
 
-The bridge (`apps/whatsapp/manager.go`) holds live whatsmeow clients, one per channel. Session keys live in whatsmeow's own SQL store (`WHATSAPP_STORE_URL`, SQLite or Postgres); the backend only stores a small marker with the device JID through the internal auth endpoints, which is what makes a channel restorable on startup. Incoming messages: bridge → `POST /api/whatsapp/channels/{channel_id}/inbound` on the backend → AI reply sent back through the bridge. Replies are delayed per agent (`reply_delay_min_seconds` / `reply_delay_max_seconds`, a random wait between the two, 6 to 9s by default): the shared pipeline in `app/services/whatsapp_inbound.py` waits for a quiet window that restarts on each new visitor message, then answers the whole burst with one reply delivered via `send_channel_message()`; with both bounds at 0 the reply returns synchronously in the inbound response instead. Backend↔bridge calls authenticate with `WHATSAPP_BRIDGE_TOKEN`. Conversations have a `mode` field: switching to `"human"` pauses the AI so an operator answers from the portal.
+WhatsApp QR lines run through a self-hosted Evolution API instance (`app/services/evolution.py`, one deterministic instance per line named `openlivery-{channel_id}`, events delivered to `POST /api/public/whatsapp/evolution/webhook`). `evolution.enabled()` is true whenever `evolution_api_url`+`evolution_api_key` are configured; without them, WhatsApp QR is simply unavailable (WhatsApp API/Cloud and social channels are unaffected). The webhook handler processes inbound messages, phone-mirrored (`fromMe`) messages, and connection-state changes in-process — nothing calls back into the API over HTTP the way a separate driver process would.
+
+Incoming messages feed the shared pipeline in `app/services/whatsapp_inbound.py`, which waits for a quiet window that restarts on each new visitor message, then answers the whole burst with one reply delivered via `send_channel_message()` (replies are delayed per agent — `reply_delay_min_seconds` / `reply_delay_max_seconds`, a random wait between the two, 6 to 9s by default); with both bounds at 0 the reply returns synchronously instead. Conversations have a `mode` field: switching to `"human"` pauses the AI so an operator answers from the portal.
+
+`app/routers/whatsapp.py`'s `internal_router` (under `/internal/whatsapp`, gated by `WHATSAPP_BRIDGE_TOKEN` via the `X-Bridge-Token` header) is a driver-agnostic internal API the test suite uses to simulate inbound messages, reactions, and delivery confirmations directly over HTTP rather than through a real Evolution webhook payload; nothing in production calls it today.
 
 ### Frontend
 
@@ -101,4 +103,4 @@ session for anything that spans domains or needs judgment about scope.
 - The app is served single-origin through a Caddy gateway (`docker/Caddyfile`): `/api/*` → backend, everything else → frontend. The browser uses relative `/api` (`lib/api.ts` falls back to `""`), so `NEXT_PUBLIC_API_URL` is empty by default and only set to point the frontend at an API on a separate origin (baked at build time — rebuild the web image to change it).
 - TLS is operator-provided: put your own reverse proxy in front of the gateway port; the stack itself only serves plain HTTP. No bundled TLS/`make deploy`.
 - Custom per-client portal domains are opt-in: mount `docker/Caddyfile.ondemand` (on-demand TLS gated by `/api/public/portal-domain`) via a compose override; `apps/web/proxy.ts` (Next.js 16 renamed `middleware`→`proxy`) rewrites a verified custom host to `/portal/[slug]`. `BACKEND_INTERNAL_URL` lets the web container reach the API server-side.
-- Ports: gateway `WEB_PORT` (default 3000, the app), backend 8000 (OpenAPI docs at `/docs`, exposed locally for tooling), bridge 3101 (not exposed in Docker).
+- Ports: gateway `WEB_PORT` (default 3000, the app), backend 8000 (OpenAPI docs at `/docs`, exposed locally for tooling); Evolution API and its Postgres/Redis are not exposed outside the Docker network.

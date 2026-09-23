@@ -2,7 +2,7 @@
 
 > Leer en español: [getting-started.md](../es/getting-started.md)
 
-OpenLivery runs as three services plus PostgreSQL, orchestrated by Docker Compose. The fastest way to try it is to clone the repository, generate secrets and bring the stack up with a single command.
+OpenLivery runs as two services plus PostgreSQL (and a self-hosted Evolution API instance for WhatsApp QR), orchestrated by Docker Compose. The fastest way to try it is to clone the repository, generate secrets and bring the stack up with a single command.
 
 ## Requirements
 
@@ -12,7 +12,7 @@ You need the following tools on the host:
 - Git, GNU Make, a POSIX-compatible shell and OpenSSL.
 
 The commands in this guide are written for a POSIX-compatible shell. On Windows,
-run them from WSL or Git Bash rather than PowerShell. Python, Node.js, Go and
+run them from WSL or Git Bash rather than PowerShell. Python, Node.js and
 PostgreSQL run inside the containers and do not need to be installed on the host
 for this setup.
 
@@ -36,7 +36,7 @@ cd openlivery
 make up                            # build images, start services, run migrations
 ```
 
-`make up` wraps Docker Compose: it builds the images, starts the four services and applies the database migrations before the API accepts traffic.
+`make up` wraps Docker Compose: it builds the images, starts the services and applies the database migrations before the API accepts traffic.
 
 ## Open the app
 

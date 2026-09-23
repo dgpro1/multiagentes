@@ -1,12 +1,13 @@
 """Channel-agnostic inbound WhatsApp pipeline.
 
-Shared by the Baileys bridge endpoint and the Cloud API webhook: dedupe by
+Shared by the Evolution webhook and the Cloud API webhook: dedupe by
 external message id, find or create the conversation, resolve media into text,
 store the visitor message, and produce the AI reply unless a human operator has
 taken over. The caller is responsible for actually delivering the reply.
 """
 
 import asyncio
+import json
 import random
 import uuid
 from dataclasses import dataclass, field
@@ -50,10 +51,23 @@ class InboundMessage:
     media_kind: str | None = None
     media_bytes: bytes | None = None
     media_mime: str | None = None
+    # Original file name of an inbound document (Evolution driver).
+    media_filename: str | None = None
+    # Remote location of the media when the bytes are fetched by the caller.
+    media_url: str | None = None
     # External id of the message the visitor replied to (swipe-to-reply).
     quoted_external_id: str | None = None
+    # Provider thread the message arrived on. A person can stop sharing
+    # their phone number between messages; the thread stays the same, so a
+    # later message joins the open case even under another chat id.
+    provider_conversation_id: str | None = None
     occurred_at: datetime | None = None
     sender_user_id: str | None = None
+    # WhatsApp location share (Evolution driver): kept as an attachment and
+    # spelled out for the model with explicit coordinates.
+    location: dict | None = None
+    # Title of the group chat the message arrived on (Evolution driver).
+    group_title: str | None = None
 
 
 @dataclass
@@ -78,6 +92,27 @@ def _media_placeholder(kind: str) -> str:
     if kind == "video":
         return "[El cliente envió un video]"
     return "[El cliente envió un archivo]"
+
+
+def _location_display(place: dict) -> str:
+    """The chat bubble for a shared location: name when known, coordinates
+    when not."""
+    where = place.get("name") or place.get("address")
+    if not where:
+        where = f"{place['latitude']:.6f}, {place['longitude']:.6f}"
+    return f"📍 {where}"
+
+
+def _location_llm(place: dict) -> str:
+    """What the model sees instead: explicit coordinates, the place's name
+    and address, and a Maps link it can pass along."""
+    lines = [f"[Ubicación recibida] {place['latitude']:.6f}, {place['longitude']:.6f} (lat, lng)"]
+    if place.get("name"):
+        lines.append(f"Lugar: {place['name']}")
+    if place.get("address"):
+        lines.append(f"Dirección: {place['address']}")
+    lines.append("Maps: https://maps.google.com/?q=" + f"{place['latitude']},{place['longitude']}")
+    return "\n".join(lines)
 
 
 async def resolve_inbound_content(
@@ -167,6 +202,8 @@ async def process_inbound(
             name=inbound.sender_name, sender_user_id=inbound.sender_user_id)
         if contact:
             peer_filter = or_(peer_filter, Conversation.contact_id == contact.id)
+        if inbound.provider_conversation_id:
+            peer_filter = or_(peer_filter, Conversation.provider_conversation_id == inbound.provider_conversation_id)
 
     # A message joins the chat's open conversation; once that is resolved the
     # next message starts a new case, so the same chat id can hold many.
@@ -192,6 +229,9 @@ async def process_inbound(
             title = display_name(contact)[:240]
         else:
             title = (inbound.sender_name or inbound.external_chat_id.split("@")[0])[:240]
+        if inbound.group_title:
+            # A group chat is a conversation of its own, named after the group.
+            title = inbound.group_title[:240]
         conversation = Conversation(
             agency_id=channel.agency_id,
             client_id=channel.client_id,
@@ -235,6 +275,9 @@ async def process_inbound(
     display_content, llm_content = await resolve_inbound_content(
         db, channel.agent, inbound, conversation=conversation, message=visitor_message
     )
+    if inbound.location:
+        display_content = (display_content + "\n" if display_content else "") + _location_display(inbound.location)
+        llm_content = (llm_content + "\n" if llm_content else "") + _location_llm(inbound.location)
     visitor_message.content = display_content
     visitor_message.llm_content = llm_content if llm_content != display_content else None
     if inbound.quoted_external_id:
@@ -266,7 +309,20 @@ async def process_inbound(
             visitor_message,
             data=inbound.media_bytes,
             mime=inbound.media_mime or ("image/jpeg" if inbound.media_kind == "image" else "audio/ogg"),
-            kind=inbound.media_kind,
+            kind="file" if inbound.media_kind == "document" else inbound.media_kind,
+            filename=inbound.media_filename,
+        )
+    if inbound.location:
+        db.flush()
+        # A location has no bytes of its own: the attachment carries the exact
+        # coordinates as JSON so the frontend can render the map card.
+        store_attachment(
+            db,
+            visitor_message,
+            data=json.dumps(inbound.location, separators=(",", ":")).encode(),
+            mime="application/json",
+            filename="location.json",
+            kind="location",
         )
     if defer_reply:
         db.flush()

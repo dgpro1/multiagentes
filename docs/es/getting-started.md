@@ -2,11 +2,11 @@
 
 > Read in English: [getting-started.md](../en/getting-started.md)
 
-OpenLivery se ejecuta como tres servicios más PostgreSQL, orquestados por Docker Compose. La forma más rápida de probarlo es clonar el repositorio, generar los secretos y levantar el stack con un solo comando.
+OpenLivery se ejecuta como dos servicios más PostgreSQL (y una instancia propia de Evolution API para WhatsApp QR), orquestados por Docker Compose. La forma más rápida de probarlo es clonar el repositorio, generar los secretos y levantar el stack con un solo comando.
 
 ## Requisitos
 
-Necesitas [Docker](https://docs.docker.com/get-docker/) — Docker Desktop, o Docker Engine con el plugin de Compose. No se instala nada más en el host; cada servicio (frontend, backend, puente de WhatsApp y base de datos) se ejecuta en un contenedor.
+Necesitas [Docker](https://docs.docker.com/get-docker/) — Docker Desktop, o Docker Engine con el plugin de Compose. No se instala nada más en el host; cada servicio (frontend, backend, Evolution API y base de datos) se ejecuta en un contenedor.
 
 ## Instalar y ejecutar
 
@@ -17,7 +17,7 @@ cd openlivery
 make up                            # construye imágenes, inicia servicios y migra
 ```
 
-`make up` envuelve a Docker Compose: construye las imágenes, inicia los cuatro servicios y aplica las migraciones de la base de datos antes de que la API acepte tráfico.
+`make up` envuelve a Docker Compose: construye las imágenes, inicia los servicios y aplica las migraciones de la base de datos antes de que la API acepte tráfico.
 
 ## Abre la aplicación
 

@@ -456,6 +456,13 @@ class ConversationInboxOut(BaseModel):
     last_inbound_at: datetime | None = None
 
 
+class LocationSend(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    name: str = Field(default="", max_length=200)
+    address: str = Field(default="", max_length=300)
+
+
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=50000)
     # Reply quoting this earlier message of the conversation (swipe-to-reply).
@@ -985,6 +992,12 @@ class DashboardMetrics(BaseModel):
 class WhatsAppChannelUpdate(BaseModel):
     agent_id: uuid.UUID
     label: str | None = Field(default=None, max_length=80)
+    # Evolution-driver feature toggles: attend group chats, and whether an
+    # incoming call is answered with a text message instead of being refused
+    # silently.
+    groups_enabled: bool | None = None
+    calls_enabled: bool | None = None
+    calls_message: str | None = Field(default=None, max_length=200)
 
 
 class WhatsAppChannelOut(ORMModel):
@@ -998,6 +1011,9 @@ class WhatsAppChannelOut(ORMModel):
     qr_code: str | None = None
     last_error: str | None
     is_enabled: bool
+    groups_enabled: bool = False
+    calls_enabled: bool = False
+    calls_message: str | None = None
     has_session: bool = False
     last_connected_at: datetime | None
     created_at: datetime

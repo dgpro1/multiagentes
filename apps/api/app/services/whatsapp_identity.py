@@ -1,4 +1,4 @@
-"""Keep Meta's opaque user identifiers distinct from telephone numbers."""
+"""Keep opaque user identifiers distinct from telephone numbers."""
 
 import re
 
@@ -21,7 +21,7 @@ def peer_id(message: dict, direction: str = "from") -> str | None:
 
 
 def recipient_fields(recipient: str) -> dict:
-    # Meta requires `recipient`, not `to`, when the phone number is hidden.
+    # A hidden phone number travels as `recipient`, a visible one as `to`.
     return {"recipient" if is_user_id(recipient) else "to": recipient}
 
 
@@ -43,7 +43,7 @@ def resolve_peer_contact(db, channel, peer: str, *, name=None, sender_user_id=No
     identity = sender_user_id or (peer if is_user_id(peer) else None)
     if identity:
         contact = resolve_contact(db, channel.client_id, provider="whatsapp",
-            external_account_id=channel.waba_id or channel.phone_number_id or str(channel.id),
+            external_account_id=channel.external_account_id or str(channel.id),
             external_user_id=identity, phone=phone, name=name)
         if phone and not contact.phone and not find_contact(db, channel.client_id, phone):
             contact.phone = phone

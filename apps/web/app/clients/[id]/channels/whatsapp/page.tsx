@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Bot, CheckCircle2, CircleAlert, LoaderCircle, MessageCircle, Plug, Power, QrCode, RefreshCw, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
+import { ArrowLeft, Bot, CheckCircle2, CircleAlert, LoaderCircle, MapPin, MessageCircle, PhoneCall, Plug, Power, QrCode, RefreshCw, ShieldCheck, Smartphone, Trash2, Users } from "lucide-react";
 import { Alert, Modal } from "@/components/ui";
 import { AccountList } from "@/components/account-list";
 import { ConfirmModal } from "@/components/confirm-modal";
@@ -33,6 +33,9 @@ export default function WhatsAppChannelPage() {
   const [adding, setAdding] = useState(false);
   const [agentId, setAgentId] = useState("");
   const [label, setLabel] = useState("");
+  const [groupsEnabled, setGroupsEnabled] = useState(false);
+  const [callsEnabled, setCallsEnabled] = useState(false);
+  const [callsMessage, setCallsMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -50,6 +53,9 @@ export default function WhatsAppChannelPage() {
     setSelectedId(line?.id ?? null);
     setAgentId(line?.agent_id || owner?.agents[0]?.id || "");
     setLabel(line?.label || "");
+    setGroupsEnabled(line?.groups_enabled ?? false);
+    setCallsEnabled(line?.calls_enabled ?? false);
+    setCallsMessage(line?.calls_message || "");
     setError("");
     rememberLine(line?.id ?? null);
   }, []);
@@ -61,12 +67,12 @@ export default function WhatsAppChannelPage() {
         setClient(owner); setLines(items);
         const wanted = requestedLine();
         const line = items.find((item) => item.id === wanted.line) ?? null;
-        if (wanted.adding || (!line && !items.length)) startAdding(owner); else show(line, owner);
+        if (wanted.adding) startAdding(owner); else show(line, owner);
       })
       .catch((err) => setError(messageFrom(err))).finally(() => setLoading(false));
   }, [id, show, startAdding]);
 
-  // The selected line is polled while it exists: the QR and the connection state come from the bridge.
+  // The selected line is polled while it exists: the QR and the connection state come from Evolution API.
   const channelId = channel?.id ?? null;
   useEffect(() => {
     if (!channelId) return;
@@ -75,7 +81,13 @@ export default function WhatsAppChannelPage() {
   }, [channelId, upsert]);
 
   async function save(): Promise<WhatsAppChannel> {
-    const body = JSON.stringify({ agent_id: agentId, label: label.trim() });
+    const body = JSON.stringify({
+      agent_id: agentId,
+      label: label.trim(),
+      groups_enabled: groupsEnabled,
+      calls_enabled: callsEnabled,
+      calls_message: callsMessage.trim() || null,
+    });
     const saved = channel
       ? await api<WhatsAppChannel>(`/whatsapp/channels/${channel.id}`, { method: "PUT", body })
       : await api<WhatsAppChannel>(`/whatsapp/clients/${id}/channels`, { method: "POST", body });
@@ -109,14 +121,23 @@ export default function WhatsAppChannelPage() {
       await api(`/whatsapp/channels/${channel.id}`, { method: "DELETE" });
       const rest = lines.filter((line) => line.id !== channel.id);
       setLines(rest); setRemoving(false);
-      if (rest.length) show(null, client); else startAdding(client);
+      // With no numbers left the empty list stays: "add number" is the way in,
+      // never an automatic landing on the form.
+      show(null, client);
     } catch (err) { setError(messageFrom(err)); } finally { setBusy(false); }
   }
 
   if (loading || !client) return <div className="page-loading"><LoaderCircle className="spin" /> {t("clients.whatsapp.loading")}</div>;
   const state = stateKeys[channel?.status || "disconnected"];
   const canConnect = Boolean(agentId && !busy && channel?.status !== "connected");
-  const dirty = Boolean(channel && (channel.agent_id !== agentId || (channel.label || "") !== label.trim()));
+  const dirty = Boolean(
+    channel &&
+    (channel.agent_id !== agentId ||
+      (channel.label || "") !== label.trim() ||
+      channel.groups_enabled !== groupsEnabled ||
+      channel.calls_enabled !== callsEnabled ||
+      (channel.calls_message || "") !== callsMessage.trim())
+  );
   const nameOf = (line: WhatsAppChannel) => accountName(line, t("clients.whatsapp.lineFallback", { n: lines.indexOf(line) + 1 }));
   const listView = !adding && !channel;
   const agentNameOf = (line: WhatsAppChannel) => client.agents.find((agent) => agent.id === line.agent_id)?.name || t("clients.detail.noAgent");
@@ -136,6 +157,13 @@ export default function WhatsAppChannelPage() {
     {listView && <AccountList rows={rows} summary={lines.length === 1 ? t("clients.detail.channelNumberOne") : t("clients.detail.channelNumbers", { count: lines.length, connected: connectedCount })} addLabel={t("clients.detail.addNumber")} openLabel={t("clients.detail.configure")} onOpen={(lineId) => show(lines.find((line) => line.id === lineId) ?? null, client)} onAdd={() => startAdding(client)} />}
     {!listView && <div className="wa-layout"><main>
       <section className="wa-panel"><div className="wa-panel-head"><span><Bot size={19} /></span><div><h2>{t("clients.whatsapp.assignedAgent")}</h2><p>{t("clients.whatsapp.assignedAgentCopy")}</p></div></div><div className="wa-agent-row"><label>{t("clients.whatsapp.agentToRespond")}<select value={agentId} onChange={(event) => setAgentId(event.target.value)} disabled={busy}><option value="">{t("clients.whatsapp.selectAgent")}</option>{client.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}{agent.is_active ? "" : t("clients.whatsapp.inactiveSuffix")}</option>)}</select></label><label>{t("clients.whatsapp.lineName")}<input value={label} maxLength={80} placeholder={t("clients.whatsapp.lineNamePlaceholder")} onChange={(event) => setLabel(event.target.value)} disabled={busy} /></label>{dirty && <button className="button secondary" onClick={saveDetails} disabled={!agentId || busy}>{t("common.save")}</button>}</div><p className="social-meta">{t("clients.whatsapp.lineNameHint")}</p>{!client.agents.length && <Alert>{t("clients.whatsapp.needsAgent")}</Alert>}</section>
+      {channel && <section className="wa-panel"><div className="wa-panel-head"><span><Users size={19} /></span><div><h2>{t("clients.whatsapp.featuresTitle")}</h2><p>{t("clients.whatsapp.featuresCopy")}</p></div></div>
+        <div className="wa-features">
+          <label className="wa-feature"><input type="checkbox" checked={groupsEnabled} onChange={(e) => setGroupsEnabled(e.target.checked)} disabled={busy} /><Users size={17} /><span><strong>{t("clients.whatsapp.groupsToggle")}</strong><small>{t("clients.whatsapp.groupsHint")}</small></span></label>
+          <label className="wa-feature"><input type="checkbox" checked={callsEnabled} onChange={(e) => setCallsEnabled(e.target.checked)} disabled={busy} /><PhoneCall size={17} /><span><strong>{t("clients.whatsapp.callsToggle")}</strong><small>{t("clients.whatsapp.callsHint")}</small></span></label>
+          {callsEnabled && <label className="wa-feature-message"><MapPin size={15} /><input value={callsMessage} maxLength={200} placeholder={t("clients.whatsapp.callsMessagePlaceholder")} onChange={(e) => setCallsMessage(e.target.value)} disabled={busy} /></label>}
+        </div>
+      </section>}
       <section className="wa-panel"><div className="wa-panel-head"><span><Plug size={19} /></span><div><h2>{t("clients.whatsapp.connection")}</h2><p>{t(state.copy)}</p></div></div>
         {channel?.status === "qr" && channel.qr_code && <div className="wa-qr"><img src={channel.qr_code} alt={t("clients.whatsapp.qrAlt")} /><div><span><QrCode size={18} /> {t("clients.whatsapp.scanFromPhone")}</span><ol><li>{t("clients.whatsapp.qrStep1")}</li><li>{t("clients.whatsapp.qrStep2Prefix")}<strong>{t("clients.whatsapp.qrStep2Bold")}</strong>.</li><li>{t("clients.whatsapp.qrStep3Prefix")}<strong>{t("clients.whatsapp.qrStep3Bold")}</strong>{t("clients.whatsapp.qrStep3Suffix")}</li></ol><small>{t("clients.whatsapp.qrHint")}</small></div></div>}
         {channel?.status === "connected" && <div className="wa-connected"><div className="wa-phone"><Smartphone size={24} /><span><small>{t("clients.whatsapp.connectedNumber")}</small><strong>{channel.phone_number ? `+${channel.phone_number}` : t("clients.whatsapp.linkedNumber")}</strong>{channel.display_name && <em>{channel.display_name}</em>}</span></div><div className="wa-ready"><CheckCircle2 size={18} /> {t("clients.whatsapp.readyForMessages")}</div></div>}

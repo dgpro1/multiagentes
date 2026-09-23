@@ -69,11 +69,12 @@ from ..services.whatsapp_templates import (
     create_template,
     delete_template,
     list_templates,
+    open_template_conversation,
     read_sample,
     rendered_text,
     send_components,
     send_template,
-    template_credentials,
+    template_account,
     upload_sample,
     validate_template_name,
     window_is_open,
@@ -1117,7 +1118,7 @@ def portal_channels(slug: str, client: Client = Depends(_portal_client), db: Ses
         out.append({
             "id": cloud.id, "channel": "whatsapp_cloud", "status": cloud.status, "label": cloud.label,
             "phone_number": cloud.phone_number, "display_name": cloud.display_name,
-            "supports_templates": bool(cloud.encrypted_access_token and cloud.waba_id),
+            "supports_templates": bool(cloud.external_account_id),
         })
     for qr in db.scalars(select(WhatsAppChannel).where(
             WhatsAppChannel.client_id == client.id, WhatsAppChannel.is_enabled.is_(True)).order_by(WhatsAppChannel.created_at)):
@@ -1128,18 +1129,15 @@ def portal_channels(slug: str, client: Client = Depends(_portal_client), db: Ses
 
 @router.get("/{slug}/templates", response_model=list[TemplateOut])
 async def portal_templates(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
-    token, waba_id = template_credentials(db, client)
-    return await list_templates(token, waba_id)
+    return await list_templates(template_account(db, client))
 
 
 @router.post("/{slug}/templates", dependencies=[Depends(require_permission(TEMPLATES_MANAGE))], response_model=TemplateOut, status_code=status.HTTP_201_CREATED)
 async def portal_create_template(
     slug: str, payload: TemplateCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
-    token, waba_id = template_credentials(db, client)
     return await create_template(
-        token,
-        waba_id,
+        template_account(db, client),
         name=validate_template_name(payload.name),
         language=payload.language.strip(),
         category=payload.category,
@@ -1157,9 +1155,9 @@ async def portal_upload_template_sample(
 ):
     """Store the sample file a media header is reviewed with; the handle
     goes into the template."""
-    token, _waba_id = template_credentials(db, client)
+    account_id = template_account(db, client)
     data, mime, filename = await read_sample(file)
-    return {"handle": await upload_sample(token, data=data, mime=mime, filename=filename)}
+    return {"handle": await upload_sample(account_id, data=data, mime=mime, filename=filename)}
 
 
 @router.delete("/{slug}/templates/{name}", dependencies=[Depends(require_permission(TEMPLATES_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)
@@ -1170,10 +1168,9 @@ async def portal_delete_template(
     client: Client = Depends(_portal_client),
     db: Session = Depends(get_db),
 ):
-    """Remove a template from the business account. Meta offers no way to
-    disable one, so deletion is how a template is retired."""
-    token, waba_id = template_credentials(db, client)
-    await delete_template(token, waba_id, name=validate_template_name(name), hsm_id=hsm_id)
+    """Remove a template from the business account. There is no disable
+    switch, so deletion is how a template is retired."""
+    await delete_template(template_account(db, client), name=validate_template_name(name), hsm_id=hsm_id)
 
 
 def _canned_response(db: Session, client: Client, canned_id: uuid.UUID) -> CannedResponse:
@@ -1444,28 +1441,48 @@ def portal_report(
     )
 
 
-async def _send_template_to(db: Session, client: Client, to: str, payload: TemplateSend, channel: WhatsAppCloudChannel | None) -> tuple[str | None, str]:
+async def _send_template_to(db: Session, client: Client, to: str, payload: TemplateSend, channel: WhatsAppCloudChannel | None, conversation_id: uuid.UUID | None = None) -> tuple[str | None, str]:
     """Send the template from ``channel`` and return (external id, text as the person reads it)."""
     if channel is None:
         raise HTTPException(status_code=409, detail="This conversation's WhatsApp API number no longer exists")
-    token, waba_id = template_credentials(db, client, channel)
+    account_id = template_account(db, client, channel)
     approved = next(
-        (t for t in await list_templates(token, waba_id)
+        (t for t in await list_templates(account_id)
          if t["name"] == payload.name and t["language"] == payload.language and t["status"] == "APPROVED"),
         None,
     )
     if not approved:
         raise HTTPException(status_code=409, detail="That template is not approved for this language")
-    components = send_components(
-        approved,
-        body_values=payload.variables,
-        header_value=payload.header_value,
-        location=payload.location.model_dump() if payload.location else None,
-        button_values=payload.button_values,
-    )
-    external_id = await send_template(
-        token, channel.phone_number_id, to, name=payload.name, language=payload.language, components=components
-    )
+    thread_id: str | None = None
+    if conversation_id is not None:
+        row = db.get(Conversation, conversation_id)
+        thread_id = row.provider_conversation_id if row else None
+    header_format = (approved.get("header") or {}).get("format") or "NONE"
+    needs_sample = header_format in ("IMAGE", "VIDEO", "DOCUMENT") and not (payload.header_value or "").strip()
+    if thread_id and not needs_sample:
+        components = send_components(
+            approved,
+            body_values=payload.variables,
+            header_value=payload.header_value,
+            location=payload.location.model_dump() if payload.location else None,
+            button_values=payload.button_values,
+        )
+        external_id = await send_template(
+            account_id, thread_id, name=payload.name, language=payload.language, components=components
+        )
+    else:
+        opened = await open_template_conversation(
+            account_id, to, template=approved, name=payload.name, language=payload.language,
+            body_values=payload.variables, header_value=payload.header_value,
+            location=payload.location.model_dump() if payload.location else None,
+            button_values=payload.button_values,
+        )
+        external_id = opened.get("messageId")
+        if conversation_id is not None and opened.get("conversationId"):
+            row = db.get(Conversation, conversation_id)
+            if row and not row.provider_conversation_id:
+                row.provider_conversation_id = str(opened["conversationId"])
+                db.flush()
     return external_id, rendered_text(approved, body_values=payload.variables, header_value=payload.header_value)
 
 
@@ -1527,7 +1544,7 @@ async def portal_start_conversation(
     db.flush()
 
     if channel_name == "whatsapp_cloud":
-        external_message_id, text = await _send_template_to(db, client, contact.phone, payload.template, channel_row)
+        external_message_id, text = await _send_template_to(db, client, contact.phone, payload.template, channel_row, conversation.id)
     else:
         text = payload.text.strip()
         external_message_id = await send_channel_message(db, conversation, text)
@@ -1572,7 +1589,7 @@ async def portal_reply_template(
         set_mode(db, conversation, "human")
         db.commit()
     external_message_id, text = await _send_template_to(
-        db, client, conversation.external_chat_id, payload, _cloud_channel(db, client, conversation.whatsapp_cloud_channel_id)
+        db, client, conversation.external_chat_id, payload, _cloud_channel(db, client, conversation.whatsapp_cloud_channel_id), conversation.id
     )
     db.add(
         Message(

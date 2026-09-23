@@ -4,8 +4,8 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-The three services (`apps/api`, `apps/web`, `apps/whatsapp`) share a single version
-and are released together.
+The services (`apps/api`, `apps/web`) share a single version and are released
+together.
 
 ## [Unreleased]
 
@@ -14,10 +14,12 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Added
 
+- WhatsApp QR lines on the Evolution driver gain per-line toggles and full media coverage: **groups** (each group becomes its own conversation; the agent answers only when mentioned or replied to) and **calls** (calls are always declined, but the caller can receive an explanation message) switch from the line's panel; **locations** work both ways — an incoming WhatsApp pin shows as a map card with "open in Maps"/"directions" links and the agent receives the exact coordinates, and an operator can send a pin from the Inbox composer (with a "use my location" shortcut); documents keep their file name, stickers and video voice notes attach to the message. Migration `0050` adds `groups_enabled`, `calls_enabled` and `calls_message` to `whatsapp_channels`.
+- WhatsApp QR lines run through a self-hosted **Evolution API** (Node, Baileys): with `EVOLUTION_API_URL` and `EVOLUTION_API_KEY` set, every QR line becomes one deterministic Evolution instance (`openlivery-{line-id}`) created with its own event webhook, so pairing, reconnects, inbound messages (text, media, captions, quotes) and mirrored phone messages flow through the same pipeline. The docker stack starts Evolution with its own Postgres and Redis, no ports exposed. Without Evolution configured, WhatsApp QR is simply unavailable (other channels are unaffected). Lines deleted in the app drop their Evolution instance; lines reconnect themselves after a restart.
 - A client can connect several WhatsApp numbers (QR and API) and several Instagram accounts and Facebook Pages, each answered by the agent you pick; the same agent may answer more than one. Each account takes an optional name, and the Inbox and portal show it (or the number's last digits, or the handle) once a client has more than one on a channel. Lines can be removed, keeping their conversations as history. The channel routes gain per-client collections (`/whatsapp/clients/{id}/channels` and the like) and address an account by its own id; the client-id form keeps working for the first account. Migration `0047` drops the one-per-client constraints and adds `label` to the three channel tables.
-- WhatsApp Cloud API webhook: traffic for another number of the same agency delivered to a channel's callback is handed to the channel that holds that number instead of being dropped, so one Meta app can serve several numbers.
+- WhatsApp API webhook: traffic for another number of the same agency delivered to the shared callback is handed to the channel that holds that number instead of being dropped, so one subscription serves several numbers.
 - The sidebar links to the GitHub repository next to Discord, as logos, with the live star count from GitHub's public API. `NEXT_PUBLIC_COMMUNITY_LINKS` picks which logos a build shows (`discord,github` by default, `none` hides the row).
-- WhatsApp templates are built whole: a header (text with one variable, an image, video or PDF sample, or a location), the message, a footer and up to ten buttons (quick replies, website with a per-person suffix, call, copy code), with named variables (`{{name}}`), every language Meta supports, live checks of Meta's rules with guidance per field, and a preview that shows the message as WhatsApp renders it. Sending fills header, body and button values. Header samples go through Meta's resumable upload, which needs `WHATSAPP_APP_ID`.
+- WhatsApp templates are built whole: a header (text with one variable, an image, video or PDF sample, or a location), the message, a footer and up to ten buttons (quick replies, website with a per-person suffix, call, copy code), with named variables (`{{name}}`), every language WhatsApp supports, live checks of the template rules with guidance per field, and a preview that shows the message as WhatsApp renders it. Sending fills header, body and button values. Header samples are hosted server-side for review.
 - Pick the knowledge base's embedding model per agent from OpenRouter's embedding catalog (`openai/text-embedding-3-small` stays the default); changing it reindexes the agent's documents, and a Reindex button repairs documents indexed without a working key. Semantic search keeps the ten best chunks instead of filling the budget. Migration `0046` adds `agents.embedding_model` and `knowledge_chunks.embedding_model`.
 - Choose which tools of an MCP server the agent may call, with read-only and modifies-data badges from the server's annotations. Migration `0045` adds `agent_tools.enabled_tools`.
 - Identify human-written turns in the agent's context while following the customer's current request.
@@ -26,6 +28,21 @@ Docker stack; run `alembic upgrade head` on local setups).
 - Document the host tools required for the Docker quickstart.
 
 ### Changed
+
+- **Messaging channels run through one provider key.** WhatsApp API numbers
+  and Instagram/Messenger accounts now link through the hosted authorization
+  pages of a single upstream messaging provider instead of per-channel app
+  credentials: `MESSAGING_PROVIDER_API_KEY` (with
+  `MESSAGING_PROVIDER_WEBHOOK_SECRET`) serves every line, each WhatsApp
+  number keeps its own provider profile, and one shared event webhook
+  (`/api/public/messaging/webhook`, registered automatically on boot)
+  routes every account to the line holding it. Sends address the provider
+  thread stored on each conversation, templates are managed per linked
+  number (media header samples are hosted server-side for review), and the
+  manual credential forms are retired. Existing lines keep their
+  conversations as history and link again from their channel page.
+  Migration `0049` adds the provider-side ids to clients, channels and
+  conversations.
 - The agent editor's Tools tab is now Integrations; custom HTTP tools and MCP servers live there unchanged.
 - **OpenRouter is the only AI provider.** An agency configures one OpenRouter
   key in Settings and every agent picks any model OpenRouter offers by its
@@ -40,6 +57,10 @@ Docker stack; run `alembic upgrade head` on local setups).
   drops the stored OpenAI and Anthropic keys, which OpenRouter cannot use:
   **after upgrading, add an OpenRouter key in Settings or agents stop
   replying.** Agent routes reject any `provider` other than `openrouter`.
+
+### Removed
+
+- The local Go/whatsmeow WhatsApp bridge (`apps/whatsapp`). WhatsApp QR lines run only through the self-hosted Evolution API driver now; installations that relied on the bridge need Evolution configured (`EVOLUTION_API_URL`/`EVOLUTION_API_KEY`) before upgrading, or WhatsApp QR lines stop working.
 
 ### Added
 - **Reports.** A new page and API (`GET /api/reports/costs`,

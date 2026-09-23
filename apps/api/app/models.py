@@ -85,6 +85,10 @@ class Client(Base):
     portal_domain: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     portal_domain_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     portal_domain_token: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    # Upstream messaging profile grouping this client's Instagram and
+    # Messenger accounts. WhatsApp numbers each live on their own profile
+    # on the channel row instead, one number per profile.
+    provider_profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
@@ -261,6 +265,12 @@ class WhatsAppChannel(Base):
     encrypted_qr: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Evolution-driver feature toggles: whether group chats are attended (a
+    # group then becomes a conversation of its own) and whether incoming calls
+    # are accepted (they are always refused; the message tells the caller why).
+    groups_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    calls_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    calls_message: Mapped[str | None] = mapped_column(String(200), nullable=True)
     last_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
@@ -271,9 +281,10 @@ class WhatsAppChannel(Base):
 
 
 class WhatsAppCloudChannel(Base):
-    """Official WhatsApp Business Cloud API channel (Meta Graph API). A client
-    can have several numbers, next to its QR lines, each bound to an agent.
-    Credentials are provided manually (bring your own Meta app)."""
+    """Official WhatsApp Business number of a client, served through the
+    unified messaging provider. A client can have several numbers, next to
+    its QR lines, each bound to an agent. The server holds one provider key;
+    each number keeps only its provider-side account id."""
 
     __tablename__ = "whatsapp_cloud_channels"
 
@@ -287,17 +298,20 @@ class WhatsAppCloudChannel(Base):
     label: Mapped[str | None] = mapped_column(String(80), nullable=True)
     phone_number_id: Mapped[str] = mapped_column(String(80), default="", server_default="")
     waba_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Provider-side account and profile ids. One number lives on exactly one
+    # profile; a channel without an account id is not connected.
+    external_account_id: Mapped[str] = mapped_column(String(128), default="", server_default="")
+    provider_profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     coexistence: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     coexistence_sync: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
-    # Meta's view of the number: quality rating (GREEN, YELLOW, RED) and the
-    # messaging limit tier (TIER_1K...). Read on refresh, kept current by the
-    # phone_number_quality_update webhook.
+    # The number's view of itself: quality rating (GREEN, YELLOW, RED) and the
+    # messaging limit tier (TIER_1K...). Read on refresh.
     quality_rating: Mapped[str | None] = mapped_column(String(20), nullable=True)
     messaging_limit: Mapped[str | None] = mapped_column(String(30), nullable=True)
     encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     encrypted_app_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Token the owner pastes into their Meta app's webhook config; it must be
-    # re-displayable, so it is stored in plain text like portal_domain_token.
+    # Kept for response-shape compatibility; deliveries are verified with
+    # the server-wide provider webhook secret instead.
     webhook_verify_token: Mapped[str] = mapped_column(String(64), default=new_public_id, server_default="")
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -543,6 +557,10 @@ class Conversation(Base):
         ForeignKey("widget_channels.id", ondelete="CASCADE"), nullable=True, index=True
     )
     external_chat_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Provider-side thread id for channels served through the unified
+    # messaging provider. Replies are addressed to it; the human-readable
+    # chat id above stays the routing key.
+    provider_conversation_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     contact_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
     contact_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True
@@ -895,6 +913,8 @@ class SocialChannel(Base):
     provider: Mapped[str] = mapped_column(String(30))
     app_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     external_account_id: Mapped[str] = mapped_column(String(128), default="", server_default="")
+    # Provider-side profile grouping this client's accounts of both providers.
+    provider_profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
     username: Mapped[str | None] = mapped_column(String(180), nullable=True)
     label: Mapped[str | None] = mapped_column(String(80), nullable=True)

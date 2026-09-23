@@ -2,7 +2,7 @@
 
 > Read in English: [contributing.md](../en/contributing.md)
 
-Docker es la forma más rápida de ejecutar OpenLivery, pero para el desarrollo diario normalmente querrás cada servicio corriendo en tu máquina con recarga en caliente. Esta guía cubre cómo ejecutar el backend, el frontend y el puente de WhatsApp localmente, las suites de pruebas, las migraciones y las convenciones del proyecto.
+Docker es la forma más rápida de ejecutar OpenLivery, pero para el desarrollo diario normalmente querrás cada servicio corriendo en tu máquina con recarga en caliente. Esta guía cubre cómo ejecutar el backend y el frontend localmente, las suites de pruebas, las migraciones y las convenciones del proyecto.
 
 ## Alcance de la instalación
 
@@ -47,14 +47,7 @@ npm run dev                     # http://localhost:3000
 
 Usa `npm run lint` antes de commitear y `npm run build` para verificar un build de producción. Ten en cuenta que esto es Next.js 16 (App Router) — revisa la documentación incluida en `node_modules/next/dist/docs/` antes de escribir código Next.js no trivial, ya que varias APIs difieren de versiones anteriores.
 
-## Puente de WhatsApp (apps/whatsapp)
-
-```bash
-cd apps/whatsapp
-go run .                        # escucha en :3101
-```
-
-El puente es un único binario de Go (Go 1.27+); no hay paso de instalación. Ejecuta `go test ./...` para la suite de pruebas y `go vet ./...` para verificar el build.
+Las líneas de WhatsApp QR necesitan una instancia de Evolution API corriendo — con `docker compose up evolution evolution-db evolution-redis`, o cualquier instancia alcanzable por `EVOLUTION_API_URL`/`EVOLUTION_API_KEY`. El resto de la app funciona sin ella.
 
 ## Pruebas
 
@@ -86,7 +79,7 @@ Una migración corre en instalaciones que ya tienen datos y están atendiendo tr
 - **Borrar datos es una decisión escrita.** Eliminar una tabla o columna, cambiar el tipo de una columna o borrar filas exige una línea `# contract: reviewed` que diga por qué la versión anterior sigue funcionando, o qué debe hacer antes quien opera la instalación. Es preferible borrar en una versión posterior a la que deja de leer el dato.
 - **Una migración ya integrada no se edita.** Las instalaciones que la corrieron no la volverán a correr; agrega una revisión nueva.
 
-Cada pull request ejecuta el workflow `Tests`: la suite del API, las migraciones aplicadas a una base vacía y las más recientes revertidas y aplicadas de nuevo, el lint y el build del web, y el `go vet` y `go test` del puente.
+Cada pull request ejecuta el workflow `Tests`: la suite del API, las migraciones aplicadas a una base vacía y las más recientes revertidas y aplicadas de nuevo, y el lint y el build del web.
 
 ## Convenciones
 
@@ -104,9 +97,6 @@ Todo el código, los identificadores, los comentarios, los mensajes de commit y 
 | Frontend | `npm run dev` | Ejecuta el servidor de desarrollo en :3000 |
 | Frontend | `npm run lint` | Analiza con ESLint |
 | Frontend | `npm run build` | Build de producción |
-| WhatsApp | `go run .` | Ejecuta el puente en :3101 |
-| WhatsApp | `go test ./...` | Ejecuta la suite de pruebas |
-| WhatsApp | `go vet ./...` | Verifica el build |
 
 ## Próximos pasos
 

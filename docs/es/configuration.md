@@ -28,7 +28,8 @@ Para una instalación local sin Docker, las mismas variables van en un `.env` en
 | `COOKIE_SAMESITE` | Política SameSite de la cookie. Usa `none` cuando el frontend y la API están en sitios distintos (requiere `COOKIE_SECURE=true`) | `lax` |
 | `RATE_LIMIT_ENABLED` | Límite de peticiones por IP en endpoints públicos (auth, login del portal, widget) | `true` |
 | `FRONTEND_URL` | Origen permitido por CORS | `http://localhost:3000` |
-| `WHATSAPP_BRIDGE_TOKEN` | Secreto compartido que autentica las llamadas entre backend ↔ puente de WhatsApp. Usa el mismo valor en ambos | aleatorio |
+| `WHATSAPP_BRIDGE_TOKEN` | Token de autenticación para los endpoints internos de la API bajo `/internal/whatsapp` | aleatorio |
+| `EVOLUTION_API_URL`, `EVOLUTION_API_KEY` | Driver de WhatsApp QR (Evolution API propio). Sin ambas, WhatsApp QR simplemente no está disponible | — |
 | `NEXT_PUBLIC_API_URL` | Origen público de la API incrustado en el frontend en tiempo de compilación. Déjalo vacío para usar el mismo origen a través del gateway | vacío |
 | `BACKEND_INTERNAL_URL` | Cómo alcanza el contenedor web a la API desde el servidor (usado por `proxy.ts` para dominios de portal personalizados) | `http://api:8000` |
 
@@ -63,7 +64,7 @@ API_PORT=8001 WEB_PORT=3001 DB_PORT=5433 make up
 | `DB_PORT` | PostgreSQL | `5432` |
 | `BIND_HOST` | Interfaz a la que enlazar: `127.0.0.1` solo local, `0.0.0.0` para exponer en un servidor | `127.0.0.1` |
 
-El puente de WhatsApp escucha en `3101` pero no se publica al host en Docker.
+Evolution API y su Postgres/Redis no se publican al host en Docker.
 
 ## El gateway de origen único
 

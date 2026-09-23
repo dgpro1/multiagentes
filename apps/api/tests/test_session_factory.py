@@ -19,7 +19,7 @@ def test_only_database_module_calls_the_sessionmaker():
     for path in APP.rglob("*.py"):
         if path.name == "database.py":
             continue  # where the sessionmaker lives and is legitimately called
-        for number, line in enumerate(path.read_text().splitlines(), start=1):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if re.search(r"\bSessionLocal\s*\(", line):
                 offenders.append(f"{path.relative_to(APP.parent)}:{number}")
 

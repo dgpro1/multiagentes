@@ -12,7 +12,7 @@ from app.config import get_settings
 from app.models import Conversation, WhatsAppChannel
 from app.services import ai as ai_service
 from app.services import whatsapp_inbound as whatsapp_inbound_service
-from test_whatsapp_cloud import APP_SECRET, _post_signed, _webhook_payload
+from test_whatsapp_cloud import _event, _message, _post_signed
 
 
 def _client_with_agents(client: TestClient, name: str = "Rent a Car") -> tuple[dict, dict, dict]:
@@ -141,8 +141,6 @@ def test_single_line_shows_no_badge_and_removing_a_line_keeps_history(authentica
     ).json()["conversation_id"]
     assert client.get(f"/api/conversations/{conversation_id}").json()["account_label"] is None
 
-    from app.routers import whatsapp as whatsapp_router
-    monkeypatch.setattr(whatsapp_router, "bridge_command", AsyncMock(return_value={}))
     assert client.delete(f"/api/whatsapp/channels/{line['id']}").status_code == 204
     assert client.get(f"/api/whatsapp/clients/{customer['id']}/channels").json() == []
     kept = client.get(f"/api/conversations/{conversation_id}")
@@ -154,43 +152,50 @@ def test_single_line_shows_no_badge_and_removing_a_line_keeps_history(authentica
     assert client.post(f"/api/conversations/{conversation_id}/human-reply", json={"content": "hi"}).status_code in (404, 409)
 
 
-def test_client_can_have_several_cloud_numbers_and_the_webhook_routes_by_number(authenticated_client: TestClient, monkeypatch):
+def test_client_can_have_several_cloud_numbers_and_the_webhook_routes_by_account(authenticated_client: TestClient, monkeypatch):
+    import uuid
+
+    from app.models import WhatsAppCloudChannel
+
     client = authenticated_client
     customer, sales, support = _client_with_agents(client)
-    credentials = {"waba_id": "waba-1", "access_token": "meta-access-token", "app_secret": APP_SECRET}
-    first = client.put(f"/api/whatsapp-cloud/channels/{customer['id']}", json={"agent_id": sales["id"], "phone_number_id": "111", "label": "Main", **credentials})
+    first = client.put(f"/api/whatsapp-cloud/channels/{customer['id']}", json={"agent_id": sales["id"], "label": "Main"})
     assert first.status_code == 200, first.text
-    second = client.post(f"/api/whatsapp-cloud/clients/{customer['id']}/channels", json={"agent_id": support["id"], "phone_number_id": "222", **credentials})
+    second = client.post(f"/api/whatsapp-cloud/clients/{customer['id']}/channels", json={"agent_id": support["id"]})
     assert second.status_code == 201, second.text
-    # The same number cannot be saved on another line, of this client or any other.
-    dup = client.post(f"/api/whatsapp-cloud/clients/{customer['id']}/channels", json={"agent_id": support["id"], "phone_number_id": "111", **credentials})
-    assert dup.status_code == 400
     numbers = client.get(f"/api/whatsapp-cloud/clients/{customer['id']}/channels").json()
-    assert [row["phone_number_id"] for row in numbers] == ["111", "222"]
+    assert [row["label"] for row in numbers] == ["Main", None]
     assert client.get(f"/api/whatsapp-cloud/channels/{customer['id']}").json()["id"] == first.json()["id"]
 
-    monkeypatch.setattr(whatsapp_inbound_service, "run_completion", AsyncMock(return_value=ai_service.Completion(text="Hi")))
-    from app.routers import whatsapp_cloud_webhook as webhook_router
-    from app.services import whatsapp as whatsapp_service
-    monkeypatch.setattr(webhook_router, "send_text", AsyncMock(return_value="wamid.out"))
-    monkeypatch.setattr(whatsapp_service, "mark_read_with_typing", AsyncMock())
+    with TestingSession() as db:
+        for row_id, account in ((first.json()["id"], "acct-1"), (second.json()["id"], "acct-2")):
+            row = db.get(WhatsAppCloudChannel, uuid.UUID(row_id))
+            row.external_account_id = account
+            row.provider_profile_id = f"prof-{account}"
+            row.status = "connected"
+        db.commit()
 
-    # Meta delivers both numbers to one callback (the first channel's URL).
-    message = {"from": "5730011", "id": "wamid.in-1", "type": "text", "text": {"body": "Hola"}}
-    assert _post_signed(client, first.json()["id"], _webhook_payload([message], phone_number_id="222")).status_code == 200
-    assert _post_signed(client, first.json()["id"], _webhook_payload([dict(message, id="wamid.in-2")], phone_number_id="111")).status_code == 200
-    assert _post_signed(client, first.json()["id"], _webhook_payload([dict(message, id="wamid.in-3")], phone_number_id="999")).status_code == 200
+    monkeypatch.setattr(whatsapp_inbound_service, "run_completion", AsyncMock(return_value=ai_service.Completion(text="Hi")))
+    from app.services import messaging_provider as provider_client
+    from app.services import whatsapp_cloud as cloud_service
+    monkeypatch.setattr(cloud_service, "send_text", AsyncMock(return_value="wamid.out"))
+    monkeypatch.setattr(provider_client, "mark_read", AsyncMock(return_value=None))
+    monkeypatch.setattr(provider_client, "send_typing", AsyncMock(return_value=None))
+
+    # The provider delivers every number to the one shared callback.
+    assert _post_signed(client, _event("acct-2", _message("wamid.in-1", conversation_id="conv-a"), event_id="evt-a")).status_code == 200
+    assert _post_signed(client, _event("acct-1", _message("wamid.in-2", conversation_id="conv-b"), event_id="evt-b")).status_code == 200
+    assert _post_signed(client, _event("acct-9", _message("wamid.in-3", conversation_id="conv-c"), event_id="evt-c")).status_code == 200
     with TestingSession() as db:
         rows = db.scalars(select(Conversation).where(Conversation.channel == "whatsapp_cloud")).all()
         by_channel = {str(row.whatsapp_cloud_channel_id): str(row.agent_id) for row in rows}
     assert by_channel == {first.json()["id"]: sales["id"], second.json()["id"]: support["id"]}
 
     inbox = client.get("/api/conversations/inbox").json()
-    # The labelled number is named; the other has no label and, never having
-    # been verified with Meta, no phone number to fall back on.
+    # The labelled number is named; the other has no label and no verified number.
     assert {row["account_label"] for row in inbox} == {"Main", None}
     assert client.delete(f"/api/whatsapp-cloud/channels/{second.json()['id']}").status_code == 204
-    assert [row["phone_number_id"] for row in client.get(f"/api/whatsapp-cloud/clients/{customer['id']}/channels").json()] == ["111"]
+    assert [row["label"] for row in client.get(f"/api/whatsapp-cloud/clients/{customer['id']}/channels").json()] == ["Main"]
 
 
 def test_portal_lists_every_line_with_its_id_and_label(authenticated_client: TestClient):

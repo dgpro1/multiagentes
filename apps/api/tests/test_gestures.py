@@ -1,5 +1,5 @@
 """Operator and inbound WhatsApp gestures: reactions, quoted replies, and the
-read/typing signal, on the bridge channel (the Cloud API variants live in
+read/typing signal, on the QR (Evolution) channel (the Cloud API variants live in
 test_whatsapp_cloud.py)."""
 
 from unittest.mock import AsyncMock
@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.services import ai as ai_service
-from app.services import whatsapp as whatsapp_service
+from app.services import evolution as evolution_driver
 from app.services import whatsapp_inbound as whatsapp_inbound_service
 
 
@@ -16,7 +16,7 @@ def _headers() -> dict:
     return {"X-Bridge-Token": get_settings().whatsapp_bridge_token}
 
 
-def _setup_bridge_channel(client: TestClient) -> str:
+def _setup_qr_channel(client: TestClient) -> str:
     customer = client.post(
         "/api/clients",
         json={"name": "Casa", "is_active": True},
@@ -54,11 +54,12 @@ def _inbound(client: TestClient, channel_id: str, external_id: str, text: str, *
     return response.json()
 
 
-def test_bridge_inbound_reaction_lands_on_the_target(authenticated_client: TestClient, monkeypatch):
+def test_inbound_reaction_lands_on_the_target(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
-    channel_id = _setup_bridge_channel(client)
+    channel_id = _setup_qr_channel(client)
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion", AsyncMock(return_value=ai_service.Completion(text="Ok")))
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
+    monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wa-generated"))
+    monkeypatch.setattr(evolution_driver, "mark_read", AsyncMock())
 
     result = _inbound(client, channel_id, "wa-in-1", "hola")
     conversation_id = result["conversation_id"]
@@ -88,11 +89,12 @@ def test_bridge_inbound_reaction_lands_on_the_target(authenticated_client: TestC
     assert detail["messages"][-1]["incoming_reaction"] is None
 
 
-def test_bridge_inbound_quoted_reply_links_the_messages(authenticated_client: TestClient, monkeypatch):
+def test_inbound_quoted_reply_links_the_messages(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
-    channel_id = _setup_bridge_channel(client)
+    channel_id = _setup_qr_channel(client)
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion", AsyncMock(return_value=ai_service.Completion(text="Claro")))
-    monkeypatch.setattr(whatsapp_service, "bridge_command", AsyncMock(return_value={}))
+    monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wa-generated"))
+    monkeypatch.setattr(evolution_driver, "mark_read", AsyncMock())
 
     result = _inbound(client, channel_id, "wa-in-1", "¿abren hoy?")
     assert client.post(
@@ -108,26 +110,30 @@ def test_bridge_inbound_quoted_reply_links_the_messages(authenticated_client: Te
     assert visitor["quoted_message_id"] == assistant["id"]
 
 
-def test_bridge_read_signal_fires_before_the_ai_reply(authenticated_client: TestClient, monkeypatch):
+def test_read_signal_fires_before_the_ai_reply(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
-    channel_id = _setup_bridge_channel(client)
+    channel_id = _setup_qr_channel(client)
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion", AsyncMock(return_value=ai_service.Completion(text="Ok")))
-    bridge = AsyncMock(return_value={})
-    monkeypatch.setattr(whatsapp_service, "bridge_command", bridge)
+    monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wa-generated"))
+    mark_read = AsyncMock()
+    monkeypatch.setattr(evolution_driver, "mark_read", mark_read)
 
     _inbound(client, channel_id, "wa-in-1", "hola")
-    bridge.assert_awaited_once()
-    method, path, payload = bridge.await_args.args
-    assert method == "POST" and path == f"/channels/{channel_id}/read"
-    assert payload == {"remote_jid": "573001112233@s.whatsapp.net", "message_ids": ["wa-in-1"], "typing": True}
+    mark_read.assert_awaited_once()
+    args = mark_read.await_args.args
+    assert args[1] == "573001112233@s.whatsapp.net"
+    assert args[2] == ["wa-in-1"]
+    assert mark_read.await_args.kwargs["typing"] is True
 
 
-def test_operator_reaction_on_the_bridge_channel(authenticated_client: TestClient, monkeypatch):
+def test_operator_reaction_on_the_qr_channel(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
-    channel_id = _setup_bridge_channel(client)
+    channel_id = _setup_qr_channel(client)
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion", AsyncMock(return_value=ai_service.Completion(text="Ok")))
-    bridge = AsyncMock(return_value={})
-    monkeypatch.setattr(whatsapp_service, "bridge_command", bridge)
+    monkeypatch.setattr(evolution_driver, "send_text", AsyncMock(return_value="wa-generated"))
+    monkeypatch.setattr(evolution_driver, "mark_read", AsyncMock())
+    send_reaction = AsyncMock()
+    monkeypatch.setattr(evolution_driver, "send_reaction", send_reaction)
 
     result = _inbound(client, channel_id, "wa-in-1", "hola")
     conversation_id = result["conversation_id"]
@@ -143,37 +149,38 @@ def test_operator_reaction_on_the_bridge_channel(authenticated_client: TestClien
         f"/api/conversations/{conversation_id}/messages/{assistant['id']}/reaction", json={"emoji": "👍"}
     ).status_code == 409
 
-    bridge.reset_mock()
+    send_reaction.reset_mock()
     updated = client.post(endpoint, json={"emoji": "👍"})
     assert updated.status_code == 200, updated.text
     assert updated.json()["messages"][0]["reaction"] == "👍"
-    method, path, payload = bridge.await_args.args
-    assert method == "POST" and path == f"/channels/{channel_id}/react"
-    assert payload == {
-        "remote_jid": "573001112233@s.whatsapp.net",
-        "external_message_id": "wa-in-1",
-        "emoji": "👍",
-        "target_from_me": False,
-    }
+    send_reaction.assert_awaited_once()
+    args = send_reaction.await_args.args
+    kwargs = send_reaction.await_args.kwargs
+    assert args[1] == "573001112233@s.whatsapp.net"
+    assert args[2] == "wa-in-1"
+    assert args[3] == "👍"
+    assert kwargs["target_from_me"] is False
 
     # Removing goes through the same door with an empty emoji.
     cleared = client.post(endpoint, json={"emoji": ""})
     assert cleared.json()["messages"][0]["reaction"] is None
 
 
-def test_operator_quoted_reply_on_the_bridge_channel(authenticated_client: TestClient, monkeypatch):
+def test_operator_quoted_reply_on_the_qr_channel(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
-    channel_id = _setup_bridge_channel(client)
+    channel_id = _setup_qr_channel(client)
     monkeypatch.setattr(whatsapp_inbound_service, "run_completion", AsyncMock(return_value=ai_service.Completion(text="Ok")))
-    bridge = AsyncMock(return_value={"external_message_id": "wa-out-2"})
-    monkeypatch.setattr(whatsapp_service, "bridge_command", bridge)
+    monkeypatch.setattr(evolution_driver, "mark_read", AsyncMock())
+    send_text = AsyncMock(return_value="wa-generated")
+    monkeypatch.setattr(evolution_driver, "send_text", send_text)
 
     result = _inbound(client, channel_id, "wa-in-1", "¿abren hoy?")
     conversation_id = result["conversation_id"]
     visitor = client.get(f"/api/conversations/{conversation_id}").json()["messages"][0]
     client.patch(f"/api/conversations/{conversation_id}/mode", json={"mode": "human"})
 
-    bridge.reset_mock()
+    send_text.reset_mock()
+    send_text.return_value = "wa-out-2"
     reply = client.post(
         f"/api/conversations/{conversation_id}/reply",
         json={"content": "Sí, hasta las 10pm", "quoted_message_id": visitor["id"]},
@@ -182,9 +189,12 @@ def test_operator_quoted_reply_on_the_bridge_channel(authenticated_client: TestC
     outbound = reply.json()["messages"][-1]
     assert outbound["quoted_message_id"] == visitor["id"]
     assert outbound["external_message_id"] == "wa-out-2"
-    method, path, payload = bridge.await_args.args
-    assert method == "POST" and path == f"/channels/{channel_id}/send"
-    assert payload["quote_external_id"] == "wa-in-1"
+    send_text.assert_awaited_once()
+    args = send_text.await_args.args
+    kwargs = send_text.await_args.kwargs
+    assert args[1] == "573001112233@s.whatsapp.net"
+    assert args[2] == "Sí, hasta las 10pm"
+    assert kwargs["quoted_external_id"] == "wa-in-1"
 
     # A quote from another conversation is rejected.
     bad = client.post(

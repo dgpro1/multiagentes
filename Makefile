@@ -59,9 +59,9 @@ ps: ## Show service status
 migrate: ## Apply Alembic migrations in the running api container
 	$(COMPOSE) exec api alembic upgrade head
 
-test: ## Run backend tests + rebuild web/whatsapp validation stages
+test: ## Run backend tests + rebuild web validation stage
 	$(COMPOSE) exec api pytest -q
-	$(COMPOSE) build web whatsapp
+	$(COMPOSE) build web
 
 shell-api: ## Open a shell in the api container
 	$(COMPOSE) exec api sh

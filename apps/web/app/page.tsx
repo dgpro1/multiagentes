@@ -2,19 +2,28 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Bot, Building2, Cpu, MessagesSquare, MessageSquareText, Radio, UserRound } from "lucide-react";
+import { ArrowRight, Bot, Building2, Cpu, MessagesSquare, MessageSquareText, Radio, UserRound, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useLanguage } from "@/lib/i18n";
 import { businessLabel, useIndustries } from "@/lib/industries";
 import { PageHead, StatusBadge } from "@/components/ui";
 import { ListRowsSkeleton, PanelSkeleton, Skeleton } from "@/components/skeleton";
-import type { Agent, AgentSummary, Conversation, Provider } from "@/types";
+import type { Agent, AgentSummary, Conversation, Provider, User } from "@/types";
 
 type Dashboard = { clients: number; active_clients: number; agents: number; active_agents: number; conversations: number; channels: number; connected_channels: number; recent_agents: AgentSummary[] };
 type DailyPoint = { date: string; count: number };
 type TopAgent = { id: string; name: string; conversations: number };
 type ModelUsage = { model: string; input_tokens: number; output_tokens: number };
 type Metrics = { messages: number; human_conversations: number; by_channel: Record<string, number>; daily_conversations: DailyPoint[]; top_agents: TopAgent[]; tokens_in: number; tokens_out: number; usage_by_model: ModelUsage[] };
+
+function firstNameOf(full?: string | null): string {
+  const parts = (full || "").trim().split(/\s+/).filter(Boolean);
+  const titles = /^(dr|dra|mr|mrs|ms|miss|sr|sra|don|dona|doña)\.?$/i;
+  const usable = parts.length > 1 && titles.test(parts[0]) ? parts.slice(1) : parts;
+  return usable[0] || "";
+}
+
+const NEXT_STEPS_HIDE_KEY = "openlivery:hide-next-steps";
 
 export default function HomePage() {
   const { t, lang } = useLanguage();
@@ -27,21 +36,50 @@ export default function HomePage() {
   const [modelConnected, setModelConnected] = useState(false);
   const [loadedCore, setLoadedCore] = useState(false);
   const [loadedMetrics, setLoadedMetrics] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [stepsHidden, setStepsHidden] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(NEXT_STEPS_HIDE_KEY) === "1") setStepsHidden(true);
+    } catch {
+      // Ignore storage errors (private mode, SSR).
+    }
+  }, []);
   useEffect(() => { Promise.all([api<Dashboard>("/dashboard"), api<Agent[]>("/agents"), api<Conversation[]>("/conversations"), api<Provider[]>("/providers")]).then(([d, a, x, p]) => { setData(d); setAgents(a); setConversations(x); setModelConnected(p.some((item) => item.configured)); }).catch(() => {}).finally(() => setLoadedCore(true)); }, []);
+  useEffect(() => {
+    api<User>("/auth/me")
+      .then((me) => {
+        if (me?.name) setUserName(me.name);
+      })
+      .catch(() => {});
+  }, []);
   useEffect(() => { setLoadedMetrics(false); api<Metrics>(`/dashboard/metrics?days=${range}`).then(setMetrics).catch(() => {}).finally(() => setLoadedMetrics(true)); }, [range]);
 
   const maxDaily = Math.max(1, ...(metrics?.daily_conversations.map((p) => p.count) ?? [0]));
   const trend = metrics?.daily_conversations ?? [];
   const usage = metrics?.usage_by_model ?? [];
   const maxUsage = Math.max(1, ...usage.map((u) => u.input_tokens + u.output_tokens));
+  const firstName = firstNameOf(userName);
+  const stepsDone = Boolean(loadedCore && data?.clients && data?.agents && modelConnected);
+  const showSteps = !stepsHidden && !stepsDone;
+  const dismissSteps = () => {
+    setStepsHidden(true);
+    try {
+      localStorage.setItem(NEXT_STEPS_HIDE_KEY, "1");
+    } catch {
+      // Ignore storage errors (private mode, SSR).
+    }
+  };
 
   return (
     <div className="page">
-      <PageHead eyebrow={t("home.head.eyebrow")} title={t("home.head.title")} description={t("home.head.description")} action={<label className="range-select"><select value={range} onChange={(e) => setRange(Number(e.target.value))}>{[7, 14, 30, 90].map((n) => <option key={n} value={n}>{t("home.range.days", { count: n })}</option>)}</select></label>} />
+      <PageHead eyebrow={t("home.head.eyebrow")} title={firstName ? t("home.head.greeting", { name: firstName }) : t("home.head.title")} description={t("home.head.description")} action={<label className="range-select"><select value={range} onChange={(e) => setRange(Number(e.target.value))}>{[7, 14, 30, 90].map((n) => <option key={n} value={n}>{t("home.range.days", { count: n })}</option>)}</select></label>} />
+      {showSteps && (
       <section className="panel next-steps home-next-steps">
-        <div className="panel-head"><div><h3>{t("home.nextSteps.title")}</h3><p>{t("home.nextSteps.subtitle")}</p></div></div>
+        <div className="panel-head"><div><h3>{t("home.nextSteps.title")}</h3><p>{t("home.nextSteps.subtitle")}</p></div><button type="button" onClick={dismissSteps} title={t("home.nextSteps.hide")} aria-label={t("home.nextSteps.hide")} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", opacity: 0.6, padding: 4 }}><X size={16} /></button></div>
         <ol><li className={loadedCore && data?.clients ? "done" : ""}>{loadedCore ? <span>{data?.clients ? "✓" : "1"}</span> : <span><Skeleton style={{ width: 18, height: 18, borderRadius: 999 }} /></span>}<div><strong>{t("home.nextSteps.step1Title")}</strong><small>{t("home.nextSteps.step1Desc")}</small></div></li><li className={loadedCore && data?.agents ? "done" : ""}>{loadedCore ? <span>{data?.agents ? "✓" : "2"}</span> : <span><Skeleton style={{ width: 18, height: 18, borderRadius: 999 }} /></span>}<div><strong>{t("home.nextSteps.step2Title")}</strong><small>{t("home.nextSteps.step2Desc")}</small></div></li><li className={loadedCore && modelConnected ? "done" : ""}>{loadedCore ? <span>{modelConnected ? "✓" : "3"}</span> : <span><Skeleton style={{ width: 18, height: 18, borderRadius: 999 }} /></span>}<div><strong>{t("home.nextSteps.step3Title")}</strong><small>{t("home.nextSteps.step3Desc")}</small></div></li></ol>
       </section>
+      )}
       <section className="metrics-grid">
         <article className="metric-card"><span className="metric-icon blue"><Building2 size={20} /></span><div><small>{t("home.metrics.clients")}</small><strong>{loadedCore ? data?.clients ?? "—" : <Skeleton className="sk-line" style={{ width: 52, height: 28 }} />}</strong><p>{t("home.metrics.clientsActive", { count: data?.active_clients ?? 0 })}</p></div></article>
         <article className="metric-card"><span className="metric-icon violet"><Bot size={20} /></span><div><small>{t("home.metrics.agents")}</small><strong>{loadedCore ? agents.length || data?.agents || "—" : <Skeleton className="sk-line" style={{ width: 52, height: 28 }} />}</strong><p>{t("home.metrics.agentsActive", { count: agents.filter((item) => item.is_active).length })}</p></div></article>

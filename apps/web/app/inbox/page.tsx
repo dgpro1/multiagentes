@@ -1,9 +1,10 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, Search, UserRound } from "lucide-react";
+import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, MapPin, Search, UserRound } from "lucide-react";
 import { PageHead } from "@/components/ui";
 import { AttachButton, MessageAttachments, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
+import { LocationComposer } from "@/components/location-composer";
 import { MediaPanel } from "@/components/media-panel";
 import { DeliveryTicks } from "@/components/delivery-ticks";
 import { RichText } from "@/components/rich-text";
@@ -39,6 +40,7 @@ export default function InboxPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [locating, setLocating] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const policy = useReplyPolicy(selected);
 
@@ -167,6 +169,15 @@ export default function InboxPage() {
   }
 
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  async function sendLocation(place: { latitude: number; longitude: number; name: string; address: string }) {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/location`, { method: "POST", body: JSON.stringify(place) }));
+      setLocating(false);
+      loadFirst({ silent: true });
+    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); composerRef.current?.focus(); }
+  }
   async function reply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected || !policy.canReply || busy) return;
@@ -284,7 +295,9 @@ export default function InboxPage() {
             </div>
             <PhonePauseNotice conversation={selected} onKeepManual={() => toggleMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
             {pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}
+            {locating && <LocationComposer busy={busy} disabled={!policy.canReply} onCancel={() => setLocating(false)} onSend={sendLocation} />}
             <form className="inbox-composer" onSubmit={reply}>
+              {selected.channel === "whatsapp" && <button type="button" className="icon-button" title={t("inbox.locationSend")} aria-label={t("inbox.locationSend")} disabled={!policy.canReply || busy} onClick={() => setLocating((open) => !open)}><MapPin size={17} /></button>}
               <AttachButton onFile={setPendingFile} disabled={!policy.canAttach || busy} title={t("chat.attachFile")} />
               <RecordButton onRecorded={sendAttachment} onError={() => toast.error(t("chat.micDenied"))} disabled={!policy.canRecord || busy} title={t("chat.recordAudio")} titleStop={t("chat.stopRecording")} />
               <GrowingTextarea ref={composerRef} name="content" placeholder={selected.mode === "human" ? t("inbox.composerHuman") : t("inbox.composerLocked")} disabled={!policy.canReply || busy} required={!pendingFile} />

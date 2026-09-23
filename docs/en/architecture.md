@@ -12,7 +12,6 @@ The stack is four containers orchestrated by Docker Compose. Three of them are a
 | --- | --- | --- | --- |
 | Backend | `apps/api/` | FastAPI (Python 3.12), SQLAlchemy, Alembic | REST API, auth, AI orchestration, knowledge retrieval |
 | Frontend | `apps/web/` | Next.js (App Router), React, TypeScript, Tailwind | Dashboard, playground, client portal, web widget |
-| WhatsApp bridge | `apps/whatsapp/` | Go over whatsmeow | Holds live WhatsApp sessions, relays messages |
 | Database | — | PostgreSQL | Single source of truth for all state |
 
 ## The gateway
@@ -61,5 +60,5 @@ Sensitive values never hit the database in plaintext. AI provider API keys (`Pro
 ## Runtime behavior
 
 - **Migrations on start** — the backend runs `alembic upgrade head` before accepting traffic, so the schema is always current. Schema changes require a new Alembic migration.
-- **Stateful bridge** — the WhatsApp bridge (`apps/whatsapp/manager.go`) keeps live whatsmeow clients in memory; the session keys live in whatsmeow's own SQL store (`WHATSAPP_STORE_URL`) and the backend keeps a small encrypted marker per channel, so enabled sessions reconnect on startup. Backend and bridge authenticate to each other with `WHATSAPP_BRIDGE_TOKEN`. See [WhatsApp](whatsapp.md).
+- **WhatsApp QR driver** — a self-hosted Evolution API instance (`app/services/evolution.py`) holds WhatsApp sessions, one deterministic instance per line; the backend keeps a small encrypted marker per channel, so enabled sessions reconnect on their own. See [WhatsApp](whatsapp.md).
 - **Rate limiting** — public, unauthenticated endpoints are throttled per IP by an in-memory limiter (`apps/api/app/ratelimit.py`), keyed on the client address from `X-Forwarded-For`.

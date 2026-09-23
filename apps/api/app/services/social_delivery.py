@@ -131,10 +131,10 @@ async def process_outbox(db: Session, *, limit: int = 25) -> int:
             db.refresh(channel)
             human_agent = require_reply(conversation, human=bool(row.payload.get("human")))
             if media_url:
-                external_id = await social_graph.send_media(channel, row.payload["recipient_id"],
+                external_id = await social_graph.send_media(channel, conversation,
                     row.payload["kind"], media_url, human_agent=human_agent)
             else:
-                external_id = await social_graph.send_text(channel, row.payload["recipient_id"],
+                external_id = await social_graph.send_text(channel, conversation,
                     row.payload["text"], human_agent=human_agent)
             if not external_id:
                 raise ValueError("No delivery identifier was returned")
@@ -147,7 +147,7 @@ async def process_outbox(db: Session, *, limit: int = 25) -> int:
             # Retry only explicit rate-limit refusals. Network/server failures
             # can occur after the provider accepted a message.
             if exc.status_code in (401, 403):
-                channel.status = "reauthorization_required"
+                channel.status = "error"
                 channel.last_error = str(exc.detail)[:400]
                 channel.updated_at = now_utc()
             if exc.status_code == 429 and row.attempts < 5:

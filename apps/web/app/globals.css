@@ -184,14 +184,6 @@ h1, h2, h3, .brand { font-family: var(--font-display); letter-spacing: -.015em; 
 .sidebar nav a.active svg { color: var(--accent-text); }
 .sidebar-foot { padding: 17px 4px 0; border-top: 1px solid rgba(255,255,255,.08); display: flex; gap: 9px; align-items: center; }
 .sidebar-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
-.sidebar-community-row { padding: 6px 0 10px; display: flex; align-items: center; justify-content: center; gap: 28px; }
-.sidebar-community { display: inline-flex; align-items: center; gap: 6px; color: var(--faint); font-weight: var(--weight-medium); transition: .18s ease; }
-.sidebar-community:hover { color: white; }
-.sidebar-community svg { flex: 0 0 auto; }
-.sidebar-community-discord svg { color: #7289da; }
-.sidebar-community-discord:hover svg { color: #99aeff; }
-.sidebar-community-stars { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 1; }
-.sidebar-community-stars svg { width: 12px; height: 12px; }
 .user-avatar { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--accent-text); background: var(--accent-soft); font-weight: var(--weight-bold); }
 .user-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .user-meta strong { color: white; font-size: 12px; }
@@ -354,10 +346,6 @@ h1, h2, h3, .brand { font-family: var(--font-display); }
 .sidebar nav a.active { color: var(--ink); background: var(--surface-3); box-shadow: none; font-weight: 600; }
 .sidebar nav a.active svg { color: var(--accent-text); }
 .sidebar-foot { border-top-color: var(--line-soft); }
-.sidebar-community { color: var(--muted); font-size: 14px; font-weight: 500; }
-.sidebar-community:hover { color: var(--ink); }
-.sidebar-community-discord svg { color: #5865f2; }
-.sidebar-community-discord:hover svg { color: #4752c4; }
 .user-avatar { color: var(--accent-text); background: var(--accent-soft); }
 .user-meta strong { color: var(--ink); font-size: 13px; }
 .user-meta span { color: var(--subtle); font-size: 12px; }
@@ -667,6 +655,27 @@ textarea { line-height: 1.55; }
 .inbox-composer textarea { flex: 1; min-width: 0; min-height: 42px; padding: 10px 12px; }
 .inbox-composer button { min-width: 80px; height: 42px; flex: 0 0 auto; color: white; border: 0; border-radius: 7px; background: var(--accent); }
 .inbox-composer button.composer-attach, .portal-composer button.composer-attach { height: 42px; }
+.inbox-composer .icon-button { min-width: 34px; color: var(--muted); background: transparent; border: 1px solid var(--line); }
+.inbox-composer .icon-button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+
+/* Inline form to send a WhatsApp pin (see LocationComposer). */
+.location-composer { display: grid; gap: 8px; margin: 0 13px; padding: 10px; border: 1px solid var(--line); border-bottom: 0; border-radius: 10px 10px 0 0; background: var(--surface-2); }
+.location-composer-row { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
+.location-composer-row label { display: grid; gap: 3px; font-size: 12px; color: var(--subtle); flex: 1; min-width: 110px; }
+.location-composer-row input { width: 100%; }
+.location-error { color: var(--danger, #c0392b); font-size: 12px; }
+
+/* Shared-location card (kind=location attachments). */
+.location-card { max-width: 300px; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+.location-map { position: relative; display: block; }
+.location-map img { display: block; width: 100%; height: 130px; object-fit: cover; background: var(--surface-3); }
+.location-pin { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -85%); display: grid; place-items: center; width: 34px; height: 34px; color: white; border-radius: 50% 50% 50% 4px; background: var(--accent); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+.location-body { display: grid; gap: 3px; padding: 9px 11px; }
+.location-body strong { font-size: 13px; }
+.location-body small { color: var(--subtle); font-size: 12px; }
+.location-links { display: flex; gap: 12px; margin-top: 2px; }
+.location-links a { color: var(--accent); font-size: 12px; font-weight: 600; }
+.location-links a:hover { text-decoration: underline; }
 
 .portal-loader { min-height: 100vh; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); background: var(--canvas); }
 .portal-brand { display: flex; align-items: center; gap: 10px; }
@@ -1405,6 +1414,18 @@ textarea { line-height: 1.55; }
 .wa-agent-row { display: flex; align-items: flex-end; gap: 12px; }
 .wa-agent-row label { flex: 1; display: flex; flex-direction: column; gap: 7px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
 .wa-agent-row .button { flex: 0 0 auto; }
+/* Groups/calls feature toggles of a WhatsApp QR line. */
+.wa-features { display: grid; gap: 10px; }
+.wa-feature { display: flex; gap: 11px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; cursor: pointer; }
+.wa-feature:hover { background: var(--surface-2); }
+.wa-feature input { margin-top: 3px; }
+.wa-feature svg { flex: 0 0 auto; margin-top: 2px; color: var(--accent); }
+.wa-feature span { display: grid; gap: 2px; }
+.wa-feature strong { font-size: 13px; }
+.wa-feature small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.wa-feature-message { display: flex; gap: 8px; align-items: center; padding-left: 40px; }
+.wa-feature-message svg { flex: 0 0 auto; color: var(--subtle); }
+.wa-feature-message input { flex: 1; }
 .wa-qr { padding: 20px; display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 28px; align-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); }
 .wa-qr img { width: 230px; height: 230px; display: block; border-radius: 6px; background: var(--surface); }
 .wa-qr > div > span { display: flex; align-items: center; gap: 7px; color: var(--ink); font-size: 14px; font-weight: 600; }

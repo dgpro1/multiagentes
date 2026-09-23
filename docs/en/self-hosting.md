@@ -16,11 +16,13 @@ API share one origin.
 | `web` | Next.js | Agency dashboard, client portal, playground, widget (internal). |
 | `api` | FastAPI | REST API, models, AI/knowledge/provider services (internal). |
 | `db` | PostgreSQL | All data (encrypted secrets at rest, internal). |
-| `whatsapp` | Go + whatsmeow | WhatsApp Web bridge (internal). |
+| `evolution` | Evolution API | WhatsApp QR driver (Baileys, internal; own Postgres and Redis). |
 
 Only the gateway is meant to be public. For HTTPS, put your own reverse proxy in
 front of it (see [Go to production](#go-to-production-https)). One instance =
-**one agency** (the first registered user is its admin).
+**one agency** (the first registered user is its admin). WhatsApp QR is
+optional: without `EVOLUTION_API_URL`/`EVOLUTION_API_KEY` set, the rest of the
+app works and WhatsApp QR is simply unavailable.
 
 > **Why Caddy for the gateway?** The routing is deliberately simple — two
 > upstreams and one rule (`/api/*` → backend, everything else → frontend) — and
@@ -46,7 +48,7 @@ front of it (see [Go to production](#go-to-production-https)). One instance =
 - [Run without Docker](#run-without-docker)
 - [Connect WhatsApp](#connect-whatsapp)
 - [Tests](#tests)
-- [WhatsApp / whatsmeow caveats](#whatsapp--whatsmeow-caveats)
+- [WhatsApp / Evolution API caveats](#whatsapp--evolution-api-caveats)
 - [Troubleshooting](#troubleshooting)
 
 ## Before you begin
@@ -120,16 +122,17 @@ build the frontend yourself with `NEXT_PUBLIC_API_URL` set.
 - **PostgreSQL** — `make shell-db` (or connect to `localhost:5432`)
 
 On the first screen choose **Create agency**; that account is the admin. Only the
-gateway is meant to be reachable publicly; the web, API, database and WhatsApp
-bridge stay on the private Compose network.
+gateway is meant to be reachable publicly; the web, API, database and Evolution
+API stay on the private Compose network.
 
 ## Secure your install
 
 Do this before exposing OpenLivery to anyone else.
 
 - **Secrets.** `generate-docker-env.sh` fills `SECRET_KEY`, `ENCRYPTION_KEY`,
-  `WHATSAPP_BRIDGE_TOKEN` and `POSTGRES_PASSWORD` with random values. If you set
-  them by hand, use long random strings and never reuse them across installs.
+  `WHATSAPP_BRIDGE_TOKEN`, `EVOLUTION_API_KEY` and `POSTGRES_PASSWORD` with
+  random values. If you set them by hand, use long random strings and never
+  reuse them across installs.
 - ⚠️ **`ENCRYPTION_KEY` must never change** once secrets are stored — it decrypts
   the provider API keys and the WhatsApp session markers. Losing or changing it
   makes them unrecoverable.
@@ -141,7 +144,7 @@ Do this before exposing OpenLivery to anyone else.
   secret manager.
 - Provider API keys are encrypted at rest and never returned in full to the
   browser; the WhatsApp session marker and QR are encrypted too. `WHATSAPP_BRIDGE_TOKEN`
-  authenticates the backend↔bridge calls — do not reuse it as a password or key.
+  authenticates the API's internal `/internal/whatsapp` endpoints — do not reuse it as a password or key.
 - **Rate limiting.** Public, unauthenticated endpoints are throttled per client
   IP: sign-in and sign-up (agency and portal) to blunt brute force, and the web
   widget's message endpoint because each call spends LLM tokens. Limits are
@@ -150,8 +153,6 @@ Do this before exposing OpenLivery to anyone else.
   limiter reads the client from `X-Forwarded-For`, which the gateway sets.
 
 ## Go to production (HTTPS)
-
-For Easypanel, follow the [dedicated guide and Compose template](deploy-easypanel.md).
 
 The stack serves plain HTTP on the gateway. For a public deployment, put **your
 own reverse proxy** (Caddy, nginx, Traefik, a cloud load balancer…) in front of
@@ -173,7 +174,7 @@ agency.example.com {
 }
 ```
 
-Keep the database, API and WhatsApp bridge private (`BIND_HOST=127.0.0.1`, the
+Keep the database, API and Evolution API private (`BIND_HOST=127.0.0.1`, the
 default); only your reverse proxy should face the internet.
 
 ## Custom domains for client portals
@@ -235,14 +236,14 @@ that client's portal. The portal must be **published** for the domain to serve.
 | `POSTGRES_TEST_DB` | Private network | Isolated database for `pytest`. |
 | `SECRET_KEY` | Backend | Signs the agency and portal sessions. |
 | `ENCRYPTION_KEY` | Backend / persisted data | Encrypts API keys, the QR and the WhatsApp session marker. **Must not change** after secrets are stored. |
-| `WHATSAPP_BRIDGE_TOKEN` | Backend + bridge | Authenticates the private backend↔bridge calls. |
-| `WHATSAPP_STORE_URL` | Bridge | Where whatsmeow keeps the session keys: a local SQLite file (`file:whatsmeow.db`) by default, or a `postgres://` URL. Compose points it at the bundled PostgreSQL with `?search_path=whatsmeow` so its tables live in a dedicated schema. |
+| `WHATSAPP_BRIDGE_TOKEN` | Backend | Authenticates the API's internal `/internal/whatsapp` endpoints. |
+| `EVOLUTION_API_URL`, `EVOLUTION_API_KEY` | Backend + Evolution | WhatsApp QR driver. Without both set, WhatsApp QR is simply unavailable. |
+| `EVOLUTION_WEBHOOK_SECRET`, `EVOLUTION_WEBHOOK_URL` | Backend + Evolution | Authenticates and routes the Evolution event webhook. |
 | `FRONTEND_URL` | Backend | Origin allowed by CORS (only needed if you serve the API on a separate origin). |
 | `NEXT_PUBLIC_API_URL` | Browser / frontend build | Leave empty (default): the browser calls the API through the gateway with relative `/api`. Set it only to point the frontend at an API on a separate origin (baked at build time). |
 | `COOKIE_SECURE` | Backend | `true` behind HTTPS so the session cookie is only sent over TLS. |
 | `COOKIE_SAMESITE` | Backend | `lax` (default); `none` when the frontend and API are on different sites (requires `COOKIE_SECURE=true`). |
 | `ACCESS_TOKEN_MINUTES` | Backend | Session lifetime. |
-| `WHATSAPP_LOG_LEVEL` | Bridge | Log level; `silent` avoids exposing sensitive data. |
 | `API_PORT`, `WEB_PORT`, `DB_PORT` | Host | Host ports (defaults `8000` / `3000` / `5432`). |
 | `BIND_HOST` | Host | Bind address: `127.0.0.1` (local) or `0.0.0.0` (expose directly). |
 
@@ -268,7 +269,8 @@ All state lives in named Docker volumes, so `make down` and upgrades keep it:
 
 | Volume | Contents |
 | --- | --- |
-| `postgres_data` | PostgreSQL: agency data, knowledge PDF bytes, message attachment bytes, logos, encrypted provider keys, WhatsApp session markers, and the whatsmeow session store (its own `whatsmeow` schema). |
+| `postgres_data` | PostgreSQL: agency data, knowledge PDF bytes, message attachment bytes, logos, encrypted provider keys and WhatsApp session markers. |
+| `evolution_postgres_data`, `evolution_redis_data`, `evolution_instances` | Evolution API's own database, cache and instance files (WhatsApp QR session state). |
 | `backend_storage` | The API mount at `/app/backend/storage`. Built-in uploads currently use PostgreSQL, so this volume may be empty. Preserve any files an extension or custom deployment places here. |
 
 The `ENCRYPTION_KEY` decrypts the provider API keys and WhatsApp session markers.
@@ -296,15 +298,18 @@ service's configured storage mount**, not a guessed Docker volume name:
 dc() { docker compose --env-file .env.docker "$@"; }
 ```
 
-For an Easypanel installation, use the [Easypanel-specific helper](deploy-easypanel.md#backups-and-restores)
-instead. These commands assume the bundled PostgreSQL also holds the whatsmeow
-session store. Back up a separately configured `WHATSAPP_STORE_URL` separately.
+These commands cover the application database and file storage. Evolution
+API's own state â€” its database (`evolution-db`), cache (`evolution-redis`) and
+instance files (`evolution_instances` volume) â€” holds the WhatsApp QR
+session/pairing state and needs its own backup if you want WhatsApp QR lines
+to survive a restore without rescanning; back it up the same way, substituting
+the service and volume names.
 
 ### Export a consistent backup
 
-Schedule a maintenance window. Stop `api` and `whatsapp` **before both exports**:
-the API writes application data, and the bridge writes WhatsApp sessions.
-Also pause any extensions or external writers that modify the database or files.
+Schedule a maintenance window. Stop `api` **before the export**: it writes
+application data while running. Also pause any extensions or external writers
+that modify the database or files.
 Keep them stopped until both exports finish so the database and files describe
 the same application state.
 
@@ -314,14 +319,14 @@ umask 077
 backup_dir="backups/$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p backups
 mkdir "$backup_dir"
-dc stop api whatsapp
+dc stop api
 dc exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
   > "$backup_dir/openlivery.dump.partial"
 dc run --rm --no-deps -T --entrypoint tar api \
   -czf - -C /app/backend/storage . > "$backup_dir/uploads.tar.gz.partial"
 mv "$backup_dir/openlivery.dump.partial" "$backup_dir/openlivery.dump"
 mv "$backup_dir/uploads.tar.gz.partial" "$backup_dir/uploads.tar.gz"
-dc start api whatsapp
+dc start api
 ```
 
 The temporary API container runs only `tar`; it does not start the application
@@ -389,9 +394,10 @@ make up        # rebuilds and restarts; your reverse proxy stays in front
 New images are built and the backend runs `alembic upgrade head` on start, so
 schema changes are applied automatically. Take a backup first.
 
-If you upgrade from a version whose bridge was built on Baileys, the old
-WhatsApp sessions cannot be migrated: reconnect each channel by scanning its QR
-once more.
+If you upgrade from a version that used the local Go/whatsmeow bridge, the old
+WhatsApp sessions cannot be migrated to Evolution API: configure
+`EVOLUTION_API_URL`/`EVOLUTION_API_KEY` and reconnect each channel by scanning
+its QR once more.
 
 ## Uninstall
 
@@ -422,16 +428,12 @@ cd apps/api && alembic upgrade head && uvicorn app.main:app --reload --port 8000
 
 # 4) frontend (new terminal)
 cd apps/web && npm install && npm run dev
-
-# 5) WhatsApp bridge (new terminal)
-cd apps/whatsapp && go run .
 ```
 
-The bridge listens only on `127.0.0.1:3101` and must stay running alongside the
-backend. It keeps the session keys in the store configured by
-`WHATSAPP_STORE_URL` (a local SQLite file, `file:whatsmeow.db`, by default; a
-`postgres://` URL works too). See `.env.example` for the full variable list
-(`DATABASE_URL`, `BACKEND_URL`, `WHATSAPP_BRIDGE_URL`, `WHATSAPP_BRIDGE_PORT`, …).
+For WhatsApp QR lines, run a local Evolution API instance (see its
+[documentation](https://docs.evolutionfoundation.com.br)) and set
+`EVOLUTION_API_URL`/`EVOLUTION_API_KEY` in `.env` — everything else works
+without it. See `.env.example` for the full variable list.
 
 ## Connect WhatsApp
 
@@ -442,23 +444,22 @@ backend. It keeps the session keys in the store configured by
 
 Incoming messages appear in the agency **Inbox** and the client portal. Click
 **Take over** to answer as a human (the AI pauses) and **Return to AI** to
-resume. On restart the bridge reloads enabled sessions from its session store and
-reconnects automatically — no new QR unless WhatsApp ends the session, the device
-is unlinked or `ENCRYPTION_KEY` changes.
+resume. Lines reconnect themselves automatically after a restart — no new QR
+unless WhatsApp ends the session, the device is unlinked or `ENCRYPTION_KEY`
+changes.
 
 ## Tests
 
 Inside Docker:
 
 ```bash
-make test   # backend pytest + rebuild the web/whatsapp validation stages
+make test   # backend pytest + rebuild the web validation stage
 ```
 
 Locally:
 
 ```bash
 cd apps/api && ../../.venv/bin/pytest -q     # backend (needs the openlivery_test DB)
-cd apps/whatsapp && go test ./... && go vet ./...
 cd apps/web && npm run lint && npm run build
 ```
 
@@ -468,32 +469,36 @@ Re-test the migrations from scratch:
 cd apps/api && alembic downgrade base && alembic upgrade head
 ```
 
-## WhatsApp / whatsmeow caveats
+## WhatsApp / Evolution API caveats
 
-whatsmeow connects to the multi-device protocol of **WhatsApp Web**; the number
-is linked as an extra device via QR. It is **not** the official WhatsApp Business
-Cloud API, and this project is not affiliated with or endorsed by WhatsApp/Meta.
+Evolution API (Baileys under the hood) connects to the multi-device protocol of
+**WhatsApp Web**; the number is linked as an extra device via QR. It is **not**
+the official WhatsApp Business Cloud API, and this project is not affiliated
+with or endorsed by WhatsApp/Meta.
 
 - WhatsApp may change its protocol or revoke a session/device without notice.
 - Abusive automation, spam or mass sending can get a number restricted. Use only
   numbers authorized by each client and respect WhatsApp's terms.
 - The QR links the account while valid — never share it or screenshot it publicly.
-- The integration handles one-to-one conversations (text, plus transcribed voice
-  notes and described images when the agent's capabilities are on). It ignores
-  groups, statuses, newsletters, documents, locations, reactions and calls.
+- The integration handles one-to-one conversations (text, media, documents,
+  locations and reactions, plus transcribed voice notes and described images
+  when the agent's capabilities are on). Groups need the line's toggle enabled
+  (the agent answers only when mentioned or replied to); calls are always
+  declined, optionally with an explanation message. Statuses and newsletters
+  are ignored.
 - One WhatsApp account belongs to one client; another client needs a different
-  number. `apps/whatsapp/go.mod` pins an exact whatsmeow version.
+  number.
 
 ## Troubleshooting
 
 - **Ports already in use.** Override them inline:
   `API_PORT=8001 WEB_PORT=3001 DB_PORT=5433 make up`.
 - **A service is unhealthy.** Check its logs with `make logs SERVICE=api` (or
-  `web`, `whatsapp`, `db`) and `make ps` for status.
+  `web`, `evolution`, `db`) and `make ps` for status.
 - **Session does not persist, or login loops behind HTTPS.** Make sure
   `COOKIE_SECURE=true` is set and you are reaching the app over TLS.
 - **Provider keys or the WhatsApp session stopped decrypting.** The
   `ENCRYPTION_KEY` changed — restore the original value from your backup.
 - **WhatsApp asks for a new QR after a restart.** Normal only if WhatsApp ended
   the session, the device was unlinked or `ENCRYPTION_KEY` changed; otherwise
-  the bridge reloads enabled sessions from its session store automatically.
+  lines reconnect to their Evolution instance automatically.

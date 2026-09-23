@@ -11,6 +11,11 @@ os.environ["DATABASE_URL"] = os.getenv(
 )
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("SOCIAL_WORKER_ENABLED", "false")
+os.environ.setdefault("MESSAGING_PROVIDER_API_KEY", "test-provider-key")
+os.environ.setdefault("MESSAGING_PROVIDER_WEBHOOK_SECRET", "test-webhook-secret")
+# Never touch the real provider from tests: service seams are patched per
+# test, and anything unpatched fails fast on a closed loopback port.
+os.environ.setdefault("MESSAGING_PROVIDER_BASE_URL", "http://127.0.0.1:9")
 
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
