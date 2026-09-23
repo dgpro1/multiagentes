@@ -395,3 +395,103 @@ def test_calendar_overview_and_members(authenticated_client: TestClient):
     assert client.get(base, headers=headers).json()["members"].__len__() == 1
     assert client.delete(f"{base}/members/{first.json()['id']}", headers=headers).status_code == 204
     assert client.get(base, headers=headers).json()["members"] == []
+
+
+def _setup7(client: TestClient) -> tuple[dict, dict, str]:
+    customer = client.post("/api/clients", json={"name": "Acme", "is_active": True}).json()
+    client.put("/api/providers/openrouter", json={"api_key": "secret"})
+    agent = client.post(
+        "/api/agents",
+        json={"client_id": customer["id"], "provider": "openrouter", "model": "gpt-4.1-mini",
+              "name": "Vera", "instructions": "", "personality": "", "is_active": True},
+    ).json()
+    token = _token(client, ["clients.read", "clients.write", "inbox.read", "inbox.manage",
+                            "pipeline.read", "pipeline.manage", "tags.read", "tags.manage"])
+    return customer, agent, token
+
+
+def test_clients_create_and_update(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, _, token = _setup7(client)
+    headers = {**_auth(token), "Idempotency-Key": "client-1"}
+
+    created = client.post("/api/v1/clients", headers=headers, json={"name": "Beta"})
+    assert created.status_code == 201, created.text
+    assert created.json()["name"] == "Beta"
+    assert created.json()["_links"]["self"].endswith(f"/api/v1/clients/{created.json()['id']}")
+    replayed = client.post("/api/v1/clients", headers=headers, json={"name": "Beta"})
+    assert replayed.json()["api_replay"] is True and replayed.json()["id"] == created.json()["id"]
+
+    updated = client.patch(f"/api/v1/clients/{customer['id']}", headers=_auth(token), json={"name": "Acme II"})
+    assert updated.status_code == 200 and updated.json()["name"] == "Acme II"
+
+
+def test_conversation_takeover_and_resolve(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, agent, token = _setup7(client)
+    headers = _auth(token)
+    conversation = customer_conversation(client, agent["id"])
+    base = f"/api/v1/clients/{customer['id']}/conversations/{conversation['id']}"
+
+    taken = client.patch(f"{base}/mode", headers=headers, json={"mode": "human"})
+    assert taken.status_code == 200 and taken.json()["mode"] == "human"
+    back = client.patch(f"{base}/mode", headers=headers, json={"mode": "ai"})
+    assert back.json()["mode"] == "ai"
+
+    resolved = client.patch(f"{base}/status", headers=headers, json={"status": "resolved"})
+    assert resolved.status_code == 200 and resolved.json()["status"] == "resolved"
+    assert resolved.json()["_links"]["self"].endswith(f"/conversations/{conversation['id']}/status")
+
+
+def test_pipeline_stages_and_leads(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, _, token = _setup7(client)
+    headers = _auth(token)
+    base = f"/api/v1/clients/{customer['id']}/pipeline"
+
+    assert client.get(f"{base}/stages", headers=headers).json()["data"] == []
+    first = client.post(f"{base}/stages", headers={**headers, "Idempotency-Key": "stage-1"},
+                        json={"name": "Nuevo", "color": "#3b82f6"})
+    assert first.status_code == 201, first.text
+    assert first.json()["_links"]["self"].endswith(f"/stages/{first.json()['id']}")
+    replayed = client.post(f"{base}/stages", headers={**headers, "Idempotency-Key": "stage-1"},
+                           json={"name": "Nuevo", "color": "#3b82f6"})
+    assert replayed.json()["api_replay"] is True
+    second = client.post(f"{base}/stages", headers=headers, json={"name": "Ganado"}).json()
+
+    renamed = client.patch(f"{base}/stages/{first.json()['id']}", headers=headers, json={"name": "Contactado"})
+    assert renamed.status_code == 200 and renamed.json()["name"] == "Contactado"
+
+    reordered = client.post(f"{base}/stages/reorder", headers=headers,
+                            json={"stage_ids": [second["id"], first.json()["id"]]})
+    assert [row["id"] for row in reordered.json()["data"]] == [second["id"], first.json()["id"]]
+
+    lead = client.post(f"{base}/leads", headers=headers,
+                       json={"contact_name": "Lead", "contact_phone": "573001112233", "pipeline_stage_id": second["id"]})
+    assert lead.status_code == 201, lead.text
+
+    assert client.delete(f"{base}/stages/{first.json()['id']}", headers=headers).status_code == 204
+
+
+def test_tags_crud(authenticated_client: TestClient):
+    client = authenticated_client
+    customer, _, token = _setup7(client)
+    headers = _auth(token)
+    base = f"/api/v1/clients/{customer['id']}/tags"
+
+    assert client.get(base, headers=headers).json()["data"] == []
+    created = client.post(base, headers={**headers, "Idempotency-Key": "tag-1"},
+                          json={"name": "VIP", "color": "#3b82f6"})
+    assert created.status_code == 201, created.text
+    assert created.json()["_links"]["self"].endswith(f"/tags/{created.json()['id']}")
+    replayed = client.post(base, headers={**headers, "Idempotency-Key": "tag-1"},
+                           json={"name": "VIP", "color": "#3b82f6"})
+    assert replayed.json()["api_replay"] is True
+
+    renamed = client.patch(f"{base}/{created.json()['id']}", headers=headers, json={"name": "VVIP"})
+    assert renamed.status_code == 200 and renamed.json()["name"] == "VVIP"
+    assert client.patch(f"{base}/{created.json()['id']}", headers=headers,
+                        json={"name": "VVIP", "route_team_id": "00000000-0000-0000-0000-000000000000"}).status_code == 200
+
+    assert client.delete(f"{base}/{created.json()['id']}", headers=headers).status_code == 204
+    assert client.get(base, headers=headers).json()["data"] == []

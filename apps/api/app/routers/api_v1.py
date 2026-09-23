@@ -28,6 +28,7 @@ from sqlalchemy import Date, cast, delete, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 from decimal import Decimal
 
+from .. import industries
 from ..api_scopes import (
     AGENTS_KNOWLEDGE,
     AGENTS_READ,
@@ -36,13 +37,17 @@ from ..api_scopes import (
     CALENDAR_READ,
     CHANNELS_READ,
     CLIENTS_READ,
+    CLIENTS_WRITE,
     CONTACTS_MANAGE,
     CONTACTS_READ,
+    INBOX_MANAGE,
     INBOX_READ,
     INBOX_REPLY,
     PIPELINE_MANAGE,
     PIPELINE_READ,
     REPORTS_READ,
+    TAGS_MANAGE,
+    TAGS_READ,
 )
 from ..database import get_db
 from ..deps import get_current_user, require
@@ -62,17 +67,20 @@ from ..models import (
     WidgetChannel,
     now_utc,
 )
-from ..schemas import AgentCreate, AgentOut, AgentUpdate, ClientOut, ContactCreate, ContactUpdate, ConversationPipelineUpdate, MessageOut, QAPairCreate, QAPairOut, check_reply_delay
+from ..schemas import AgentCreate, AgentOut, AgentUpdate, ClientCreate, ClientOut, ClientUpdate, ContactCreate, ContactTagCreate, ContactTagOut, ContactTagUpdate, ContactUpdate, ConversationModeUpdate, ConversationPipelineUpdate, ConversationStatusUpdate, MessageOut, PipelineStageCreate, PipelineStageOut, PipelineStageReorder, PipelineStageUpdate, QAPairCreate, QAPairOut, QuickLeadCreate, check_reply_delay
 from ..schemas_calendar import CalendarMemberCreate, CalendarMemberOut
 from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
 from ..services.contacts import find_contact, normalize_phone
-from ..services.conversation_state import note_reply
+from ..services.conversation_state import ConversationClosed, note_reply, set_mode, set_status
 from ..services.idempotency import abandon, complete, owner_of, use_key
 from ..services.knowledge import build_system_prompt, embed_document_chunks, reindex_agent, reindex_document
 from ..services.report_operations import ConversationFilters, operations
+from ..services import tags as tags_service
 from ..services.whatsapp import send_channel_message
+from ..slugs import unique_slug
 from .agents import _agent as _panel_agent, _channels_of, _document_out
+from .clients import _check_industry
 from .reports import Filters as _ReportFilters, _fold, _group_cost, _grouped, _joined, _money, _replies_query, _reply, _safe_tz
 
 router = APIRouter(prefix="/v1", tags=["Public API v1"])
@@ -245,6 +253,56 @@ def v1_get_client(
     request: Request, client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     client = _agency_client(db, user, client_id)
+    return {**ClientOut.model_validate(client).model_dump(mode="json"), "_links": _self(request)}
+
+
+@router.post("/clients", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(CLIENTS_WRITE))])
+def v1_create_client(
+    request: Request, payload: ClientCreate,
+    idempotency_key: str | None = Header(default=None),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    receipt = use_key(db, agency_id=user.agency_id, owner=owner_of(user), key=idempotency_key or "",
+                      endpoint="v1:create_client", body=payload.model_dump(mode="json"))
+    if receipt.replay is not None:
+        replay = receipt.replay
+        return JSONResponse(status_code=replay["status"], content=replay["body"])
+    try:
+        _check_industry(payload.industry, payload.business_type)
+        client = Client(
+            agency_id=user.agency_id,
+            portal_slug=unique_slug(db, Client, "portal_slug", payload.name),
+            **payload.model_dump(),
+        )
+        db.add(client)
+        db.commit()
+        db.refresh(client)
+        body = jsonable_encoder({**ClientOut.model_validate(client).model_dump(mode="json"),
+                                 "_links": {"self": f"/api/v1/clients/{client.id}"}})
+        complete(db, receipt, status=201, body=body)
+        return JSONResponse(status_code=201, content=body)
+    except HTTPException:
+        abandon(db, receipt)
+        raise
+
+
+@router.patch("/clients/{client_id}", dependencies=[Depends(require(CLIENTS_WRITE))])
+def v1_update_client(
+    request: Request, client_id: uuid.UUID, payload: ClientUpdate,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    client = _agency_client(db, user, client_id)
+    values = payload.model_dump(exclude_unset=True)
+    industry = values.get("industry", client.industry)
+    business_type = values.get("business_type", client.business_type)
+    # Changing the industry drops a type that no longer belongs to it.
+    if "industry" in values and "business_type" not in values and industries.get_type(industry, business_type) is None:
+        values["business_type"] = ""
+    _check_industry(industry, business_type)
+    for key, value in values.items():
+        setattr(client, key, value)
+    db.commit()
+    db.refresh(client)
     return {**ClientOut.model_validate(client).model_dump(mode="json"), "_links": _self(request)}
 
 
@@ -427,6 +485,40 @@ async def v1_reply(
     except HTTPException:
         abandon(db, receipt)
         raise
+
+
+@router.patch("/clients/{client_id}/conversations/{conversation_id}/mode", dependencies=[Depends(require(INBOX_MANAGE))])
+def v1_set_mode(
+    request: Request, client_id: uuid.UUID, conversation_id: uuid.UUID, payload: ConversationModeUpdate,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Take the case into human hands or give it back to the AI, leaving the panel's own trace in the thread."""
+    client = _agency_client(db, user, client_id)
+    conversation = _client_conversation(db, client, conversation_id)
+    try:
+        changed = set_mode(db, conversation, payload.mode, actor=user.name)
+    except ConversationClosed as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if changed:
+        db.commit()
+    return _conversation_out(conversation, request)
+
+
+@router.patch("/clients/{client_id}/conversations/{conversation_id}/status", dependencies=[Depends(require(INBOX_MANAGE))])
+def v1_set_status(
+    request: Request, client_id: uuid.UUID, conversation_id: uuid.UUID, payload: ConversationStatusUpdate,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Resolve or reopen the case, with the same trace the panel leaves."""
+    client = _agency_client(db, user, client_id)
+    conversation = _client_conversation(db, client, conversation_id)
+    try:
+        changed = set_status(db, conversation, payload.status, actor=user.name)
+    except ConversationClosed as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if changed:
+        db.commit()
+    return _conversation_out(conversation, request)
 
 
 # Pipeline --------------------------------------------------------------------
@@ -972,3 +1064,159 @@ def v1_report_operations(
         agent_id=agent_id, channel=channel, tz=tz, model=model, bucket=bucket,
     )
     return {**jsonable_encoder(operations(db, filters)), "_links": _self(request)}
+
+
+# Pipeline stages ---------------------------------------------------------------
+
+
+def _stage_out(db: Session, client: Client, stage) -> dict:
+    return {**jsonable_encoder(pipeline_service.stage_out(db, stage)),
+            "_links": {"self": f"/api/v1/clients/{client.id}/pipeline/stages/{stage.id}"}}
+
+
+@router.get("/clients/{client_id}/pipeline/stages", dependencies=[Depends(require(PIPELINE_READ))])
+def v1_list_stages(
+    client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    client = _agency_client(db, user, client_id)
+    rows = [_stage_out(db, client, stage) for stage in pipeline_service.list_stages(db, client)]
+    return {"data": rows, "total": len(rows),
+            "_links": {"self": f"/api/v1/clients/{client.id}/pipeline/stages"}}
+
+
+@router.post("/clients/{client_id}/pipeline/stages", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(PIPELINE_MANAGE))])
+def v1_create_stage(
+    client_id: uuid.UUID, payload: PipelineStageCreate,
+    idempotency_key: str | None = Header(default=None),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    client = _agency_client(db, user, client_id)
+    receipt = use_key(db, agency_id=user.agency_id, owner=owner_of(user), key=idempotency_key or "",
+                      endpoint="v1:create_stage", body={**payload.model_dump(mode="json"), "client_id": str(client_id)})
+    if receipt.replay is not None:
+        replay = receipt.replay
+        return JSONResponse(status_code=replay["status"], content=replay["body"])
+    try:
+        body = _stage_out(db, client, pipeline_service.create_stage(db, client, payload))
+        complete(db, receipt, status=201, body=body)
+        return JSONResponse(status_code=201, content=body)
+    except HTTPException:
+        abandon(db, receipt)
+        raise
+
+
+@router.patch("/clients/{client_id}/pipeline/stages/{stage_id}", dependencies=[Depends(require(PIPELINE_MANAGE))])
+def v1_update_stage(
+    client_id: uuid.UUID, stage_id: uuid.UUID, payload: PipelineStageUpdate,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    client = _agency_client(db, user, client_id)
+    return _stage_out(db, client, pipeline_service.update_stage(db, client, stage_id, payload))
+
+
+@router.post("/clients/{client_id}/pipeline/stages/reorder", dependencies=[Depends(require(PIPELINE_MANAGE))])
+def v1_reorder_stages(
+    client_id: uuid.UUID, payload: PipelineStageReorder,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    client = _agency_client(db, user, client_id)
+    rows = [_stage_out(db, client, stage) for stage in pipeline_service.reorder_stages(db, client, payload.stage_ids)]
+    return {"data": rows, "total": len(rows),
+            "_links": {"self": f"/api/v1/clients/{client.id}/pipeline/stages"}}
+
+
+@router.delete("/clients/{client_id}/pipeline/stages/{stage_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(PIPELINE_MANAGE))])
+def v1_delete_stage(
+    client_id: uuid.UUID, stage_id: uuid.UUID,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    client = _agency_client(db, user, client_id)
+    pipeline_service.delete_stage(db, client, stage_id)
+    return JSONResponse(status_code=204, content=None)
+
+
+@router.post("/clients/{client_id}/pipeline/leads", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(PIPELINE_MANAGE))])
+def v1_create_lead(
+    client_id: uuid.UUID, payload: QuickLeadCreate,
+    idempotency_key: str | None = Header(default=None),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """A manually created deal: contact plus an open, human-held case in the given stage. Nothing is sent anywhere."""
+    client = _agency_client(db, user, client_id)
+    receipt = use_key(db, agency_id=user.agency_id, owner=owner_of(user), key=idempotency_key or "",
+                      endpoint="v1:create_lead", body={**payload.model_dump(mode="json"), "client_id": str(client_id)})
+    if receipt.replay is not None:
+        replay = receipt.replay
+        return JSONResponse(status_code=replay["status"], content=replay["body"])
+    try:
+        card = pipeline_service.create_quick_lead(db, client, payload, actor=user.name)
+        body = {**jsonable_encoder(card), "_links": {"self": f"/api/v1/clients/{client.id}/pipeline/board"}}
+        complete(db, receipt, status=201, body=body)
+        return JSONResponse(status_code=201, content=body)
+    except HTTPException:
+        abandon(db, receipt)
+        raise
+
+
+# Contact tags --------------------------------------------------------------------
+
+
+def _tag_out(db: Session, client: Client, tag) -> dict:
+    return {**tags_service.tag_out(tag, tags_service.tag_count(db, tag)).model_dump(mode="json"),
+            "_links": {"self": f"/api/v1/clients/{client.id}/tags/{tag.id}"}}
+
+
+@router.get("/clients/{client_id}/tags", dependencies=[Depends(require(TAGS_READ))])
+def v1_list_tags(
+    client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    client = _agency_client(db, user, client_id)
+    rows = [{**row.model_dump(mode="json"),
+             "_links": {"self": f"/api/v1/clients/{client.id}/tags/{row.id}"}}
+            for row in tags_service.list_tags(db, client)]
+    return {"data": rows, "total": len(rows), "_links": {"self": f"/api/v1/clients/{client.id}/tags"}}
+
+
+@router.post("/clients/{client_id}/tags", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(TAGS_MANAGE))])
+def v1_create_tag(
+    client_id: uuid.UUID, payload: ContactTagCreate,
+    idempotency_key: str | None = Header(default=None),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    client = _agency_client(db, user, client_id)
+    receipt = use_key(db, agency_id=user.agency_id, owner=owner_of(user), key=idempotency_key or "",
+                      endpoint="v1:create_tag", body={**payload.model_dump(mode="json"), "client_id": str(client_id)})
+    if receipt.replay is not None:
+        replay = receipt.replay
+        return JSONResponse(status_code=replay["status"], content=replay["body"])
+    try:
+        body = _tag_out(db, client, tags_service.create_tag(db, client, payload.name, payload.color))
+        complete(db, receipt, status=201, body=body)
+        return JSONResponse(status_code=201, content=body)
+    except HTTPException:
+        abandon(db, receipt)
+        raise
+
+
+@router.patch("/clients/{client_id}/tags/{tag_id}", dependencies=[Depends(require(TAGS_MANAGE))])
+def v1_update_tag(
+    client_id: uuid.UUID, tag_id: uuid.UUID, payload: ContactTagUpdate,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Rename or recolor a tag. Routing a tag to a team or a person stays a panel gesture."""
+    client = _agency_client(db, user, client_id)
+    tag = tags_service.get_tag(db, client, tag_id)
+    tags_service.rename_tag(db, client, tag, payload.name, payload.color)
+    db.commit()
+    db.refresh(tag)
+    return _tag_out(db, client, tag)
+
+
+@router.delete("/clients/{client_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(TAGS_MANAGE))])
+def v1_delete_tag(
+    client_id: uuid.UUID, tag_id: uuid.UUID,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    client = _agency_client(db, user, client_id)
+    tags_service.delete_tag(db, client, tag_id)
+    return JSONResponse(status_code=204, content=None)

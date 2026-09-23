@@ -40,6 +40,10 @@ Everything you need to build, brand and operate AI agents for your clients.
 - [Dashboard](en/dashboard.md) — Activity, top agents and token usage by model.
 - [Push notifications](en/push-notifications.md) — The provider seam for mobile push: what ships, what it costs and how to register one.
 
+**API**
+
+- [Public API](en/api.md) — Build on `/api/v1`: authentication, scopes, resources, errors, limits, idempotency and webhooks.
+
 **Self-hosting**
 
 - [Self-hosting](en/self-hosting.md) — Deploy to a server, back up data, upgrade and troubleshoot.
@@ -78,6 +82,10 @@ Todo lo que necesitas para construir, marcar y operar agentes de IA para tus cli
 - [Portal del cliente y dominios](es/client-portal.md) — Dale a cada cliente un portal con su marca en su propio dominio.
 - [Panel](es/dashboard.md) — Actividad, agentes destacados y uso de tokens por modelo.
 - [Notificaciones push](es/push-notifications.md) — La costura de proveedores para push móvil: qué trae, qué cuesta y cómo registrar uno.
+
+**API**
+
+- [API pública](es/api.md) — Construye sobre `/api/v1`: autenticación, scopes, recursos, errores, límites, idempotencia y webhooks.
 
 **Autoalojamiento**
 

@@ -122,7 +122,11 @@ async def _restore_evolution_channels() -> None:
 
 app = FastAPI(
     title="OpenLivery API",
-    description="API to manage agencies, clients and AI agents.",
+    description=(
+        "API to manage agencies, clients and AI agents. Third parties build "
+        "on the versioned public API under /api/v1 (see docs/en/api.md); "
+        "the panel routes answer cookie sessions and scoped API tokens alike."
+    ),
     version="0.3.0",
     lifespan=lifespan,
 )
