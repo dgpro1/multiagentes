@@ -24,6 +24,8 @@ export type Client = {
   is_active: boolean;
   portal_slug: string;
   portal_enabled: boolean;
+  /** Which functions the client's portal offers (see lib/portal-features.ts). */
+  portal_features: Record<string, boolean>;
   portal_title: string;
   portal_domain: string | null;
   portal_domain_verified: boolean;

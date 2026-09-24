@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Agency, Client, PortalUser, PushDevice, now_utc
+from ..portal_features import enabled_keys
 from ..portal_permissions import permissions_for
 from ..ratelimit import login_rate_limit
 from ..services.notifications import configured_provider, push_enabled
@@ -75,6 +76,9 @@ class MobileSession(BaseModel):
     # person is behind the session.
     role: str | None = None
     permissions: list[str] = []
+    # The portal functions the agency has switched on for this client, so the
+    # app draws only those. Additive; older apps ignore it.
+    features: list[str] = []
     branding: MobileBranding
     push: PushConfig = Field(default_factory=PushConfig)
     api_version: int = API_VERSION
@@ -117,6 +121,7 @@ def _session_for(client: Client, agency: Agency, user: PortalUser | None, db: Se
         user_name=(user.name or "").strip() if user else "",
         role=user.role if user else None,
         permissions=sorted(permissions_for(user.role)) if user else [],
+        features=enabled_keys(client),
         branding=_branding(client, agency),
         push=PushConfig(enabled=push_enabled(), provider=configured_provider()),
         privacy=disclosure(db, client),

@@ -8,15 +8,16 @@ const React = require('react');
 const { create, act } = require('react-test-renderer');
 global.IS_REACT_ACT_ENVIRONMENT = true;
 
-function fixture({ language = 'en', permissions = [], loginError, loginWait } = {}) {
-  const calls = { login: [], signedIn: [], reports: [], writes: [] };
+function fixture({ language = 'en', permissions = [], features, loginError, loginWait } = {}) {
+  const calls = { login: [], signedIn: [], reports: [], writes: [], teams: 0 };
   class ApiError extends Error { constructor(message, status) { super(message); this.status = status; } }
-  const session = { user_id: 'operator', permissions, branding: { brand_color: '#3456ab' } };
+  const session = { user_id: 'operator', permissions, ...(features ? { features } : {}), branding: { brand_color: '#3456ab' } };
   const api = {
     ApiError,
+    isFeatureOff: (error) => error instanceof ApiError && error.status === 403 && /not enabled for this portal/i.test(error.message),
     normalizeServerUrl: (url) => (url.includes('://') ? url : `https://${url}`).replace(/\/$/, ''),
     signIn: async (...args) => { calls.login.push(args); await loginWait; if (loginError) throw new ApiError('Server error', loginError); return session; },
-    listTeams: async () => [{ id: 'support', name: 'Support', description: '', strategy: 'round_robin', open_count: 0, unassigned_count: 0, members: [], channels: [] }],
+    listTeams: async () => { calls.teams += 1; return [{ id: 'support', name: 'Support', description: '', strategy: 'round_robin', open_count: 0, unassigned_count: 0, members: [], channels: [] }]; },
     listMembers: async () => [],
     getReport: async (...args) => { calls.reports.push(args); return null; },
     createTeam: async (...args) => { calls.writes.push(args); },
@@ -141,5 +142,27 @@ test('revoking team management hides an open editor without writing', async () =
   assert.ok(f.texts().includes('Save team'));
   await f.revoke();
   assert.ok(!f.texts().includes('Save team')); assert.equal(f.calls.writes.length, 0);
+  await f.unmount();
+});
+
+test('switching Teams off leaves only the people list and never reads or edits teams', async () => {
+  const f = fixture({ permissions: ['reports.view', 'teams.manage'], features: ['reports'] }); await f.mount('WorkspaceScreen');
+  assert.ok(!f.texts().includes('New team'));
+  assert.ok(!f.texts().includes('Support'));
+  assert.ok(f.texts().includes('People'));
+  assert.equal(f.calls.teams, 0);
+  await f.unmount();
+});
+
+test('switching Reports off hides the Reports tab even for a role that may view them', async () => {
+  const f = fixture({ permissions: ['reports.view'], features: ['teams'] }); await f.mount('WorkspaceScreen');
+  assert.ok(!f.texts().includes('Reports'));
+  assert.equal(f.calls.reports.length, 0);
+  await f.unmount();
+});
+
+test('switching Teams and Reports off drops the tab bar', async () => {
+  const f = fixture({ permissions: ['reports.view', 'teams.manage'], features: [] }); await f.mount('WorkspaceScreen');
+  assert.equal(f.buttons().filter((node) => node.props.accessibilityRole === 'tab').length, 0);
   await f.unmount();
 });

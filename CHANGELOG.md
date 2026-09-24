@@ -43,6 +43,15 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- **The agency switches the client portal's functions on and off, client by client.** A
+  **Available in the client's portal** switch sits on every tab of the client page (Inbox,
+  Agents, Channels by type, Teams, Tags, Templates, Calendar, Pipeline, API) and the
+  **Portal** tab lists them all, plus Contacts, Reports and Saved replies. Off means the
+  function is gone from that portal for every role, in the web portal and in the mobile app,
+  and the API answers `403`. Everything that exists today stays on for existing clients;
+  Agents, API and the channels (whose portal screens are not built yet) start off. Stored in
+  `Client.portal_features` (migration `0059`), carried as `features` in the portal and
+  mobile sessions and edited with `PATCH /api/clients/{id}/portal`.
 - **Search ignores case, accents and apostrophes.** `gomez`, `GOMEZ` and `Gómez` find the
   same contact, and `obrien` finds `O'Brien`, in the inbox, contacts, reports and API v1
   contact searches (server side, with `translate()`, no database extension) and in the

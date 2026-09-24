@@ -3,12 +3,13 @@ import { ActivityIndicator, Alert, AppState, FlatList, KeyboardAvoidingView, Pla
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  ApiError, assignConversation, getContact, getConversation, listCannedReplies, listContactConversations, listMembers, listTeams,
+  ApiError, assignConversation, getContact, isFeatureOff, getConversation, listCannedReplies, listContactConversations, listMembers, listTeams,
   markRead, reactToMessage, reply as sendReply, replyWithFile, replyWithTemplate, setConversationTeam, setMode, setStatus, updateContact,
   type CannedReply, type Contact, type Conversation, type ConversationDetail, type Message, type PortalMember, type Session, type Team,
 } from "../api";
 import { AttachmentView } from "../components/Attachments";
 import { Composer, type OutgoingFile } from "../components/Composer";
+import { hasFeature } from "../permissions";
 import { TemplatePicker, ThreadAction, ThreadSheet } from "../components/ThreadSheets";
 import { activityLabel, chatStrings } from "../chatStrings";
 import { channelLabel, conversationName, initialFor, isWhatsApp, phoneFrom } from "../conversations";
@@ -182,13 +183,18 @@ export function ChatScreen({ server, session, conversation, onBack, onConversati
     ]);
   }
 
+  // Portal functions the agency can switch off for this client.
+  const contactsOn = hasFeature(session, "contacts");
+  const teamsOn = hasFeature(session, "teams");
+  const templatesOn = hasFeature(session, "templates");
+  const cannedOn = hasFeature(session, "canned");
   async function loadContext() {
     setContextLoading(true); setContextError(null);
     const requests = [
       listMembers(server, session).then((data) => { if (mounted.current) setMembers(data); }),
-      listTeams(server, session).then((data) => { if (mounted.current) setTeams(data); }),
+      ...(teamsOn ? [listTeams(server, session).then((data) => { if (mounted.current) setTeams(data); })] : []),
     ];
-    if (detail.contact_id) {
+    if (detail.contact_id && contactsOn) {
       requests.push(getContact(server, session, detail.contact_id).then((data) => {
         if (mounted.current) { setContact(data); setContactName(data.name); setContactEmail(data.email || ""); setContactNotes(data.notes); }
       }));
@@ -196,7 +202,8 @@ export function ChatScreen({ server, session, conversation, onBack, onConversati
     }
     const result = await Promise.allSettled(requests);
     if (!mounted.current) return;
-    const failure = result.find((item) => item.status === "rejected");
+    // A "feature not enabled" refusal (switched off after this session was opened) is not a failure to show.
+    const failure = result.find((item) => item.status === "rejected" && !isFeatureOff(item.reason));
     if (failure?.status === "rejected") {
       if (failure.reason instanceof ApiError && failure.reason.status === 401) callbacks.current.onSessionExpired?.();
       setContextError(failure.reason instanceof Error ? failure.reason.message : c.loadFailed);
@@ -233,7 +240,7 @@ export function ChatScreen({ server, session, conversation, onBack, onConversati
       </View>
       <View style={styles.toolbar}>
         <View style={[styles.badge, { backgroundColor: tint(resolved ? "#17876B" : brand, .10) }]}><Ionicons name={resolved ? "checkmark-circle-outline" : "chatbubble-ellipses-outline"} size={13} color={resolved ? "#17876B" : brand} /><Text style={{ color: resolved ? "#17876B" : brand, fontSize: 12, fontWeight: "600" }}>{resolved ? c.resolved : c.open}</Text></View>
-        {detail.team_name ? <Text numberOfLines={1} style={[styles.teamName, { color: colors.muted }]}>{detail.team_name}</Text> : <View style={styles.flex} />}
+        {teamsOn && detail.team_name ? <Text numberOfLines={1} style={[styles.teamName, { color: colors.muted }]}>{detail.team_name}</Text> : <View style={styles.flex} />}
         {!resolved ? <><Pressable onPress={() => { void mutate(() => setMode(server, session, detail.id, detail.mode === "human" ? "ai" : "human")); }} disabled={busy || !loaded} style={styles.toolbarButton} accessibilityRole="button"><Text style={{ color: brand, fontSize: 13, fontWeight: "600" }}>{detail.mode === "human" ? s.chat.handBack : s.chat.takeOver}</Text></Pressable><Pressable onPress={resolve} disabled={busy || !loaded} style={styles.toolbarButton} accessibilityRole="button" accessibilityLabel={c.resolve}><Ionicons name="checkmark-done-outline" size={21} color={brand} /></Pressable></> : null}
       </View>
     </View>
@@ -285,7 +292,7 @@ export function ChatScreen({ server, session, conversation, onBack, onConversati
     {error ? <View style={[styles.error, { backgroundColor: colors.surface }]}><Text accessibilityRole="alert" style={{ color: colors.danger, flex: 1, fontSize: 13 }}>{error}</Text><Pressable onPress={() => { void load(true); }} accessibilityRole="button" style={{ padding: 8 }}><Text style={{ color: brand, fontWeight: "600" }}>{c.retry}</Text></Pressable><Pressable onPress={() => setError(null)} accessibilityRole="button" accessibilityLabel={c.close} style={{ padding: 6 }}><Ionicons name="close" color={colors.muted} size={18} /></Pressable></View> : null}
     <View style={[styles.footer, { backgroundColor: colors.surface, borderTopColor: colors.line, paddingBottom: insets.bottom || 8 }]}>
       {quote && replyAllowed ? <View style={[styles.quoteBar, { borderLeftColor: brand }]}><View style={styles.flex}><Text style={{ color: brand, fontSize: 12, fontWeight: "700" }}>{c.quoting} {quote.sender_name || (quote.role === "assistant" ? c.agent : who)}</Text><Text numberOfLines={2} style={{ color: colors.muted, fontSize: 12 }}>{quote.content || s.attachment.generic}</Text></View><Pressable onPress={() => setQuote(null)} style={styles.iconButton} accessibilityRole="button" accessibilityLabel={c.cancelQuote}><Ionicons name="close" color={colors.muted} size={20} /></Pressable></View> : null}
-      {resolved ? <View style={styles.locked}><Ionicons name="checkmark-circle-outline" size={22} color={brand} /><Text style={{ color: colors.muted, flex: 1, fontSize: 13, lineHeight: 19 }}>{c.resolvedHint}</Text></View> : !loaded ? null : detail.mode === "ai" ? <View style={{ padding: 12 }}><ThreadAction brand={brand} icon="hand-left-outline" filled label={s.chat.takeOverWide} disabled={busy} onPress={() => { void mutate(() => setMode(server, session, detail.id, "human")); }} /></View> : windowClosed ? <View style={{ padding: 14, gap: 10 }}><Text style={{ color: colors.ink, fontWeight: "700" }}>{social ? c.socialBlocked : c.windowClosed}</Text><Text style={{ color: colors.muted, lineHeight: 19, fontSize: 13 }}>{social ? socialBlockedHint : c.windowHint}</Text>{!social && capabilities.templates !== false && <ThreadAction brand={brand} filled icon="document-text-outline" label={c.sendTemplate} disabled={busy} onPress={() => setTemplateOpen(true)} />}</View> : <>{humanWindowOnly(detail, now) && <View style={{ padding: 12, gap: 4 }}><Text style={{ color: brand, fontWeight: "700" }}>{c.socialHumanOnly}</Text><Text style={{ color: colors.muted, fontSize: 12 }}>{c.socialHumanHint}</Text></View>}{detail.channel === "instagram" && <Text style={{ color: colors.muted, fontSize: 11, paddingHorizontal: 14, paddingTop: 6 }}>{c.socialLongText}</Text>}<Composer channel={detail.channel} capabilities={capabilities} draftKey={`${server}:${session.client_id}:${session.user_id || "legacy"}:${detail.id}`} brand={brand} busy={busy} onSendText={send} onSendFile={sendFile} insertedReply={insertedReply} onReplyInserted={consumeInsertedReply} onSavedReplies={() => { void openCanned(); }} onAttachmentSelected={() => setQuote(null)} onError={setError} /></>}
+      {resolved ? <View style={styles.locked}><Ionicons name="checkmark-circle-outline" size={22} color={brand} /><Text style={{ color: colors.muted, flex: 1, fontSize: 13, lineHeight: 19 }}>{c.resolvedHint}</Text></View> : !loaded ? null : detail.mode === "ai" ? <View style={{ padding: 12 }}><ThreadAction brand={brand} icon="hand-left-outline" filled label={s.chat.takeOverWide} disabled={busy} onPress={() => { void mutate(() => setMode(server, session, detail.id, "human")); }} /></View> : windowClosed ? <View style={{ padding: 14, gap: 10 }}><Text style={{ color: colors.ink, fontWeight: "700" }}>{social ? c.socialBlocked : c.windowClosed}</Text><Text style={{ color: colors.muted, lineHeight: 19, fontSize: 13 }}>{social ? socialBlockedHint : c.windowHint}</Text>{templatesOn && !social && capabilities.templates !== false && <ThreadAction brand={brand} filled icon="document-text-outline" label={c.sendTemplate} disabled={busy} onPress={() => setTemplateOpen(true)} />}</View> : <>{humanWindowOnly(detail, now) && <View style={{ padding: 12, gap: 4 }}><Text style={{ color: brand, fontWeight: "700" }}>{c.socialHumanOnly}</Text><Text style={{ color: colors.muted, fontSize: 12 }}>{c.socialHumanHint}</Text></View>}{detail.channel === "instagram" && <Text style={{ color: colors.muted, fontSize: 11, paddingHorizontal: 14, paddingTop: 6 }}>{c.socialLongText}</Text>}<Composer channel={detail.channel} capabilities={capabilities} draftKey={`${server}:${session.client_id}:${session.user_id || "legacy"}:${detail.id}`} brand={brand} busy={busy} onSendText={send} onSendFile={sendFile} insertedReply={insertedReply} onReplyInserted={consumeInsertedReply} onSavedReplies={cannedOn ? () => { void openCanned(); } : undefined} onAttachmentSelected={() => setQuote(null)} onError={setError} /></>}
     </View>
 
     <ThreadSheet visible={sheet !== null} title={sheetTitle} onClose={() => { if (!busy) setSheet(null); }}>
@@ -293,9 +300,9 @@ export function ChatScreen({ server, session, conversation, onBack, onConversati
       {sheet === "details" ? <>
         <View style={styles.profile}><View style={[styles.largeAvatar, { backgroundColor: tint(brand) }]}><Text style={{ color: brand, fontSize: 26, fontWeight: "700" }}>{initialFor(who)}</Text></View><Text style={{ color: colors.ink, fontSize: 20, fontWeight: "700", textAlign: "center" }}>{who}</Text><Text style={{ color: colors.muted }}>{channelLabel(detail.channel, s)} · {resolved ? c.resolved : c.open}</Text></View>
         <ThreadAction brand={brand} icon="person-outline" label={c.assignee} subtitle={detail.assignee_name || (detail.mode === "ai" ? c.agent : c.unassigned)} disabled={resolved || busy || contextLoading} onPress={() => setSheet("assignee")} />
-        <ThreadAction brand={brand} icon="people-outline" label={c.team} subtitle={detail.team_name || c.noTeam} disabled={resolved || busy || contextLoading} onPress={() => setSheet("team")} />
+        {teamsOn ? <ThreadAction brand={brand} icon="people-outline" label={c.team} subtitle={detail.team_name || c.noTeam} disabled={resolved || busy || contextLoading} onPress={() => setSheet("team")} /> : null}
         <ThreadAction brand={brand} icon="images-outline" label={c.shared} onPress={() => setSheet("media")} />
-        {detail.channel === "whatsapp_cloud" && capabilities.templates !== false && detail.mode === "human" && !resolved ? <ThreadAction brand={brand} icon="document-text-outline" label={c.sendTemplate} disabled={busy} onPress={() => { setSheet(null); setTimeout(() => setTemplateOpen(true), 300); }} /> : null}
+        {templatesOn && detail.channel === "whatsapp_cloud" && capabilities.templates !== false && detail.mode === "human" && !resolved ? <ThreadAction brand={brand} icon="document-text-outline" label={c.sendTemplate} disabled={busy} onPress={() => { setSheet(null); setTimeout(() => setTemplateOpen(true), 300); }} /> : null}
         {contact ? <View style={{ gap: 10, marginTop: 14 }}>
           <Text style={[styles.sectionLabel, { color: colors.ink }]}>{c.contact}</Text>
           <Text style={{ color: colors.muted }}>{c.phone}: {contactPhone || "–"}</Text>
@@ -317,7 +324,7 @@ export function ChatScreen({ server, session, conversation, onBack, onConversati
     <ThreadSheet visible={Boolean(messageAction)} title={c.actions} onClose={() => setMessageAction(null)}>
       {messageAction ? <><Text numberOfLines={4} style={{ color: colors.muted, lineHeight: 20, padding: 8 }}>{messageAction.content || s.attachment.generic}</Text>{canQuoteMessage(detail, messageAction, now) ? <ThreadAction brand={brand} label={c.quote} icon="return-up-back-outline" onPress={() => { setQuote(messageAction); setMessageAction(null); }} /> : null}{canReactToMessage(detail, messageAction) ? <><Text style={[styles.sectionLabel, { color: colors.ink }]}>{c.react}</Text><View style={styles.emojis}>{["👍", "❤️", "😂", "😮", "😢", "🙏"].map((emoji) => <Pressable key={emoji} disabled={busy} onPress={() => { const target = messageAction; setMessageAction(null); void mutate(() => reactToMessage(server, session, detail.id, target.id, emoji)); }} accessibilityRole="button" accessibilityLabel={`${c.react} ${emoji}`} style={[styles.emoji, { backgroundColor: messageAction.reaction === emoji ? tint(brand) : colors.canvas }]}><Text style={{ fontSize: 25 }}>{emoji}</Text></Pressable>)}</View>{messageAction.reaction ? <ThreadAction brand={brand} label={c.removeReaction} onPress={() => { const target = messageAction; setMessageAction(null); void mutate(() => reactToMessage(server, session, detail.id, target.id, "")); }} /> : null}</> : null}</> : null}
     </ThreadSheet>
-    <TemplatePicker externalError={error} visible={templateOpen} server={server} session={session} brand={brand} onClose={() => setTemplateOpen(false)} onSend={(payload) => detail.channel === "whatsapp_cloud" && capabilities.templates !== false && detail.mode === "human" && !resolved ? mutate(() => replyWithTemplate(server, session, detail.id, payload), true) : Promise.resolve(false)} />
+    <TemplatePicker externalError={error} visible={templateOpen} server={server} session={session} brand={brand} onClose={() => setTemplateOpen(false)} onSend={(payload) => templatesOn && detail.channel === "whatsapp_cloud" && capabilities.templates !== false && detail.mode === "human" && !resolved ? mutate(() => replyWithTemplate(server, session, detail.id, payload), true) : Promise.resolve(false)} />
   </KeyboardAvoidingView>;
 }
 const styles = StyleSheet.create({

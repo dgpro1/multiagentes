@@ -2847,3 +2847,12 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 /* The lead's short number, shown beside its name and in the list. */
 .lead-number { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 600; }
 .inbox-row-meta .lead-number { margin: 0 8px 0 0; }
+
+/* Per-client portal function switches, above each tab of the client page. */
+.portal-feature-bar { margin: 0 0 20px; padding: 14px 16px; display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.portal-feature-copy { display: grid; gap: 2px; }
+.portal-feature-copy strong { color: var(--ink); font-size: 14px; }
+.portal-feature-copy small { color: var(--muted); font-size: 12.5px; }
+.portal-feature-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; }
+.portal-feature-list .switch-row { margin: 0; padding: 8px 0; }
+.portal-feature-list .switch-row small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }

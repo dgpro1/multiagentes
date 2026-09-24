@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import {
-  ApiError, assignConversation, conversationQuery, getInboxSummary, listContactConversations,
+  ApiError, assignConversation, conversationQuery, getInboxSummary, isFeatureOff, listContacts, listContactConversations,
   listConversations, markRead, reactToMessage, reply, replyWithTemplate, setConversationTeam,
   setStatus, updateContact, type Conversation, type Message, type Session,
 } from "../src/api";
@@ -181,4 +181,15 @@ test("report ranges include today and durations distinguish missing data from ze
   assert.equal(formatDuration(0, s), `0 ${s.seconds}`);
   assert.equal(formatDuration(90, s), `2 ${s.minutes}`);
   assert.equal(formatDuration(3660, s), `1 ${s.hours} 1 ${s.minutes}`);
+});
+
+test("a 403 for a switched-off portal function is told apart from a permission refusal", async () => {
+  global.fetch = async () => new Response(JSON.stringify({ detail: "This feature is not enabled for this portal" }), { status: 403 });
+  const off = await listContacts("https://inbox.example", session).catch((error) => error);
+  assert.ok(off instanceof ApiError);
+  assert.equal(isFeatureOff(off), true);
+  global.fetch = async () => new Response(JSON.stringify({ detail: "You do not have permission" }), { status: 403 });
+  assert.equal(isFeatureOff(await listContacts("https://inbox.example", session).catch((error) => error)), false);
+  assert.equal(isFeatureOff(new ApiError("This feature is not enabled for this portal", 500)), false);
+  assert.equal(isFeatureOff(new Error("nope")), false);
 });

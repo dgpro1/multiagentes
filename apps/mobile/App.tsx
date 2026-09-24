@@ -40,6 +40,7 @@ import { acceptConsent, hasConsent, withdrawConsent } from "./src/privacyConsent
 import { useStrings } from "./src/i18n";
 import { readableBrand, useColors, useIsDark } from "./src/theme";
 import { backDestination } from "./src/navigation";
+import { hasFeature } from "./src/permissions";
 import { notificationTarget } from "./src/notificationTarget";
 
 type Screen =
@@ -80,6 +81,15 @@ function InboxApp() {
   const isDark = useIsDark();
   const s = useStrings();
   const w = workspaceStrings();
+  // The agency can switch Contacts off for this client. The tab disappears with
+  // the next session refresh; anyone standing on it (or about to return to it
+  // from a chat) is moved back to the inbox.
+  const contactsOn = !session || hasFeature(session, "contacts");
+  useEffect(() => {
+    if (contactsOn) return;
+    returnTo.current = "list";
+    if (screen.name === "contacts") setScreen({ name: "list" });
+  }, [contactsOn, screen.name]);
   function openConversation(conversation: Conversation) {
     if (screen.name === "list" || screen.name === "contacts")
       returnTo.current = screen.name;
@@ -368,7 +378,7 @@ function InboxApp() {
               onPrivacy={() => setScreen({ name: "privacy" })}
             />
           </View>
-          {screen.name === "contacts" && (
+          {screen.name === "contacts" && contactsOn && (
             <ContactsScreen
               server={server}
               session={session}
@@ -388,7 +398,7 @@ function InboxApp() {
                 paddingBottom: insets.bottom,
               }}
             >
-              {(["list", "contacts", "workspace"] as const).map((name) => (
+              {(["list", "contacts", "workspace"] as const).filter((name) => name !== "contacts" || contactsOn).map((name) => (
                 <Pressable
                   key={name}
                   onPress={() => setScreen({ name })}

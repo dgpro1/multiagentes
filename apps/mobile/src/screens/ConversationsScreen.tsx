@@ -30,6 +30,7 @@ import {
   type Team,
   type InboxSummary,
 } from "../api";
+import { hasFeature } from "../permissions";
 import { conversationTimestamp, mergeConversationPages } from "../inbox";
 import { channelIcon, channelLabel, conversationName, initialFor } from "../conversations";
 import { useStrings, type Strings } from "../i18n";
@@ -116,9 +117,12 @@ export function ConversationsScreen({
     const timer = setTimeout(() => setQuery(search.trim()), 300);
     return () => clearTimeout(timer);
   }, [search]);
+  // Teams can be switched off per client: no team filter, and no need to read the teams.
+  const teamsOn = hasFeature(session, "teams");
+  useEffect(() => { if (!teamsOn) setTeam(""); }, [teamsOn]);
   useEffect(() => {
     let active = true;
-    Promise.all([listTeams(server, session), listMembers(server, session)])
+    Promise.all([teamsOn ? listTeams(server, session) : Promise.resolve([] as Team[]), listMembers(server, session)])
       .then(([nextTeams, members]) => {
         if (!active) return;
         setTeams(nextTeams);
@@ -132,7 +136,7 @@ export function ConversationsScreen({
     return () => {
       active = false;
     };
-  }, [server, session]);
+  }, [server, session, teamsOn]);
 
   const load = useCallback(
     async (append = false, force = false) => {
@@ -456,7 +460,7 @@ export function ConversationsScreen({
           </ScrollView>
         )}
         {channel && <Pressable onPress={() => setChannel("")} style={styles.teamPill} accessibilityRole="button" accessibilityLabel={s.inbox.clearFilters}><Ionicons name={channelIcon(channel)} size={14} color={brand} /><Text style={{ color: brand }}>{channelLabel(channel, s)}</Text><Ionicons name="close" size={15} color={brand} /></Pressable>}
-        {team && (
+        {teamsOn && team && (
           <Pressable onPress={() => setTeam("")} style={styles.teamPill}>
             <Ionicons name="people-outline" size={14} color={brand} />
             <Text style={{ color: brand }}>
@@ -718,8 +722,8 @@ export function ConversationsScreen({
                 <>
                 <Text style={{ color: colors.muted, marginTop: 12 }}>{s.inbox.allChannels}</Text>
                 {["", "whatsapp", "whatsapp_cloud", "instagram", "messenger", "widget"].map((value) => <Pressable key={value} style={styles.sheetRow} accessibilityRole="radio" accessibilityState={{ checked: channel === value }} onPress={() => setChannel(value)}><Text style={[styles.flex, { color: colors.ink, fontSize: 16 }]}>{value === "whatsapp_cloud" ? "WhatsApp Business" : value ? channelLabel(value, s) : s.inbox.allChannels}</Text>{channel === value && <Ionicons name="checkmark" size={22} color={brand} />}</Pressable>)}
-                <Text style={{ color: colors.muted, marginTop: 12 }}>{s.inbox.teams}</Text>
-                {[{ id: "", name: s.inbox.allTeams }, ...teams].map((row) => (
+                {teamsOn && <Text style={{ color: colors.muted, marginTop: 12 }}>{s.inbox.teams}</Text>}
+                {(teamsOn ? [{ id: "", name: s.inbox.allTeams }, ...teams] : []).map((row) => (
                   <Pressable
                     key={row.id}
                     onPress={() => {

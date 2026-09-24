@@ -6,12 +6,13 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  ApiError, createContact, getContact, listChannels, listContactConversations, listContacts,
+  ApiError, createContact, getContact, isFeatureOff, listChannels, listContactConversations, listContacts,
   listTemplates, startConversation, updateContact, type Contact, type ContactUpdate,
   type Conversation, type PortalChannel, type Session, type Template,
 } from "../api";
 import { useStrings } from "../i18n";
 import { contactsStrings } from "../contactsStrings";
+import { hasFeature } from "../permissions";
 import { channelLabel, initialFor } from "../conversations";
 import { contrastOn, readableBrand, tint, useColors, useIsDark } from "../theme";
 
@@ -74,7 +75,12 @@ export function ContactsScreen({ server, session, onOpenConversation, onBack, on
       if (!mounted.current || generation !== listGeneration.current) return;
       setItems(rows); offset.current = rows.length; setHasMore(rows.length === PAGE_SIZE); setError("");
     } catch (err) {
-      if (!signal?.aborted && mounted.current && generation === listGeneration.current) setError(errorMessage(err, s.loadFailed));
+      if (!signal?.aborted && mounted.current && generation === listGeneration.current) {
+        // Contacts was switched off after this session was opened: an empty list, not an error,
+        // and no retry. The next session refresh removes the tab.
+        if (isFeatureOff(err)) { setItems([]); offset.current = 0; setHasMore(false); setError(""); }
+        else setError(errorMessage(err, s.loadFailed));
+      }
     } finally {
       if (mounted.current && generation === listGeneration.current) { setLoading(false); setRefreshing(false); }
     }
@@ -97,7 +103,10 @@ export function ContactsScreen({ server, session, onOpenConversation, onBack, on
       setItems((previous) => [...new Map([...previous, ...rows].map((row) => [row.id, row])).values()]);
       offset.current += rows.length; setHasMore(rows.length === PAGE_SIZE); setError("");
     } catch (err) {
-      if (mounted.current && generation === listGeneration.current) setError(errorMessage(err, s.loadFailed));
+      if (mounted.current && generation === listGeneration.current) {
+        if (isFeatureOff(err)) setHasMore(false);
+        else setError(errorMessage(err, s.loadFailed));
+      }
     } finally {
       if (mounted.current && generation === listGeneration.current) { paging.current = false; setLoadingMore(false); }
     }
@@ -111,7 +120,7 @@ export function ContactsScreen({ server, session, onOpenConversation, onBack, on
         getContact(server, session, contact.id), listContactConversations(server, session, contact.id), listChannels(server, session),
       ]);
       if (!mounted.current || generation !== detailGeneration.current) return;
-      setSelected(fresh); setHistory(rows); setChannels(lines.filter((line) => line.channel === "whatsapp" || line.channel === "whatsapp_cloud"));
+      setSelected(fresh); setHistory(rows); setChannels(lines.filter((line) => line.channel === "whatsapp" || (line.channel === "whatsapp_cloud" && hasFeature(session, "templates"))));
     } catch (err) {
       if (mounted.current && generation === detailGeneration.current) setDetailError(errorMessage(err, s.loadFailed));
     } finally {

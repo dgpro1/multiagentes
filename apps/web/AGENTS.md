@@ -17,3 +17,7 @@ The URL is the source of truth for what is on screen, the way Kommo works: a lin
 - Screens are `<Link href>`, not click handlers. Filters live in the query string (`?source=&state=&q=`) and are written with `history.replaceState`.
 - A client's own domain serves the portal from the root (`proxy.ts` rewrites it to `/portal/{slug}` keeping the path), so links use `portalBase(slug)`, not a hard-coded `/portal/{slug}`.
 - Old links (`?conversation=<id>`, `?tab=`) keep redirecting to the new address.
+
+## Portal functions are switched per client
+
+Every function of the client portal has a key in `lib/portal-features.ts` (mirror of `apps/api/app/portal_features.py`; a test keeps them equal). The agency turns each one on or off per client, the session carries the enabled list, and the API answers `403` for a disabled function. A new portal screen must: add its key (default off until it exists), gate its nav item, view and actions with `enabled(key)` / `can()` (`can()` already folds in the function), add `require_feature` to its `/portal/{slug}` routes, and give the agency a switch (`PortalFeatureToggle`, `FEATURES_BY_CLIENT_TAB`).

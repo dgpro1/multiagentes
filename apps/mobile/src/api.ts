@@ -53,6 +53,8 @@ export type Session = {
   user_name: string;
   role?: string | null;
   permissions?: string[];
+  /** Enabled portal functions. Absent on an older server: see `hasFeature`. */
+  features?: string[];
   branding: Branding;
   push: PushConfig;
   api_version: number;
@@ -233,6 +235,16 @@ export class ApiError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+/**
+ * The server answers 403 with this detail on the routes of a portal function the
+ * agency has switched off. It is not a permission problem and retrying cannot
+ * help, so callers treat it as "this function is off" (nothing to show), and the
+ * next session refresh removes the entry point.
+ */
+export function isFeatureOff(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403 && /not enabled for this portal/i.test(error.message);
 }
 
 /** Accepts what a person actually types: "10.0.0.4:8000", "example.com", a full URL. */

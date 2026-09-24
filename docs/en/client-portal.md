@@ -31,6 +31,18 @@ The people who sign in to a portal are managed by the agency from the client's *
 
 The first person added to a business is its admin; everyone added after starts as an agent until the agency changes it. The API guards every route by permission key (`app/portal_permissions.py`), so the mobile app is covered by the same rule, and the portal session (`GET /api/portal/{slug}/me`) lists the permissions the person holds so the UI can hide what they cannot do.
 
+## Portal functions
+
+The agency decides, client by client, which functions exist in that client's portal. Every tab of the client's page in the agency panel has a **Available in the client's portal** switch, and the **Portal** tab lists them all (`PATCH /api/clients/{id}/portal` with `portal_features`, merged key by key). Turn one on and the function appears in the portal; turn it off and it disappears for everyone in that portal, whatever their role. Nothing is deleted, and the agency panel and API v1 are never affected.
+
+| Key | What it governs |
+| --- | --- |
+| `inbox`, `contacts`, `pipeline`, `calendar`, `reports` | The screen and its routes. |
+| `teams`, `tags`, `templates`, `canned` | Their management screens and write routes; the read-only lists the inbox needs to draw itself stay open. Without `teams` the inbox loses team assignment; without `templates` it stops sending templates. |
+| `agents`, `api`, `channels.whatsapp`, `channels.whatsapp_cloud`, `channels.instagram`, `channels.messenger`, `channels.webchat` | The portal screens for these are not built yet; the switch is stored. Channels are switched by type, never by single line. |
+
+Every function that exists in the portal today is **on** for existing clients, so nobody loses anything on upgrade; the functions without a screen yet are **off**. The portal session (`/me`, `/login`, the mobile session) carries `features`, the list of enabled keys; the server answers `403` "This feature is not enabled for this portal" on the routes of a disabled function. A person needs both the function on for the client and the role's permission. The catalog lives in `apps/api/app/portal_features.py` with a typed mirror in `apps/web/lib/portal-features.ts`.
+
 ## Teams and templates from the agency
 
 Teams and WhatsApp templates belong to the client and can be managed from either side: the client's portal, or the agency's client page under its **Teams** and **WhatsApp templates** tabs (`/api/clients/{id}/teams`, `/api/clients/{id}/templates`). Both doors edit the same rows.

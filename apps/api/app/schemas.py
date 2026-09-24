@@ -4,7 +4,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, field_validator, model_validator
+
+from .portal_features import normalize as normalize_features
 
 from .services.model_catalog import DEFAULT_AUDIO_MODEL, DEFAULT_EMBEDDING_MODEL
 
@@ -99,6 +101,9 @@ class ClientPortalUpdate(BaseModel):
     portal_enabled: bool | None = None
     portal_slug: str | None = Field(default=None, min_length=2, max_length=180)
     portal_title: str | None = Field(default=None, max_length=180)
+    # Partial: only the keys sent change; the router merges them into what is
+    # stored after checking them against app.portal_features.
+    portal_features: dict[str, StrictBool] | None = None
 
 
 class AgentSummary(ORMModel):
@@ -120,10 +125,18 @@ class ClientOut(ORMModel):
     portal_title: str
     portal_domain: str | None
     portal_domain_verified: bool
+    # The full set of portal switches, defaults filled in for whatever the
+    # agency has not touched.
+    portal_features: dict[str, bool] = {}
     logo_url: str | None = None
     created_at: datetime
     updated_at: datetime
     agents: list[AgentSummary] = []
+
+    @field_validator("portal_features", mode="before")
+    @classmethod
+    def _full_features(cls, value):
+        return normalize_features(value)
 
     @field_validator("agents", mode="before")
     @classmethod
@@ -984,6 +997,8 @@ class PortalSessionOut(BaseModel):
     # What this person may do. Empty for a session with no person behind it.
     role: str | None = None
     permissions: list[str] = []
+    # The portal functions the agency has switched on for this client.
+    features: list[str] = []
 
 
 class DashboardOut(BaseModel):

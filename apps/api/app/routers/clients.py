@@ -18,6 +18,7 @@ from ..database import get_db
 from ..deps import get_current_user, require
 from .. import industries
 from ..models import Agent, Client, Contact, Conversation, PortalUser, PushDevice, User, new_domain_token, Team
+from ..portal_features import merged as merged_features
 from ..portal_permissions import DEFAULT_ROLE
 from ..schemas import (
     ClientDeletionPreview,
@@ -181,6 +182,10 @@ def update_client_portal(
 ):
     client = _client(db, user, client_id)
     values = payload.model_dump(exclude_unset=True)
+    # Switches merge into what is stored: one toggle never resets the others.
+    features_patch = values.pop("portal_features", None)
+    if features_patch is not None:
+        client.portal_features = merged_features(client.portal_features, features_patch)
     if "portal_slug" in values and values["portal_slug"]:
         candidate = slugify(values["portal_slug"])
         existing = db.scalar(select(Client).where(Client.portal_slug == candidate, Client.id != client.id))

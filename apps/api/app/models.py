@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -6,6 +7,7 @@ from sqlalchemy import event, text
 from sqlalchemy.orm import object_session, Mapped, mapped_column, relationship
 
 from .database import Base
+from .portal_features import defaults as portal_feature_defaults
 
 
 def new_uuid() -> uuid.UUID:
@@ -85,6 +87,12 @@ class Client(Base):
     portal_domain: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     portal_domain_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     portal_domain_token: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    # Which functions exist inside this client's portal, chosen by the agency.
+    # Read through app.portal_features.normalize: a missing key means its
+    # default, so only what the agency changed needs to be stored.
+    portal_features: Mapped[dict] = mapped_column(
+        JSON, default=portal_feature_defaults, server_default=json.dumps(portal_feature_defaults())
+    )
     # Upstream messaging profile grouping this client's Instagram and
     # Messenger accounts. WhatsApp numbers each live on their own profile
     # on the channel row instead, one number per profile.

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import get_settings
 from ..database import get_db, new_session
 from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTag, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
+from ..portal_features import enabled_keys, ensure_enabled
 from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CONTACTS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, REPORTS_VIEW, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
 from ..ratelimit import login_rate_limit, public_asset_rate_limit
 from ..schemas import (
@@ -206,6 +207,24 @@ def require_permission(key: str):
     return dependency
 
 
+def require_feature(key: str):
+    """Route dependency: the agency must have switched ``key`` on for this client.
+
+    It resolves the client exactly as every other portal route does (through
+    ``_portal_client``, which FastAPI evaluates once per request), so an
+    unauthenticated call still gets its 401 first. This is the server half of
+    the agency's per-client feature switches: hiding a screen in the web app is
+    only a courtesy, this is what actually refuses the call. It stacks with
+    ``require_permission``: the feature must be on for the client AND the role
+    must hold the permission.
+    """
+
+    def dependency(client: Client = Depends(_portal_client)) -> None:
+        ensure_enabled(client, key)
+
+    return dependency
+
+
 def _sender_name(
     slug: str,
     user: PortalUser | None = Depends(_portal_user),
@@ -331,6 +350,7 @@ def portal_login(slug: str, payload: PortalLoginRequest, response: Response, db:
         "user_name": portal_user.name.strip() or portal_user.email,
         "role": portal_user.role,
         "permissions": sorted(permissions_for(portal_user.role)),
+        "features": enabled_keys(client),
     }
 
 
@@ -356,6 +376,7 @@ def portal_me(
         "user_name": (user.name.strip() or user.email) if user else None,
         "role": user.role if user else None,
         "permissions": sorted(permissions_for(user.role)) if user else [],
+        "features": enabled_keys(client),
     }
 
 
@@ -370,14 +391,14 @@ def portal_teams(slug: str, client: Client = Depends(_portal_client), db: Sessio
     return [team_out(db, team) for team in list_teams(db, client)]
 
 
-@router.post("/{slug}/teams", response_model=TeamOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(TEAMS_MANAGE))])
+@router.post("/{slug}/teams", response_model=TeamOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_feature("teams")), Depends(require_permission(TEAMS_MANAGE))])
 def portal_create_team(
     slug: str, payload: TeamUpsert, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
     return team_out(db, create_team(db, client, payload))
 
 
-@router.patch("/{slug}/teams/{team_id}", response_model=TeamOut, dependencies=[Depends(require_permission(TEAMS_MANAGE))])
+@router.patch("/{slug}/teams/{team_id}", response_model=TeamOut, dependencies=[Depends(require_feature("teams")), Depends(require_permission(TEAMS_MANAGE))])
 def portal_update_team(
     slug: str,
     team_id: uuid.UUID,
@@ -388,7 +409,7 @@ def portal_update_team(
     return team_out(db, update_team(db, client, team_id, payload))
 
 
-@router.delete("/{slug}/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission(TEAMS_MANAGE))])
+@router.delete("/{slug}/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_feature("teams")), Depends(require_permission(TEAMS_MANAGE))])
 def portal_delete_team(
     slug: str, team_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -396,12 +417,12 @@ def portal_delete_team(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{slug}/calendar", response_model=CalendarOverviewOut)
+@router.get("/{slug}/calendar", response_model=CalendarOverviewOut, dependencies=[Depends(require_feature("calendar"))])
 def portal_calendar(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return calendar_service.overview(db, client)
 
 
-@router.get("/{slug}/calendar/events", response_model=CalendarEventsOut)
+@router.get("/{slug}/calendar/events", response_model=CalendarEventsOut, dependencies=[Depends(require_feature("calendar"))])
 async def portal_calendar_events(
     slug: str, start: datetime = Query(...), end: datetime = Query(...),
     client: Client = Depends(_portal_client), db: Session = Depends(get_db),
@@ -410,13 +431,13 @@ async def portal_calendar_events(
 
 
 @router.post("/{slug}/calendar/members", response_model=CalendarMemberOut, status_code=status.HTTP_201_CREATED,
-             dependencies=[Depends(require_permission(CALENDAR_MANAGE))])
+             dependencies=[Depends(require_feature("calendar")), Depends(require_permission(CALENDAR_MANAGE))])
 def portal_create_calendar_member(slug: str, payload: CalendarMemberCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return calendar_service.member_out(calendar_service.create_member(db, client, payload))
 
 
 @router.patch("/{slug}/calendar/members/{member_id}", response_model=CalendarMemberOut,
-              dependencies=[Depends(require_permission(CALENDAR_MANAGE))])
+              dependencies=[Depends(require_feature("calendar")), Depends(require_permission(CALENDAR_MANAGE))])
 def portal_update_calendar_member(
     slug: str, member_id: uuid.UUID, payload: CalendarMemberUpdate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -424,60 +445,60 @@ def portal_update_calendar_member(
 
 
 @router.post("/{slug}/calendar/members/{member_id}/renew-link", response_model=CalendarMemberOut,
-             dependencies=[Depends(require_permission(CALENDAR_MANAGE))])
+             dependencies=[Depends(require_feature("calendar")), Depends(require_permission(CALENDAR_MANAGE))])
 def portal_renew_calendar_link(slug: str, member_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return calendar_service.member_out(calendar_service.renew_link(db, client, member_id))
 
 
 @router.post("/{slug}/calendar/members/{member_id}/disconnect", response_model=CalendarMemberOut,
-             dependencies=[Depends(require_permission(CALENDAR_MANAGE))])
+             dependencies=[Depends(require_feature("calendar")), Depends(require_permission(CALENDAR_MANAGE))])
 async def portal_disconnect_calendar_member(slug: str, member_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return calendar_service.member_out(await calendar_service.disconnect(db, client, member_id))
 
 
 @router.delete("/{slug}/calendar/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT,
-               dependencies=[Depends(require_permission(CALENDAR_MANAGE))])
+               dependencies=[Depends(require_feature("calendar")), Depends(require_permission(CALENDAR_MANAGE))])
 async def portal_delete_calendar_member(slug: str, member_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     await calendar_service.delete_member(db, client, member_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{slug}/pipeline/stages", response_model=list[PipelineStageOut])
+@router.get("/{slug}/pipeline/stages", response_model=list[PipelineStageOut], dependencies=[Depends(require_feature("pipeline"))])
 def portal_pipeline_stages(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return [pipeline_service.stage_out(db, stage) for stage in pipeline_service.list_stages(db, client)]
 
 
 @router.post("/{slug}/pipeline/stages", response_model=PipelineStageOut, status_code=status.HTTP_201_CREATED,
-             dependencies=[Depends(require_permission(PIPELINE_MANAGE))])
+             dependencies=[Depends(require_feature("pipeline")), Depends(require_permission(PIPELINE_MANAGE))])
 def portal_create_pipeline_stage(slug: str, payload: PipelineStageCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return pipeline_service.stage_out(db, pipeline_service.create_stage(db, client, payload))
 
 
 @router.patch("/{slug}/pipeline/stages/{stage_id}", response_model=PipelineStageOut,
-              dependencies=[Depends(require_permission(PIPELINE_MANAGE))])
+              dependencies=[Depends(require_feature("pipeline")), Depends(require_permission(PIPELINE_MANAGE))])
 def portal_update_pipeline_stage(slug: str, stage_id: uuid.UUID, payload: PipelineStageUpdate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return pipeline_service.stage_out(db, pipeline_service.update_stage(db, client, stage_id, payload))
 
 
 @router.post("/{slug}/pipeline/stages/reorder", response_model=list[PipelineStageOut],
-             dependencies=[Depends(require_permission(PIPELINE_MANAGE))])
+             dependencies=[Depends(require_feature("pipeline")), Depends(require_permission(PIPELINE_MANAGE))])
 def portal_reorder_pipeline_stages(slug: str, payload: PipelineStageReorder, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return [pipeline_service.stage_out(db, stage) for stage in pipeline_service.reorder_stages(db, client, payload.stage_ids)]
 
 
 @router.delete("/{slug}/pipeline/stages/{stage_id}", status_code=status.HTTP_204_NO_CONTENT,
-               dependencies=[Depends(require_permission(PIPELINE_MANAGE))])
+               dependencies=[Depends(require_feature("pipeline")), Depends(require_permission(PIPELINE_MANAGE))])
 def portal_delete_pipeline_stage(slug: str, stage_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     pipeline_service.delete_stage(db, client, stage_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{slug}/pipeline/board", response_model=PipelineBoardOut)
+@router.get("/{slug}/pipeline/board", response_model=PipelineBoardOut, dependencies=[Depends(require_feature("pipeline"))])
 def portal_pipeline_board(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return pipeline_service.board(db, client)
 
 
-@router.post("/{slug}/pipeline/leads", response_model=PipelineCardOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{slug}/pipeline/leads", response_model=PipelineCardOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_feature("pipeline"))])
 def portal_create_quick_lead(
     slug: str, payload: QuickLeadCreate, client: Client = Depends(_portal_client),
     sender_name: str = Depends(_sender_name), db: Session = Depends(get_db),
@@ -487,7 +508,7 @@ def portal_create_quick_lead(
     return pipeline_service.create_quick_lead(db, client, payload, actor=sender_name)
 
 
-@router.patch("/{slug}/conversations/{conversation_id}/pipeline", response_model=ConversationDetail)
+@router.patch("/{slug}/conversations/{conversation_id}/pipeline", response_model=ConversationDetail, dependencies=[Depends(require_feature("pipeline"))])
 def portal_set_conversation_pipeline(
     slug: str, conversation_id: uuid.UUID, payload: ConversationPipelineUpdate,
     client: Client = Depends(_portal_client), sender_name: str = Depends(_sender_name), db: Session = Depends(get_db),
@@ -517,7 +538,7 @@ def portal_update_availability(
     }
 
 
-@router.get("/{slug}/agents", response_model=list[AgentSummary])
+@router.get("/{slug}/agents", response_model=list[AgentSummary], dependencies=[Depends(require_feature("agents"))])
 def portal_agents(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return db.scalars(select(Agent).where(Agent.client_id == client.id, Agent.deleted_at.is_(None)).order_by(Agent.name)).all()
 
@@ -653,7 +674,7 @@ def _conversation_page(
     return items, total
 
 
-@router.get("/{slug}/conversations", response_model=list[ConversationOut])
+@router.get("/{slug}/conversations", response_model=list[ConversationOut], dependencies=[Depends(require_feature("inbox"))])
 def portal_conversations(
     slug: str,
     status: str | None = None,
@@ -683,7 +704,7 @@ def portal_conversations(
     return items
 
 
-@router.get("/{slug}/inbox", response_model=PortalInboxOut)
+@router.get("/{slug}/inbox", response_model=PortalInboxOut, dependencies=[Depends(require_feature("inbox"))])
 def portal_inbox(
     slug: str,
     status: str | None = None,
@@ -733,7 +754,7 @@ def portal_inbox(
     return {"items": items, "total": total, "summary": _inbox_summary(db, client, user), "mine": mine}
 
 
-@router.post("/{slug}/conversations/{conversation_id}/read", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{slug}/conversations/{conversation_id}/read", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_feature("inbox"))])
 async def portal_mark_read(
     slug: str,
     conversation_id: uuid.UUID,
@@ -846,7 +867,7 @@ def _assert_phone_free(db: Session, client: Client, phone: str, *, except_id: uu
         raise HTTPException(status_code=409, detail="A contact with this phone number already exists")
 
 
-@router.get("/{slug}/contacts", response_model=list[ContactOut])
+@router.get("/{slug}/contacts", response_model=list[ContactOut], dependencies=[Depends(require_feature("contacts"))])
 def portal_contacts(
     slug: str,
     response: Response,
@@ -881,7 +902,7 @@ def portal_contacts(
     return [_contact_out(row[0], row) for row in rows]
 
 
-@router.post("/{slug}/contacts", response_model=ContactOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{slug}/contacts", response_model=ContactOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_feature("contacts"))])
 def portal_create_contact(
     slug: str, payload: ContactCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -959,13 +980,13 @@ def _decode_csv(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-@router.get("/{slug}/contacts/import-template", dependencies=[Depends(require_permission(CONTACTS_MANAGE))])
+@router.get("/{slug}/contacts/import-template", dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))])
 def portal_contacts_import_template(slug: str, client: Client = Depends(_portal_client)):
     """A small CSV showing the expected columns, with two example rows."""
     return _csv_response(_TEMPLATE_ROWS, "contacts-template.csv")
 
 
-@router.get("/{slug}/contacts/export", dependencies=[Depends(require_permission(CONTACTS_MANAGE))])
+@router.get("/{slug}/contacts/export", dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))])
 def portal_contacts_export(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     """Every contact of the client as CSV, in the same columns the import reads
     plus the read-only ones (blocked, conversations, created)."""
@@ -996,7 +1017,7 @@ def portal_contacts_export(slug: str, client: Client = Depends(_portal_client), 
     return _csv_response(lines(), f"contacts-{client.portal_slug or 'export'}-{stamp}.csv")
 
 
-@router.post("/{slug}/contacts/import", dependencies=[Depends(require_permission(CONTACTS_MANAGE))], response_model=ContactImportResult)
+@router.post("/{slug}/contacts/import", dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))], response_model=ContactImportResult)
 async def portal_contacts_import(
     slug: str,
     file: UploadFile = File(...),
@@ -1106,12 +1127,12 @@ def portal_tags(slug: str, client: Client = Depends(_portal_client), db: Session
     return list_tags(db, client)
 
 
-@router.post("/{slug}/tags", dependencies=[Depends(require_permission(TAGS_MANAGE))], response_model=ContactTagOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{slug}/tags", dependencies=[Depends(require_feature("tags")), Depends(require_permission(TAGS_MANAGE))], response_model=ContactTagOut, status_code=status.HTTP_201_CREATED)
 def portal_create_tag(slug: str, payload: ContactTagCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return tag_out(create_tag(db, client, payload.name, payload.color))
 
 
-@router.patch("/{slug}/tags/{tag_id}", dependencies=[Depends(require_permission(TAGS_MANAGE))], response_model=ContactTagOut)
+@router.patch("/{slug}/tags/{tag_id}", dependencies=[Depends(require_feature("tags")), Depends(require_permission(TAGS_MANAGE))], response_model=ContactTagOut)
 def portal_update_tag(
     slug: str, tag_id: uuid.UUID, payload: ContactTagUpdate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -1124,13 +1145,13 @@ def portal_update_tag(
     return tag_out(tag, tag_count(db, tag))
 
 
-@router.delete("/{slug}/tags/{tag_id}", dependencies=[Depends(require_permission(TAGS_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{slug}/tags/{tag_id}", dependencies=[Depends(require_feature("tags")), Depends(require_permission(TAGS_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)
 def portal_delete_tag(slug: str, tag_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     delete_tag(db, client, tag_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.put("/{slug}/contacts/{contact_id}/tags", response_model=ContactOut)
+@router.put("/{slug}/contacts/{contact_id}/tags", response_model=ContactOut, dependencies=[Depends(require_feature("tags"))])
 def portal_set_contact_tags(
     slug: str, contact_id: uuid.UUID, payload: ContactTagsSet, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -1147,7 +1168,7 @@ def portal_set_contact_tags(
     return _contact_out(contact, row)
 
 
-@router.get("/{slug}/contacts/{contact_id}", response_model=ContactOut)
+@router.get("/{slug}/contacts/{contact_id}", response_model=ContactOut, dependencies=[Depends(require_feature("contacts"))])
 def portal_contact(slug: str, contact_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     contact = _portal_contact(db, client, contact_id)
     stats = _contact_stats()
@@ -1155,7 +1176,7 @@ def portal_contact(slug: str, contact_id: uuid.UUID, client: Client = Depends(_p
     return _contact_out(contact, row)
 
 
-@router.patch("/{slug}/contacts/{contact_id}", response_model=ContactOut)
+@router.patch("/{slug}/contacts/{contact_id}", response_model=ContactOut, dependencies=[Depends(require_feature("contacts"))])
 def portal_update_contact(
     slug: str,
     contact_id: uuid.UUID,
@@ -1185,7 +1206,7 @@ def portal_update_contact(
     return _contact_out(contact, row)
 
 
-@router.post("/{slug}/contacts/{contact_id}/merge", dependencies=[Depends(require_permission(CONTACTS_MANAGE))], response_model=ContactOut)
+@router.post("/{slug}/contacts/{contact_id}/merge", dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))], response_model=ContactOut)
 def portal_merge_contact(
     slug: str,
     contact_id: uuid.UUID,
@@ -1207,7 +1228,7 @@ def portal_merge_contact(
     return _contact_out(primary, row)
 
 
-@router.post("/{slug}/contacts/{contact_id}/block", dependencies=[Depends(require_permission(CONTACTS_MANAGE))], response_model=ContactOut)
+@router.post("/{slug}/contacts/{contact_id}/block", dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))], response_model=ContactOut)
 def portal_block_contact(
     slug: str,
     contact_id: uuid.UUID,
@@ -1241,7 +1262,7 @@ def portal_block_contact(
     return _contact_out(contact, row)
 
 
-@router.delete("/{slug}/contacts/{contact_id}", dependencies=[Depends(require_permission(CONTACTS_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{slug}/contacts/{contact_id}", dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)
 def portal_delete_contact(
     slug: str, contact_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -1256,7 +1277,7 @@ def portal_delete_contact(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{slug}/contacts/{contact_id}/conversations", response_model=list[ConversationOut])
+@router.get("/{slug}/contacts/{contact_id}/conversations", response_model=list[ConversationOut], dependencies=[Depends(require_feature("contacts"))])
 def portal_contact_conversations(
     slug: str,
     contact_id: uuid.UUID,
@@ -1360,7 +1381,7 @@ async def portal_templates(slug: str, client: Client = Depends(_portal_client), 
     return await list_templates(template_account(db, client))
 
 
-@router.post("/{slug}/templates", dependencies=[Depends(require_permission(TEMPLATES_MANAGE))], response_model=TemplateOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{slug}/templates", dependencies=[Depends(require_feature("templates")), Depends(require_permission(TEMPLATES_MANAGE))], response_model=TemplateOut, status_code=status.HTTP_201_CREATED)
 async def portal_create_template(
     slug: str, payload: TemplateCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -1377,7 +1398,7 @@ async def portal_create_template(
     )
 
 
-@router.post("/{slug}/templates/samples", dependencies=[Depends(require_permission(TEMPLATES_MANAGE))], response_model=TemplateSampleOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{slug}/templates/samples", dependencies=[Depends(require_feature("templates")), Depends(require_permission(TEMPLATES_MANAGE))], response_model=TemplateSampleOut, status_code=status.HTTP_201_CREATED)
 async def portal_upload_template_sample(
     slug: str, file: UploadFile = File(...), client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -1388,7 +1409,7 @@ async def portal_upload_template_sample(
     return {"handle": await upload_sample(account_id, data=data, mime=mime, filename=filename)}
 
 
-@router.delete("/{slug}/templates/{name}", dependencies=[Depends(require_permission(TEMPLATES_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{slug}/templates/{name}", dependencies=[Depends(require_feature("templates")), Depends(require_permission(TEMPLATES_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)
 async def portal_delete_template(
     slug: str,
     name: str,
@@ -1428,7 +1449,7 @@ def portal_canned_responses(slug: str, client: Client = Depends(_portal_client),
     ).all()
 
 
-@router.post("/{slug}/canned-responses", dependencies=[Depends(require_permission(CANNED_MANAGE))], response_model=CannedResponseOut, status_code=status.HTTP_201_CREATED)
+@router.post("/{slug}/canned-responses", dependencies=[Depends(require_feature("canned")), Depends(require_permission(CANNED_MANAGE))], response_model=CannedResponseOut, status_code=status.HTTP_201_CREATED)
 def portal_create_canned_response(
     slug: str, payload: CannedResponseCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -1440,7 +1461,7 @@ def portal_create_canned_response(
     return canned
 
 
-@router.patch("/{slug}/canned-responses/{canned_id}", dependencies=[Depends(require_permission(CANNED_MANAGE))], response_model=CannedResponseOut)
+@router.patch("/{slug}/canned-responses/{canned_id}", dependencies=[Depends(require_feature("canned")), Depends(require_permission(CANNED_MANAGE))], response_model=CannedResponseOut)
 def portal_update_canned_response(
     slug: str,
     canned_id: uuid.UUID,
@@ -1459,7 +1480,7 @@ def portal_update_canned_response(
     return canned
 
 
-@router.delete("/{slug}/canned-responses/{canned_id}", dependencies=[Depends(require_permission(CANNED_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{slug}/canned-responses/{canned_id}", dependencies=[Depends(require_feature("canned")), Depends(require_permission(CANNED_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)
 def portal_delete_canned_response(
     slug: str, canned_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -1467,7 +1488,7 @@ def portal_delete_canned_response(
     db.commit()
 
 
-@router.get("/{slug}/reports", dependencies=[Depends(require_permission(REPORTS_VIEW))], response_model=PortalReport)
+@router.get("/{slug}/reports", dependencies=[Depends(require_feature("reports")), Depends(require_permission(REPORTS_VIEW))], response_model=PortalReport)
 def portal_report(
     slug: str,
     from_: date = Query(alias="from"),
@@ -1714,7 +1735,7 @@ async def _send_template_to(db: Session, client: Client, to: str, payload: Templ
     return external_id, rendered_text(approved, body_values=payload.variables, header_value=payload.header_value)
 
 
-@router.post("/{slug}/contacts/{contact_id}/conversations", response_model=ConversationDetail, status_code=status.HTTP_201_CREATED)
+@router.post("/{slug}/contacts/{contact_id}/conversations", response_model=ConversationDetail, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_feature("contacts"))])
 async def portal_start_conversation(
     slug: str,
     contact_id: uuid.UUID,
@@ -1796,7 +1817,7 @@ async def portal_start_conversation(
     return _present(_detail(db, client, conversation.id))
 
 
-@router.post("/{slug}/conversations/{conversation_id}/reply-template", response_model=ConversationDetail)
+@router.post("/{slug}/conversations/{conversation_id}/reply-template", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox")), Depends(require_feature("templates"))])
 async def portal_reply_template(
     slug: str,
     conversation_id: uuid.UUID,
@@ -1835,7 +1856,7 @@ async def portal_reply_template(
     return _present(_detail(db, client, conversation_id))
 
 
-@router.get("/{slug}/conversations/summary", response_model=PortalInboxSummary)
+@router.get("/{slug}/conversations/summary", response_model=PortalInboxSummary, dependencies=[Depends(require_feature("inbox"))])
 def portal_inbox_summary(
     slug: str,
     client: Client = Depends(_portal_client),
@@ -1895,7 +1916,7 @@ def _inbox_summary(db: Session, client: Client, user: PortalUser | None) -> dict
     }
 
 
-@router.post("/{slug}/conversations/archive-resolved", dependencies=[Depends(require_permission(INBOX_DELETE))], response_model=BulkResult)
+@router.post("/{slug}/conversations/archive-resolved", dependencies=[Depends(require_feature("inbox")), Depends(require_permission(INBOX_DELETE))], response_model=BulkResult)
 def portal_archive_resolved(
     slug: str,
     client: Client = Depends(_portal_client),
@@ -1920,7 +1941,7 @@ def portal_archive_resolved(
     return {"count": len(rows)}
 
 
-@router.post("/{slug}/conversations/delete-archived", dependencies=[Depends(require_permission(INBOX_DELETE))], response_model=BulkResult)
+@router.post("/{slug}/conversations/delete-archived", dependencies=[Depends(require_feature("inbox")), Depends(require_permission(INBOX_DELETE))], response_model=BulkResult)
 def portal_delete_archived(
     slug: str,
     payload: ConversationSelection | None = None,
@@ -1942,7 +1963,7 @@ def portal_delete_archived(
     return {"count": len(rows)}
 
 
-@router.patch("/{slug}/conversations/{conversation_id}/archive", dependencies=[Depends(require_permission(INBOX_DELETE))], response_model=ConversationDetail)
+@router.patch("/{slug}/conversations/{conversation_id}/archive", dependencies=[Depends(require_feature("inbox")), Depends(require_permission(INBOX_DELETE))], response_model=ConversationDetail)
 def portal_archive(
     slug: str,
     conversation_id: uuid.UUID,
@@ -1957,7 +1978,7 @@ def portal_archive(
     return _present(_detail(db, client, conversation_id))
 
 
-@router.delete("/{slug}/conversations/{conversation_id}", dependencies=[Depends(require_permission(INBOX_DELETE))], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{slug}/conversations/{conversation_id}", dependencies=[Depends(require_feature("inbox")), Depends(require_permission(INBOX_DELETE))], status_code=status.HTTP_204_NO_CONTENT)
 def portal_delete_conversation(
     slug: str, conversation_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
@@ -1971,7 +1992,7 @@ def portal_delete_conversation(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{slug}/conversations/number/{number}", response_model=ConversationDetail)
+@router.get("/{slug}/conversations/number/{number}", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
 def portal_conversation_by_number(number: int, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     """One conversation by its per-client number (the "#12" of a lead)."""
     conversation_id = db.scalar(
@@ -1982,12 +2003,12 @@ def portal_conversation_by_number(number: int, client: Client = Depends(_portal_
     return _present(_detail(db, client, conversation_id))
 
 
-@router.get("/{slug}/conversations/{conversation_id}", response_model=ConversationDetail)
+@router.get("/{slug}/conversations/{conversation_id}", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
 def portal_conversation(slug: str, conversation_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return _present(_detail(db, client, conversation_id))
 
 
-@router.patch("/{slug}/conversations/{conversation_id}/mode", response_model=ConversationDetail)
+@router.patch("/{slug}/conversations/{conversation_id}/mode", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
 def portal_mode(
     slug: str,
     conversation_id: uuid.UUID,
@@ -2004,7 +2025,7 @@ def portal_mode(
     return _present(_detail(db, client, conversation_id))
 
 
-@router.patch("/{slug}/conversations/{conversation_id}/team", response_model=ConversationDetail)
+@router.patch("/{slug}/conversations/{conversation_id}/team", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox")), Depends(require_feature("teams"))])
 async def portal_set_conversation_team(
     slug: str,
     conversation_id: uuid.UUID,
@@ -2025,7 +2046,7 @@ async def portal_set_conversation_team(
     return _present(_detail(db, client, conversation_id))
 
 
-@router.post("/{slug}/conversations/{conversation_id}/assignment", response_model=ConversationDetail)
+@router.post("/{slug}/conversations/{conversation_id}/assignment", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
 async def portal_assign(
     slug: str,
     conversation_id: uuid.UUID,
@@ -2055,7 +2076,7 @@ async def portal_assign(
     return _present(_detail(db, client, conversation_id))
 
 
-@router.patch("/{slug}/conversations/{conversation_id}/status", response_model=ConversationDetail)
+@router.patch("/{slug}/conversations/{conversation_id}/status", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
 def portal_status(
     slug: str,
     conversation_id: uuid.UUID,
@@ -2071,7 +2092,7 @@ def portal_status(
     return _present(_detail(db, client, conversation_id))
 
 
-@router.get("/{slug}/conversations/{conversation_id}/attachments/{attachment_id}")
+@router.get("/{slug}/conversations/{conversation_id}/attachments/{attachment_id}", dependencies=[Depends(require_feature("inbox"))])
 async def portal_attachment(
     slug: str,
     conversation_id: uuid.UUID,
@@ -2103,7 +2124,7 @@ async def portal_attachment(
     )
 
 
-@router.post("/{slug}/conversations/{conversation_id}/reply-media", response_model=ConversationDetail)
+@router.post("/{slug}/conversations/{conversation_id}/reply-media", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
 async def portal_reply_media(
     slug: str,
     conversation_id: uuid.UUID,
@@ -2122,7 +2143,7 @@ async def portal_reply_media(
     return _present(_detail(db, client, conversation_id))
 
 
-@router.post("/{slug}/conversations/{conversation_id}/reply", response_model=ConversationDetail)
+@router.post("/{slug}/conversations/{conversation_id}/reply", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
 async def portal_reply(
     slug: str,
     conversation_id: uuid.UUID,
@@ -2173,7 +2194,7 @@ async def portal_reply(
 
 
 @router.post(
-    "/{slug}/conversations/{conversation_id}/messages/{message_id}/reaction", response_model=ConversationDetail
+    "/{slug}/conversations/{conversation_id}/messages/{message_id}/reaction", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))]
 )
 async def portal_react(
     slug: str,

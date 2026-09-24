@@ -31,6 +31,18 @@ Las personas que entran a un portal las gestiona la agencia desde la pestaña **
 
 La primera persona que se agrega a un negocio es su administrador; las siguientes empiezan como agentes hasta que la agencia lo cambie. La API protege cada ruta por clave de permiso (`app/portal_permissions.py`), así que la app móvil queda cubierta por la misma regla, y la sesión del portal (`GET /api/portal/{slug}/me`) lista los permisos de la persona para que la interfaz oculte lo que no puede hacer.
 
+## Funciones del portal
+
+La agencia decide, cliente por cliente, qué funciones existen en el portal de ese cliente. Cada pestaña de la página del cliente en el panel de la agencia tiene un interruptor **Disponible en el portal del cliente**, y la pestaña **Portal** los lista todos (`PATCH /api/clients/{id}/portal` con `portal_features`, que se fusiona clave por clave). Al encender una, la función aparece en el portal; al apagarla, desaparece para todos en ese portal, sea cual sea su rol. No se borra nada, y el panel de la agencia y la API v1 nunca se ven afectados.
+
+| Clave | Qué gobierna |
+| --- | --- |
+| `inbox`, `contacts`, `pipeline`, `calendar`, `reports` | La pantalla y sus rutas. |
+| `teams`, `tags`, `templates`, `canned` | Sus pantallas de gestión y sus rutas de escritura; las listas de solo lectura que el inbox necesita para dibujarse siguen abiertas. Sin `teams` el inbox pierde la asignación a equipo; sin `templates` deja de enviar plantillas. |
+| `agents`, `api`, `channels.whatsapp`, `channels.whatsapp_cloud`, `channels.instagram`, `channels.messenger`, `channels.webchat` | Las pantallas del portal para estas aún no existen; el interruptor queda guardado. Los canales se activan por tipo, nunca por línea. |
+
+Todo lo que existe hoy en el portal está **encendido** en los clientes existentes, así nadie pierde nada al actualizar; las funciones sin pantalla todavía están **apagadas**. La sesión del portal (`/me`, `/login`, la sesión móvil) trae `features`, la lista de claves encendidas; el servidor responde `403` "This feature is not enabled for this portal" en las rutas de una función apagada. Una persona necesita las dos cosas: la función encendida para el cliente y el permiso de su rol. El catálogo está en `apps/api/app/portal_features.py` con un espejo tipado en `apps/web/lib/portal-features.ts`.
+
 ## Equipos y plantillas desde la agencia
 
 Los equipos y las plantillas de WhatsApp son del cliente y se pueden gestionar desde los dos lados: el portal del cliente, o la página del cliente en la agencia bajo sus pestañas **Equipos** y **Plantillas de WhatsApp** (`/api/clients/{id}/teams`, `/api/clients/{id}/templates`). Las dos puertas editan las mismas filas.
