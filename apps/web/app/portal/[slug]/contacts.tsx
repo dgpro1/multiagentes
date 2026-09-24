@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, BadgeCheck, Ban, Bot, CalendarRange, Check, CheckCircle2, ChevronDown, Clock, Download, FileSpreadsheet, Inbox, LoaderCircle, Merge, MessageCircle, MessageSquarePlus, MessageSquareText, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, UserRound, Users, X } from "lucide-react";
 import { TemplatePicker } from "./templates";
 import { Alert, EmptyState, Modal } from "@/components/ui";
@@ -36,7 +36,7 @@ const IMPORT_REASONS: Record<string, I18nKey> = {
 
 /** `can` answers whether the signed-in person holds a portal permission; what
  * it hides here the API refuses anyway. */
-export function ContactsView({ slug, channels, openConversation, can, agentName }: { slug: string; channels: PortalChannel[]; openConversation: (conversation: Conversation) => void; can: (key: string) => boolean; agentName: string }) {
+export function ContactsView({ slug, channels, openConversation, can, agentName, contactId, onOpenContact }: { slug: string; channels: PortalChannel[]; openConversation: (conversation: Conversation) => void; can: (key: string) => boolean; agentName: string; /** The contact named by the address (/contacts/{id}). */ contactId?: string; /** Tells the address which contact is open (null: none). */ onOpenContact?: (id: string | null) => void }) {
   const canManageContacts = can("contacts.manage");
   const canManageTags = can("tags.manage");
   const t = useT();
@@ -44,6 +44,8 @@ export function ContactsView({ slug, channels, openConversation, can, agentName 
   const { lang } = useLanguage();
   const [items, setItems] = useState<Contact[]>([]);
   const [selected, setSelected] = useState<Contact | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  useEffect(() => { selectedIdRef.current = selected?.id ?? null; }, [selected]);
   const [history, setHistory] = useState<Conversation[]>([]);
   const [historyTotal, setHistoryTotal] = useState<number | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -210,10 +212,24 @@ export function ContactsView({ slug, channels, openConversation, can, agentName 
   }, [slug, historySince, historyUntil]);
   const choose = useCallback(async (contact: Contact) => {
     setSelected(contact);
+    onOpenContact?.(contact.id);
     setHistory([]); setHistoryTotal(null);
     const { rows, total } = await fetchHistory(contact.id, 0);
     setHistory(rows); setHistoryTotal(total);
-  }, [fetchHistory]);
+  }, [fetchHistory, onOpenContact]);
+  useEffect(() => {
+    if (!contactId) {
+      setSelected((current) => (current ? null : current));
+      return;
+    }
+    if (selectedIdRef.current === contactId) return;
+    let cancelled = false;
+    api<Contact>(`/portal/${slug}/contacts/${contactId}`)
+      .then((contact) => { if (!cancelled) void choose(contact); })
+      .catch(() => { if (!cancelled) onOpenContact?.(null); });
+    return () => { cancelled = true; };
+    // Only the address drives this.
+  }, [contactId, slug]);
   const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   function applyRange(since: string, until: string) {
     setHistorySince(since); setHistoryUntil(until); setRangeOpen(false);
@@ -342,7 +358,7 @@ export function ContactsView({ slug, channels, openConversation, can, agentName 
     try {
       await api(`/portal/${slug}/contacts/${selected.id}`, { method: "DELETE" });
       setDeleting(false); setTyped("");
-      setSelected(null); setHistory([]);
+      setSelected(null); setHistory([]); onOpenContact?.(null);
       await load();
     } catch (err) { setError(messageFrom(err)); } finally { setBusy(false); }
   }
@@ -393,7 +409,7 @@ export function ContactsView({ slug, channels, openConversation, can, agentName 
       <section onScroll={onPanelScroll}>
         {selected ? <>
           <header>
-            <button type="button" className="icon-button inbox-back" onClick={() => { setSelected(null); setHistory([]); }} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button>
+            <button type="button" className="icon-button inbox-back" onClick={() => { setSelected(null); setHistory([]); onOpenContact?.(null); }} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button>
             <div>
               <strong>{nameOf(selected)}{selected.blocked_at && <span className="mini-badge blocked"><Ban size={11} /> {t("portal.contacts.blockedBadge")}</span>}</strong>
               <small className="portal-channel-line">{phoneLabel(selected.phone)}{selected.email ? ` · ${selected.email}` : ""}</small>

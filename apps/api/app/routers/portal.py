@@ -1972,6 +1972,17 @@ def portal_delete_conversation(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get("/{slug}/conversations/number/{number}", response_model=ConversationDetail)
+def portal_conversation_by_number(number: int, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    """One conversation by its per-client number (the "#12" of a lead)."""
+    conversation_id = db.scalar(
+        select(Conversation.id).where(Conversation.client_id == client.id, Conversation.number == number)
+    )
+    if conversation_id is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return _present(_detail(db, client, conversation_id))
+
+
 @router.get("/{slug}/conversations/{conversation_id}", response_model=ConversationDetail)
 def portal_conversation(slug: str, conversation_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
     return _present(_detail(db, client, conversation_id))

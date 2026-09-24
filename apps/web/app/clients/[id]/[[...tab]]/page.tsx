@@ -24,11 +24,12 @@ import { PasswordInput } from "@/components/password-input";
 import { accountName, ChannelIcon, channelLabel } from "@/lib/channels";
 import { SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
 import { api, ApiError, messageFrom } from "@/lib/api";
+import { CLIENT_TABS, clientPath, tabFromSegments, type ClientTab } from "@/lib/routes";
 import { useLanguage, useT } from "@/lib/i18n";
 import { businessLabel, useIndustries } from "@/lib/industries";
 import type { Client, ClientDomain, Conversation, PortalRole, PortalUser, SocialChannel, WhatsAppChannel, WhatsAppCloudChannel, WidgetChannel } from "@/types";
 
-type Tab = "details" | "agents" | "channels" | "inbox" | "teams" | "tags" | "templates" | "calendar" | "pipeline" | "api" | "portal";
+type Tab = ClientTab;
 type ChannelKey = "whatsapp_cloud" | "whatsapp" | "webchat" | "instagram" | "messenger";
 type ChannelState = "loading" | "off" | "pending" | "connected" | "disconnected";
 type ChannelStatus = { state: ChannelState; detail?: string };
@@ -62,19 +63,33 @@ type DeletionPreview = { agents: number; channels: number; conversations: number
 export default function ClientDetailPage() {
   const { t, lang } = useLanguage();
   const toast = useToast();
-  const { id } = useParams<{ id: string }>();
+  const { id, tab: segments } = useParams<{ id: string; tab?: string[] }>();
   const router = useRouter();
+  // The address is the source of truth for the tab (and, in the inbox, the open lead): reload,
+  // Back/Forward and shared links all agree (lib/routes.ts).
+  const route = tabFromSegments(CLIENT_TABS, segments, "details");
+  const tab = route.tab;
+  const leadNumber = tab === "inbox" && route.rest[0] && /^\d+$/.test(route.rest[0]) ? Number(route.rest[0]) : undefined;
   const catalog = useIndustries();
   const [client, setClient] = useState<Client | null>(null);
   const [domain, setDomain] = useState<ClientDomain | null>(null);
   const [business, setBusiness] = useState<IndustryValue>({ industry: "", businessType: "", custom: "" });
   const [timezone, setTimezone] = useState("UTC");
-  const [tab, setTab] = useState<Tab>("details");
-  // A channel page sends its "back" here with the tab it came from.
+  // An unknown first segment goes to the default tab, and a legacy /clients/{id}?tab=channels
+  // (older channel pages and API redirects still build it) moves to /clients/{id}/channels;
+  // either way the rest of the query is kept.
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get("tab");
-    if (wanted && (["details", "agents", "channels", "inbox", "teams", "tags", "templates", "calendar", "pipeline", "api", "portal"] as const).some((item) => item === wanted)) setTab(wanted as Tab);
-  }, []);
+    const params = new URLSearchParams(window.location.search);
+    const legacy = params.get("tab");
+    if (route.known && legacy === null) return;
+    let target: Tab = route.known ? route.tab : "details";
+    if (legacy !== null) {
+      target = CLIENT_TABS.find((item) => item === legacy) ?? target;
+      params.delete("tab");
+    }
+    const query = params.toString();
+    router.replace(`${clientPath(id, target)}${query ? `?${query}` : ""}${window.location.hash}`);
+  }, [route.known, route.tab, id, router]);
   const [busy, setBusy] = useState(false);
   const [logoVersion, setLogoVersion] = useState(0);
   const logoRef = useRef<HTMLInputElement>(null);
@@ -155,18 +170,18 @@ export default function ClientDetailPage() {
   return <div className="page">
     <Link href="/clients" className="back-link"><ArrowLeft size={17} /> {t("clients.detail.back")}</Link>
     <header className="entity-header"><div className="entity-avatar xl">{client.name.slice(0, 2).toUpperCase()}</div><div><div className="title-line"><h1>{client.name}</h1><StatusBadge active={client.is_active} /></div><p>{businessLabel(catalog, client, lang) || t("clients.detail.industryUndefined")} · {client.agents.length === 1 ? t("clients.detail.agentOne", { count: client.agents.length }) : t("clients.detail.agentMany", { count: client.agents.length })}</p></div><div className="header-actions"><Link href={`/agents/new?client=${client.id}`} className="button primary"><Bot size={17} /> {t("clients.detail.newAgent")}</Link></div></header>
-    <SectionTabs<Tab> className="client-tabs" value={tab} onChange={setTab} tabs={[
-      { id: "details", label: t("clients.detail.tabDetails"), icon: Settings2 },
-      { id: "agents", label: t("clients.detail.tabAgents"), icon: Bot, badge: client.agents.length },
-      { id: "channels", label: t("clients.detail.tabChannels"), icon: Radio },
-      { id: "inbox", label: t("clients.detail.tabInbox"), icon: Inbox },
-      { id: "teams", label: t("clients.detail.tabTeams"), icon: Users },
-      { id: "tags", label: t("clients.detail.tabTags"), icon: Tag },
-      { id: "templates", label: t("clients.detail.tabTemplates"), icon: FileText },
-      { id: "calendar", label: t("clients.detail.tabCalendar"), icon: CalendarIcon },
-      { id: "pipeline", label: t("clients.detail.tabPipeline"), icon: GitBranch },
-      { id: "api", label: t("clients.detail.tabApi"), icon: KeyRound },
-      { id: "portal", label: t("clients.detail.tabPortal"), icon: Globe2 },
+    <SectionTabs<Tab> className="client-tabs" value={tab} tabs={[
+      { id: "details", label: t("clients.detail.tabDetails"), icon: Settings2, href: clientPath(client.id, "details") },
+      { id: "agents", label: t("clients.detail.tabAgents"), icon: Bot, badge: client.agents.length, href: clientPath(client.id, "agents") },
+      { id: "channels", label: t("clients.detail.tabChannels"), icon: Radio, href: clientPath(client.id, "channels") },
+      { id: "inbox", label: t("clients.detail.tabInbox"), icon: Inbox, href: clientPath(client.id, "inbox") },
+      { id: "teams", label: t("clients.detail.tabTeams"), icon: Users, href: clientPath(client.id, "teams") },
+      { id: "tags", label: t("clients.detail.tabTags"), icon: Tag, href: clientPath(client.id, "tags") },
+      { id: "templates", label: t("clients.detail.tabTemplates"), icon: FileText, href: clientPath(client.id, "templates") },
+      { id: "calendar", label: t("clients.detail.tabCalendar"), icon: CalendarIcon, href: clientPath(client.id, "calendar") },
+      { id: "pipeline", label: t("clients.detail.tabPipeline"), icon: GitBranch, href: clientPath(client.id, "pipeline") },
+      { id: "api", label: t("clients.detail.tabApi"), icon: KeyRound, href: clientPath(client.id, "api") },
+      { id: "portal", label: t("clients.detail.tabPortal"), icon: Globe2, href: clientPath(client.id, "portal") },
     ]} />
 
     {tab === "details" && <form className="page-form" onSubmit={saveDetails}><section className="form-section"><div className="section-copy"><h2>{t("clients.detail.clientInfo")}</h2><p>{t("clients.detail.clientInfoCopy")}</p></div><div className="form-fields"><div className="logo-editor"><button type="button" className="logo-preview" onClick={() => logoRef.current?.click()}>{client.logo_url ? <img src={`${client.logo_url}&r=${logoVersion}`} alt={t("clients.detail.logoAlt")} /> : <ImagePlus size={24} />}</button><div><strong>{t("clients.detail.logoLabel")}</strong><small>{t("clients.detail.logoHint")}</small><div><button type="button" className="text-button" onClick={() => logoRef.current?.click()}>{t("clients.detail.logoChange")}</button>{client.logo_url && <button type="button" className="text-button danger-text" onClick={deleteLogo}><Trash2 size={14} /> {t("clients.detail.logoRemove")}</button>}</div></div><input ref={logoRef} hidden type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => uploadLogo(e.target.files?.[0])} /></div><IndustryPicker value={business} onChange={setBusiness} /><label><span className="label-row">{t("clients.detail.name")} <AiHint text={t("aiContext.businessName")} /></span><input name="name" required defaultValue={client.name} /></label><label>{t("clients.detail.timezoneLabel")}<Combobox value={timezone} onChange={setTimezone} options={TIMEZONES} placeholder={t("clients.detail.timezoneLabel")} /><span className="field-help">{t("clients.detail.timezoneHint")}</span></label><label className="switch-row"><span><strong>{t("clients.detail.activeClient")}</strong><small>{t("clients.detail.activeClientHint")}</small></span><input name="is_active" type="checkbox" defaultChecked={client.is_active} /></label></div></section><div className="form-footer split"><button type="button" className="button danger" onClick={openDelete}><Trash2 size={16} /> {t("clients.detail.deleteClient")}</button><button className="button primary" disabled={busy || !isBusinessComplete(business)}>{busy ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />} {t("clients.detail.saveChanges")}</button></div></form>}
@@ -190,7 +205,7 @@ export default function ClientDetailPage() {
 
     {tab === "channels" && <section className="compact-channel-grid"><article className={channelState("whatsapp_cloud") === "connected" ? "channel-live" : ""}><span className="whatsapp"><MessageCircle size={20} /></span><div><strong>{t("channels.whatsappCloud.title")} <ChannelStateBadge state={channelState("whatsapp_cloud")} /></strong><small>{channelDetail("whatsapp_cloud") || t("clients.detail.channelWhatsappAvailable", { name: client.name })}</small></div><Link className="button secondary" href={`/clients/${client.id}/channels/whatsapp-cloud`}>{t("clients.detail.configure")}</Link></article><article className={channelState("whatsapp") === "connected" ? "channel-live" : ""}><span className="whatsapp"><QrCode size={20} /></span><div><strong>{t("channels.whatsapp.title")} <ChannelStateBadge state={channelState("whatsapp")} /></strong><small>{channelDetail("whatsapp") || t("clients.detail.channelWhatsappQrAvailable")}</small></div><Link className="button secondary" href={`/clients/${client.id}/channels/whatsapp`}>{t("clients.detail.configure")}</Link></article><article className={channelState("webchat") === "connected" ? "channel-live" : ""}><span className="webchat"><Globe2 size={20} /></span><div><strong>{t("channels.webchat.title")} <ChannelStateBadge state={channelState("webchat")} /></strong><small>{t("clients.detail.channelWebchatAvailable")}</small></div><Link className="button secondary" href={`/clients/${client.id}/channels/webchat`}>{t("clients.detail.configure")}</Link></article>{(["instagram", "messenger"] as const).map((provider) => <article key={provider} className={channelState(provider) === "connected" ? "channel-live" : ""}><span className={provider === "instagram" ? "instagram" : "facebook"}><ChannelIcon channel={provider} size={20} /></span><div><strong>{t(`social.${provider}.title`)} <ChannelStateBadge state={channelState(provider)} /></strong><small>{channelDetail(provider) || t(`social.${provider}.description`)}</small></div><Link className="button secondary" href={`/clients/${client.id}/channels/${provider}`}>{t("social.configure")}</Link></article>)}</section>}
 
-    {tab === "inbox" && <ClientInbox clientId={client.id} />}
+    {tab === "inbox" && <ClientInbox clientId={client.id} urlNumber={leadNumber} />}
 
     {/* Teams and WhatsApp templates are the client's own, managed here or from its portal; the views are the portal's, pointed at the agency routes. */}
     {tab === "teams" && <div className="embedded-portal-view"><TeamsView base={`/clients/${client.id}`} /></div>}
@@ -354,20 +369,37 @@ function PortalDomain({ clientId, domain, onChange }: { clientId: string; domain
   </div></section>;
 }
 
-function ClientInbox({ clientId }: { clientId: string }) {
+function ClientInbox({ clientId, urlNumber }: { clientId: string; urlNumber?: number }) {
   const t = useT();
   const toast = useToast();
+  const router = useRouter();
   const [items, setItems] = useState<Conversation[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [busy, setBusy] = useState(false);
   const policy = useReplyPolicy(selected);
-  const load = async () => { const rows = await api<Conversation[]>(`/conversations?client_id=${clientId}`); setItems(rows); if (rows[0] && !selected) setSelected(await api<Conversation>(`/conversations/${rows[0].id}`)); };
+  const load = async () => { setItems(await api<Conversation[]>(`/conversations?client_id=${clientId}`)); };
   const [loadedInbox, setLoadedInbox] = useState(false);
   useEffect(() => { load().catch(() => {}).finally(() => setLoadedInbox(true)); }, [clientId]);
-  async function choose(item: Conversation) { setSelected(await api<Conversation>(`/conversations/${item.id}`)); }
+  // The lead in the address decides which thread is open (Back, Forward and pasted links land here);
+  // a click below fetches the thread first, so the selection already matches by the time the address changes.
+  useEffect(() => {
+    if (urlNumber === undefined) { setSelected(null); return; }
+    if (selected?.number === urlNumber) return;
+    let cancelled = false;
+    api<Conversation>(`/clients/${clientId}/conversations/number/${urlNumber}`)
+      .then((detail) => { if (!cancelled) setSelected(detail); })
+      .catch(() => { if (!cancelled) router.replace(clientPath(clientId, "inbox")); });
+    return () => { cancelled = true; };
+    // Only the address drives this; `selected` is read to skip a lead that is already open.
+  }, [urlNumber, clientId]);
+  async function choose(item: Conversation) {
+    const detail = await api<Conversation>(`/conversations/${item.id}`);
+    setSelected(detail);
+    if (detail.number !== urlNumber) router.push(clientPath(clientId, "inbox", detail.number));
+  }
   async function mode(next: "ai" | "human") { if (!selected) return; setSelected(await api<Conversation>(`/conversations/${selected.id}/mode`, { method: "PATCH", body: JSON.stringify({ mode: next }) })); await load(); }
   async function reply(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!selected || !policy.canReply || busy) return; const form = event.currentTarget; const data = new FormData(form); setBusy(true); try { setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: data.get("content") }) })); form.reset(); await load(); } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); } }
   if (!loadedInbox) return <ListRowsSkeleton rows={5} />;
   if (!items.length) return <EmptyState icon={<Inbox />} title={t("clients.detail.inboxEmptyTitle")} description={t("clients.detail.inboxEmptyDescription")} />;
-  return <div className="inbox-layout"><aside className="inbox-list"><header><strong>{t("clients.detail.conversations")}</strong><span>{items.length}</span></header>{items.map((item) => <button key={item.id} className={selected?.id === item.id ? "active" : ""} onClick={() => choose(item)}><span className="entity-avatar tiny"><UserRound size={15} /></span><span><strong>{item.title}</strong><small>{channelLabel(item.channel, t)} · {item.mode === "human" ? t("clients.detail.modeHuman") : t("clients.detail.modeAi")}</small></span></button>)}</aside><section className="inbox-thread">{selected && <><header><div><strong>{selected.title}</strong><small>{channelLabel(selected.channel, t)}</small></div><button className={`mode-toggle ${selected.mode}`} onClick={() => mode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("clients.detail.takeControl") : t("clients.detail.returnToAi")}</button></header><div className="inbox-messages">{selected.messages?.map((message) => <div key={message.id} className={`inbox-message ${message.role}`}><small>{message.sender_name || (message.role === "assistant" ? t("clients.detail.senderAgent") : t("clients.detail.senderVisitor"))}</small><p><RichText text={message.content} /></p></div>)}</div><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} /><form className="inbox-composer" onSubmit={reply}><GrowingTextarea name="content" placeholder={selected.mode === "human" ? t("clients.detail.composerHuman") : t("clients.detail.composerLocked")} disabled={!policy.canReply || busy} required /><button disabled={!policy.canReply || busy}>{t("clients.detail.send")}</button></form></>}</section></div>;
+  return <div className="inbox-layout"><aside className="inbox-list"><header><strong>{t("clients.detail.conversations")}</strong><span>{items.length}</span></header>{items.map((item) => <button key={item.id} className={selected?.id === item.id ? "active" : ""} onClick={() => choose(item)}><span className="entity-avatar tiny"><UserRound size={15} /></span><span><strong>{item.title}</strong><small>#{item.number} · {channelLabel(item.channel, t)} · {item.mode === "human" ? t("clients.detail.modeHuman") : t("clients.detail.modeAi")}</small></span></button>)}</aside><section className="inbox-thread">{selected && <><header><div><strong>{selected.title}</strong><small>#{selected.number} · {channelLabel(selected.channel, t)}</small></div><button className={`mode-toggle ${selected.mode}`} onClick={() => mode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("clients.detail.takeControl") : t("clients.detail.returnToAi")}</button></header><div className="inbox-messages">{selected.messages?.map((message) => <div key={message.id} className={`inbox-message ${message.role}`}><small>{message.sender_name || (message.role === "assistant" ? t("clients.detail.senderAgent") : t("clients.detail.senderVisitor"))}</small><p><RichText text={message.content} /></p></div>)}</div><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} /><form className="inbox-composer" onSubmit={reply}><GrowingTextarea name="content" placeholder={selected.mode === "human" ? t("clients.detail.composerHuman") : t("clients.detail.composerLocked")} disabled={!policy.canReply || busy} required /><button disabled={!policy.canReply || busy}>{t("clients.detail.send")}</button></form></>}{!selected && <div className="inline-empty"><Inbox size={22} /><div><strong>{t("clients.detail.selectConversation")}</strong></div></div>}</section></div>;
 }

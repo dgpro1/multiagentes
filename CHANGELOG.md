@@ -43,6 +43,16 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- **Every screen and every lead has its own URL.** The portal is no longer one address:
+  `/portal/{slug}/inbox`, `/inbox/{number}` (one lead), `/contacts`, `/contacts/{id}`,
+  `/pipeline`, `/calendar`, `/reports` and `/settings/{tab}`, with the inbox filters in the
+  query (`?source=&state=&q=`). The agency panel follows: `/clients/{id}/{tab}`,
+  `/clients/{id}/inbox/{number}` and `/agents/{id}/{tab}`. Reload, Back and Forward keep
+  the screen, links can be shared or opened in a new tab, and the old `?conversation=` and
+  `?tab=` links redirect. Each lead gets a short number inside its client (#1, #2, …) shown
+  in the list and the thread, with a copy-link button; `Conversation.number` is in the
+  portal, panel and API v1 responses (plus `_links.html` in v1) and in the webhook
+  payloads. Migration `0058` numbers the existing chats. A client's own domain keeps the path.
 - **The portal composer is a card.** A top row says what you do (**Chat**), *via* which
   channel (a dropdown, ready for merged leads) and a quick-actions bolt; the text sits
   in the middle; below, **Send** (it takes its colour once there is text), the voice

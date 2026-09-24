@@ -332,7 +332,8 @@ async def process_inbound(
         emit(
             db, agency_id=channel.agency_id, client_id=channel.client_id, event=MESSAGE_RECEIVED,
             data={
-                "conversation_id": str(conversation.id), "message_id": str(visitor_message.id),
+                "conversation_id": str(conversation.id), "number": conversation.number,
+                "message_id": str(visitor_message.id),
                 "channel": conversation_channel,
                 "contact_id": str(conversation.contact_id) if conversation.contact_id else None,
                 "contact_name": conversation.contact_name, "content": display_content,

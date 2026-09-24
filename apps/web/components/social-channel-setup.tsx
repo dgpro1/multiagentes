@@ -7,6 +7,7 @@ import { ArrowLeft, Bot, CheckCircle2, CircleAlert, Facebook, Instagram, History
 import { Alert, Modal } from "@/components/ui";
 import { AccountList } from "@/components/account-list";
 import { api, ApiError, messageFrom } from "@/lib/api";
+import { clientPath } from "@/lib/routes";
 import { accountName, accountTitle, rememberLine, requestedLine } from "@/lib/channels";
 import { useLanguage } from "@/lib/i18n";
 import type { Client, SocialChannel, SocialConfig, SocialHistoryJob, SocialProvider } from "@/types";
@@ -205,7 +206,7 @@ export function SocialChannelSetup({ provider }: { provider: SocialProvider }) {
 
   return <div className="page wa-page social-page">
     {listView || !lines.length
-      ? <Link href={`/clients/${id}?tab=channels`} className="back-link"><ArrowLeft size={17} /> {t("clients.whatsapp.back", { name: client.name })}</Link>
+      ? <Link href={clientPath(id, "channels")} className="back-link"><ArrowLeft size={17} /> {t("clients.whatsapp.back", { name: client.name })}</Link>
       : <button type="button" className="back-link" onClick={showList}><ArrowLeft size={17} /> {t(`social.${provider}.title`)}</button>}
     <header className="wa-header"><div className={`wa-mark ${provider}`}><Icon size={26} /></div><div><span>{listView ? t("clients.whatsapp.channelOf", { name: client.name }) : `${t(`social.${provider}.title`)} · ${client.name}`}</span><h1>{channel ? accountTitle(channel, nameOf(channel)) : adding ? t("social.newAccount") : t(`social.${provider}.title`)}</h1><p>{t(`social.${provider}.description`)}</p></div>{channel && <div className={`wa-state ${connected ? "connected" : channel.status === "error" ? "error" : "disconnected"}`}>{connected ? <CheckCircle2 size={17} /> : <CircleAlert size={17} />} {t(statusLabel)}</div>}</header>
     {error && <Alert>{error}</Alert>}

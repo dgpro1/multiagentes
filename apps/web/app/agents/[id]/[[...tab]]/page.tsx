@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, AudioLines, Bot, CheckCircle2, FileText, ImageIcon, LoaderCircle, MessageSquareText, Plug, Plus, Power, PowerOff, RefreshCw, Save, Settings2, Sparkles, Trash2, UploadCloud, XCircle } from "lucide-react";
 import { SectionTabs } from "@/components/section-tabs";
 import { api, messageFrom } from "@/lib/api";
+import { AGENT_TABS, agentPath, tabFromSegments, type AgentTab } from "@/lib/routes";
 import { useLanguage } from "@/lib/i18n";
 import { businessLabel, useIndustries } from "@/lib/industries";
 import { Alert, Modal } from "@/components/ui";
@@ -22,15 +23,20 @@ import { DEFAULT_PROVIDER, DEFAULT_AUDIO_MODEL, DEFAULT_EMBEDDING_MODEL, DEFAULT
 import { narrowModels, useAvailableModels } from "@/lib/use-available-models";
 import type { Agent, AgentTool, KnowledgeDocument, QAPair, EmbeddingModelInfo } from "@/types";
 
-type Tab = "basics" | "knowledge" | "tools" | "playground";
-const TABS: Tab[] = ["basics", "knowledge", "tools", "playground"];
+type Tab = AgentTab;
+// Older links (and other screens) used ?tab= with these names; they still land on the right tab.
+const LEGACY_TAB_ALIASES: Record<string, Tab> = { details: "basics", integrations: "tools" };
 
 export default function AgentDetailPage() {
   const { t, lang } = useLanguage();
   const available = useAvailableModels();
   const catalog = useIndustries();
   const toast = useToast();
-  const { id } = useParams<{ id: string }>();
+  const { id, tab: segments } = useParams<{ id: string; tab?: string[] }>();
+  const router = useRouter();
+  // The address is the source of truth for the tab: reload, Back/Forward and shared links all agree (lib/routes.ts).
+  const route = tabFromSegments(AGENT_TABS, segments, "basics");
+  const tab = route.tab;
   const [agent, setAgent] = useState<Agent | null>(null);
   const [name, setName] = useState("");
   const [promptTokens, setPromptTokens] = useState<number | null>(null);
@@ -53,7 +59,6 @@ export default function AgentDetailPage() {
   const customTools = tools.filter((tool) => !agentToolsExtensions.isManaged(tool));
   const managedTools = tools.filter((tool) => agentToolsExtensions.isManaged(tool));
   const ManagedSection = agentToolsExtensions.ManagedSection;
-  const [tab, setTab] = useState<Tab>("basics");
   const [busy, setBusy] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModelInfo[]>([]);
@@ -112,8 +117,20 @@ export default function AgentDetailPage() {
     await reindex(model);
   }
 
-  // Let other areas deep-link straight to a tab.
-  useEffect(() => { const q = new URLSearchParams(window.location.search).get("tab"); if (q === "details") setTab("basics"); else if (q === "integrations") setTab("tools"); else if (q && (TABS as string[]).includes(q)) setTab(q as Tab); }, []);
+  // An unknown first segment goes to the default tab, and a legacy /agents/{id}?tab=knowledge
+  // moves to /agents/{id}/knowledge; either way the rest of the query is kept.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const legacy = params.get("tab");
+    if (route.known && legacy === null) return;
+    let target: Tab = route.known ? route.tab : "basics";
+    if (legacy !== null) {
+      target = LEGACY_TAB_ALIASES[legacy] ?? AGENT_TABS.find((item) => item === legacy) ?? target;
+      params.delete("tab");
+    }
+    const query = params.toString();
+    router.replace(`${agentPath(id, target)}${query ? `?${query}` : ""}${window.location.hash}`);
+  }, [route.known, route.tab, id, router]);
   // The prompt preview is what the model receives; it changes with every save,
   // so it is fetched fresh each time the tab is opened.
 
@@ -129,7 +146,6 @@ export default function AgentDetailPage() {
     catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
   }
 
-  const router = useRouter();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [docToDelete, setDocToDelete] = useState<KnowledgeDocument | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -202,11 +218,11 @@ export default function AgentDetailPage() {
         <div className="modal-actions"><button type="button" className="button" onClick={() => setDeleteOpen(false)}>{t("common.cancel")}</button><button type="button" className="button danger" disabled={busy || deleteName.trim() !== agent.name.trim()} onClick={removeAgent}>{busy ? <LoaderCircle className="spin" size={16} /> : <><Trash2 size={15} /> {t("agents.detail.deleteAgent")}</>}</button></div>
       </div>
     </Modal>
-    <SectionTabs<Tab> value={tab} onChange={setTab} tabs={[
-      { id: "basics", label: t("agents.detail.tabBasics"), icon: Settings2 },
-      { id: "knowledge", label: t("agents.detail.tabKnowledge"), icon: FileText, badge: documents.length },
-      { id: "tools", label: t("tools.tab"), icon: Plug, badge: tools.length },
-      { id: "playground", label: t("agents.detail.tabPlayground"), icon: MessageSquareText },
+    <SectionTabs<Tab> value={tab} tabs={[
+      { id: "basics", label: t("agents.detail.tabBasics"), icon: Settings2, href: agentPath(id, "basics") },
+      { id: "knowledge", label: t("agents.detail.tabKnowledge"), icon: FileText, badge: documents.length, href: agentPath(id, "knowledge") },
+      { id: "tools", label: t("tools.tab"), icon: Plug, badge: tools.length, href: agentPath(id, "tools") },
+      { id: "playground", label: t("agents.detail.tabPlayground"), icon: MessageSquareText, href: agentPath(id, "playground") },
     ]} />
 
     {tab === "basics" && <form className="settings-form" onSubmit={saveConfig}>

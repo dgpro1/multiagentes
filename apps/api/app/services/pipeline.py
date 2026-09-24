@@ -121,7 +121,7 @@ def board(db: Session, client: Client) -> dict:
 def _card_dict(card: Conversation) -> dict:
     contact = card.contact
     return {
-        "id": card.id, "title": card.title, "contact_name": card.contact_name,
+        "id": card.id, "number": card.number, "title": card.title, "contact_name": card.contact_name,
         "contact_id": card.contact_id,
         "tags": [{"name": tag.name, "color": tag.color} for tag in (contact.tags if contact else [])],
         "channel": card.channel,

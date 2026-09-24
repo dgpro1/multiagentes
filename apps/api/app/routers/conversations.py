@@ -41,6 +41,8 @@ from ..services.whatsapp_inbound import InboundMessage, resolve_inbound_content
 
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
+# The same conversations addressed through their client and short number.
+client_router = APIRouter(prefix="/clients", tags=["Conversations"])
 
 MAX_MEDIA_BYTES = MAX_ATTACHMENT_BYTES
 
@@ -58,6 +60,28 @@ def _conversation(db: Session, user: User, conversation_id: uuid.UUID) -> Conver
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
+
+
+@client_router.get(
+    "/{client_id}/conversations/number/{number}",
+    response_model=ConversationDetail,
+    dependencies=[Depends(require(INBOX_READ))],
+)
+def get_conversation_by_number(
+    client_id: uuid.UUID, number: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """One conversation by its per-client number (the "#12" of a lead). The
+    agency scoping is the same as the by-id route, plus the client."""
+    conversation_id = db.scalar(
+        select(Conversation.id).where(
+            Conversation.agency_id == user.agency_id,
+            Conversation.client_id == client_id,
+            Conversation.number == number,
+        )
+    )
+    if conversation_id is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return _conversation(db, user, conversation_id)
 
 
 @router.get("", response_model=list[ConversationOut], dependencies=[Depends(require(INBOX_READ))])
@@ -167,6 +191,7 @@ def inbox(
     return [
         {
             "id": conv.id,
+            "number": conv.number,
             "agent_id": conv.agent_id,
             "agent_name": agent_name or "",
             "client_id": conv.client_id,

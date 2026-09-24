@@ -363,6 +363,7 @@ class ConversationCreate(BaseModel):
 
 class ConversationOut(ORMModel):
     id: uuid.UUID
+    number: int
     client_id: uuid.UUID
     agent_id: uuid.UUID
     title: str
@@ -450,6 +451,7 @@ class ConversationDetail(ConversationOut):
 
 class ConversationInboxOut(BaseModel):
     id: uuid.UUID
+    number: int
     agent_id: uuid.UUID
     agent_name: str
     client_id: uuid.UUID
@@ -590,6 +592,7 @@ class PipelineCardTag(BaseModel):
 
 class PipelineCardOut(BaseModel):
     id: uuid.UUID
+    number: int
     title: str
     contact_name: str | None = None
     contact_id: uuid.UUID | None = None

@@ -61,8 +61,12 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
     return map;
   }, [board, matches]);
 
-  const threadUrl = useCallback((id: string) => (
-    base.startsWith("/portal") ? `${base}?conversation=${id}` : `/inbox?conversation=${id}`
+  // The lead's own address when the card carries its number; the older
+  // ?conversation=<id> link otherwise (both are understood by the portal).
+  const threadUrl = useCallback((id: string, number?: number) => (
+    base.startsWith("/portal")
+      ? (number ? `${base}/inbox/${number}` : `${base}?conversation=${id}`)
+      : `/inbox?conversation=${id}`
   ), [base]);
 
   async function moveCard(card: PipelineCard, stageId: string | null) {
@@ -132,7 +136,7 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
             {stage && <button type="button" className="pipeline-quick-add" onClick={() => setQuickLeadStage(stage)}><Plus size={14} /> {t("pipeline.quickLead")}</button>}
             {cards.length === 0 ? <div className="pipeline-empty-column">{t("pipeline.emptyColumn")}</div>
               : cards.map((card) => <PipelineCardView key={card.id} card={card} t={t} lang={lang}
-                threadUrl={threadUrl(card.id)} onDragStart={() => setDragCardId(card.id)} onValueChange={(value) => editValue(card, value)} />)}
+                threadUrl={threadUrl(card.id, card.number)} onDragStart={() => setDragCardId(card.id)} onValueChange={(value) => editValue(card, value)} />)}
           </div>
         </div>;
       })}

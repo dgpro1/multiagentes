@@ -41,7 +41,8 @@ export async function proxy(request: NextRequest) {
   if (!slug) return NextResponse.next();
 
   const url = request.nextUrl.clone();
-  url.pathname = `/portal/${slug}`;
+  // Keep the path: /inbox/42 on the client's own domain is /portal/{slug}/inbox/42.
+  url.pathname = `/portal/${slug}${pathname === "/" ? "" : pathname}`;
   return NextResponse.rewrite(url);
 }
 

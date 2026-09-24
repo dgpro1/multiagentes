@@ -483,6 +483,8 @@ const en = {
       deleteUltimatum: "This is final: they leave the reports too, and nothing can bring them back.",
     },
     resizeList: "Resize the conversation list",
+    copyLink: "Copy link to this lead",
+    linkCopied: "Link copied",
     composer: {
       chat: "Chat",
       via: "via",
@@ -1053,6 +1055,8 @@ const es: typeof en = {
       deleteUltimatum: "Es definitivo: también salen de los reportes y no hay forma de recuperarlas.",
     },
     resizeList: "Cambiar el ancho de la lista de conversaciones",
+    copyLink: "Copiar enlace de este lead",
+    linkCopied: "Enlace copiado",
     composer: {
       chat: "Chat",
       via: "vía",

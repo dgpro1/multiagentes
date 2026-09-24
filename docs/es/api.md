@@ -100,6 +100,8 @@ Cada ruta vive bajo `/api/v1` y nombra su cliente, salvo la colección de client
 | `PATCH /clients/{id}/conversations/{conversation_id}/mode` | `{"mode": "human"}` toma el control, `{"mode": "ai"}` lo devuelve, con la traza del panel en el hilo. |
 | `PATCH /clients/{id}/conversations/{conversation_id}/status` | `{"status": "resolved"}` resuelve, `"open"` reabre. |
 
+Cada conversación (un *lead* en el panel) trae `number`, su número corto dentro del cliente (#1, #2, #3…, nunca se reutiliza y es único por cliente), y `_links.html`, la dirección de su pantalla en el panel (`/clients/{id}/inbox/{number}`). El número es el que usan las URL de las pantallas; el UUID sigue siendo el identificador de las rutas de la API. Los webhooks `conversation.resolved`, `deal.moved` y `message.received` también llevan `number`.
+
 **Pipeline** (`pipeline.read`, escrituras `pipeline.manage`)
 
 | Método y ruta | Qué hace |

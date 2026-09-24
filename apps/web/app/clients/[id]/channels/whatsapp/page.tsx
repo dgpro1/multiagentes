@@ -8,6 +8,7 @@ import { Alert, Modal } from "@/components/ui";
 import { AccountList } from "@/components/account-list";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { api, messageFrom } from "@/lib/api";
+import { clientPath } from "@/lib/routes";
 import { accountName, accountTitle, rememberLine, requestedLine } from "@/lib/channels";
 import { useT, type I18nKey } from "@/lib/i18n";
 import type { Client, WhatsAppChannel } from "@/types";
@@ -150,7 +151,7 @@ export default function WhatsAppChannelPage() {
   const connectedCount = lines.filter((line) => line.status === "connected").length;
   return <div className="page wa-page">
     {listView || !lines.length
-      ? <Link href={`/clients/${client.id}?tab=channels`} className="back-link"><ArrowLeft size={17} /> {t("clients.whatsapp.back", { name: client.name })}</Link>
+      ? <Link href={clientPath(client.id, "channels")} className="back-link"><ArrowLeft size={17} /> {t("clients.whatsapp.back", { name: client.name })}</Link>
       : <button type="button" className="back-link" onClick={() => show(null, client)}><ArrowLeft size={17} /> {t("clients.whatsapp.title")}</button>}
     <header className="wa-header"><div className="wa-mark"><MessageCircle size={26} /></div><div><span>{listView ? t("clients.whatsapp.channelOf", { name: client.name }) : `${t("clients.whatsapp.title")} · ${client.name}`}</span><h1>{channel ? accountTitle(channel, nameOf(channel)) : adding ? t("clients.whatsapp.newLine") : t("clients.whatsapp.title")}</h1><p>{t("clients.whatsapp.headerCopy")}</p></div>{channel && <div className={`wa-state ${channel.status}`}>{channel.status === "connected" ? <CheckCircle2 size={17} /> : channel.status === "error" ? <CircleAlert size={17} /> : <RefreshCw className={["connecting", "reconnecting"].includes(channel.status) ? "spin" : ""} size={17} />} {t(state.label)}</div>}</header>
     {error && <Alert>{error}</Alert>}

@@ -49,6 +49,7 @@ from ..api_scopes import (
     TAGS_MANAGE,
     TAGS_READ,
 )
+from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_user, require
 from ..models import (
@@ -215,6 +216,7 @@ def _contact_out(contact: Contact) -> dict:
 def _conversation_out(conversation: Conversation, request: Request) -> dict:
     return {
         "id": str(conversation.id),
+        "number": conversation.number,
         "client_id": str(conversation.client_id),
         "agent_id": str(conversation.agent_id),
         "channel": conversation.channel,
@@ -225,7 +227,10 @@ def _conversation_out(conversation: Conversation, request: Request) -> dict:
         "title": conversation.title,
         "created_at": conversation.created_at,
         "updated_at": conversation.updated_at,
-        "_links": _self(request),
+        "_links": {
+            **_self(request),
+            "html": f"{get_settings().frontend_url.rstrip('/')}/clients/{conversation.client_id}/inbox/{conversation.number}",
+        },
     }
 
 

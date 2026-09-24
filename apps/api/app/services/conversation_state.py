@@ -92,7 +92,7 @@ def set_status(db: Session, conversation: Conversation, status: str, *, actor: s
         emit(
             db, agency_id=conversation.agency_id, client_id=conversation.client_id,
             event=CONVERSATION_RESOLVED,
-            data={"conversation_id": str(conversation.id), "channel": conversation.channel},
+            data={"conversation_id": str(conversation.id), "number": conversation.number, "channel": conversation.channel},
         )
         db.flush()
     else:
@@ -264,6 +264,7 @@ def _emit_deal_moved(db, conversation: Conversation, stage, actor: str | None) -
         db, agency_id=conversation.agency_id, client_id=conversation.client_id, event=DEAL_MOVED,
         data={
             "conversation_id": str(conversation.id),
+            "number": conversation.number,
             "pipeline_stage_id": str(stage.id) if stage else None,
             "stage_name": stage.name if stage else None,
             "deal_value": float(conversation.deal_value) if conversation.deal_value is not None else None,

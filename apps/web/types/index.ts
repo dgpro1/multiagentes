@@ -180,6 +180,8 @@ export type PipelineStage = {
 
 export type PipelineCard = {
   id: string;
+  /** Short number of the lead in its client, when the board sends it. */
+  number?: number;
   title: string;
   contact_name: string | null;
   contact_id: string | null;
@@ -201,6 +203,8 @@ export type PipelineBoard = {
 };
 export type Conversation = {
   id: string;
+  /** Short number of the lead inside its client (#1, #2 …); it is what the URL carries. */
+  number: number;
   client_id: string;
   agent_id: string;
   title: string;

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.orm import object_session, Mapped, mapped_column, relationship
 
 from .database import Base
@@ -89,6 +89,10 @@ class Client(Base):
     # Messenger accounts. WhatsApp numbers each live on their own profile
     # on the channel row instead, one number per profile.
     provider_profile_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # The last conversation number handed out for this client (the "#12" of a
+    # lead). Only bumped by the before_insert hook on Conversation, with a row
+    # lock, so two writers never receive the same number.
+    conversation_seq: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
@@ -532,6 +536,7 @@ class Conversation(Base):
 
     __tablename__ = "conversations"
     __table_args__ = (
+        UniqueConstraint("client_id", "number", name="uq_conversations_client_number"),
         Index("ix_conversations_whatsapp_chat", "whatsapp_channel_id", "external_chat_id"),
         Index("ix_conversations_whatsapp_cloud_chat", "whatsapp_cloud_channel_id", "external_chat_id"),
         Index("ix_conversations_social_chat", "social_channel_id", "external_chat_id"),
@@ -540,6 +545,9 @@ class Conversation(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
     agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
     client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    # Short human number, unique per client (#1, #2, ...). Never set by
+    # callers: the before_insert hook below assigns the next one.
+    number: Mapped[int] = mapped_column(Integer)
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(240), default="New conversation")
     mode: Mapped[str] = mapped_column(String(30), default="ai")
@@ -678,6 +686,29 @@ class Conversation(Base):
     @property
     def channel_capabilities(self):
         return self._reply_policy().get("channel_capabilities")
+
+
+@event.listens_for(Conversation, "before_insert")
+def _assign_conversation_number(mapper, connection, target: Conversation) -> None:
+    """Give a new conversation the next number of its client.
+
+    Every way a conversation is created goes through the ORM, so this is the one
+    place numbers are handed out. The UPDATE runs on the flush's own connection,
+    so it is part of the insert's transaction: it takes the client row's lock and
+    holds it until commit, which serializes concurrent inserts for one client and
+    leaves no gap when one rolls back. Never MAX()+1, which two writers can read
+    at once.
+    """
+    if target.number is not None:
+        return
+    number = connection.execute(
+        text("UPDATE clients SET conversation_seq = conversation_seq + 1 WHERE id = :client_id RETURNING conversation_seq"),
+        {"client_id": target.client_id},
+    ).scalar()
+    if number is None:
+        # No such client: leave it to the foreign key to reject the insert.
+        return
+    target.number = number
 
 
 class Message(Base):

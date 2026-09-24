@@ -100,6 +100,8 @@ Every route below lives under `/api/v1` and names its client, except the agency-
 | `PATCH /clients/{id}/conversations/{conversation_id}/mode` | `{"mode": "human"}` takes over, `{"mode": "ai"}` hands back, with the panel's own trace in the thread. |
 | `PATCH /clients/{id}/conversations/{conversation_id}/status` | `{"status": "resolved"}` resolves, `"open"` reopens. |
 
+Every conversation (a *lead* in the panel) carries `number`, its short number inside the client (#1, #2, #3…, never reused and unique per client), and `_links.html`, the address of its screen in the panel (`/clients/{id}/inbox/{number}`). The number is what the screens' URLs use; the UUID stays the identifier of the API routes. `conversation.resolved`, `deal.moved` and `message.received` webhooks carry `number` too.
+
 **Pipeline** (`pipeline.read`, writes `pipeline.manage`)
 
 | Method & path | What it does |

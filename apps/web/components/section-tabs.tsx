@@ -1,10 +1,15 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, type LucideIcon } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useT } from "@/lib/i18n";
 
-export type SectionTab<T extends string> = { id: T; label: string; icon?: LucideIcon; badge?: ReactNode };
+export type SectionTab<T extends string> = { id: T; label: string; icon?: LucideIcon; badge?: ReactNode;
+  /** When set the tab is a real link (middle-click, Ctrl+click and "open in new tab" work), and the address is what says which tab is open. */
+  href?: string;
+};
 
 // Below this much pointer travel a press is a click on a tab, not a drag.
 const DRAG_THRESHOLD = 5;
@@ -16,11 +21,16 @@ const DRAG_THRESHOLD = 5;
 // decides which of the two is on screen (.section-tabs / .section-pager); the
 // parent only owns the value, exactly as it did with a hand-written strip.
 //
+// A tab with an href is a <Link> instead of a button, and the pager arrows push
+// the neighbouring tab's href; onChange is then optional, since the address
+// already carries the value.
+//
 // A strip wider than its column slides on its own: edge arrows appear on the
 // side that still has tabs, the wheel and a mouse drag move it, and the active
 // tab is kept in view. A strip that fits shows none of that.
-export function SectionTabs<T extends string>({ tabs, value, onChange, className }: { tabs: SectionTab<T>[]; value: T; onChange: (id: T) => void; className?: string }) {
+export function SectionTabs<T extends string>({ tabs, value, onChange, className }: { tabs: SectionTab<T>[]; value: T; onChange?: (id: T) => void; className?: string }) {
   const t = useT();
+  const router = useRouter();
   const navRef = useRef<HTMLElement>(null);
   const drag = useRef({ active: false, moved: false, startX: 0, startLeft: 0 });
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -62,10 +72,16 @@ export function SectionTabs<T extends string>({ tabs, value, onChange, className
 
   useEffect(() => {
     const nav = navRef.current;
-    const active = nav?.querySelector<HTMLElement>("button.active");
+    const active = nav?.querySelector<HTMLElement>(".active");
     if (!nav || !active) return;
     nav.scrollTo({ left: Math.max(0, active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2) });
   }, [value]);
+
+  const go = (tab?: SectionTab<T>) => {
+    if (!tab) return;
+    if (tab.href) router.push(tab.href);
+    else onChange?.(tab.id);
+  };
 
   const slide = (direction: 1 | -1) => {
     const nav = navRef.current;
@@ -119,20 +135,22 @@ export function SectionTabs<T extends string>({ tabs, value, onChange, className
           onPointerCancel={endDrag}
           onClickCapture={onClickCapture}
         >
-          {tabs.map((tab) => (
-            <button key={tab.id} type="button" className={tab.id === value ? "active" : ""} onClick={() => onChange(tab.id)}>
-              {tab.icon && <tab.icon size={17} />} {tab.label}{tab.badge !== undefined && <> <span>{tab.badge}</span></>}
-            </button>
-          ))}
+          {tabs.map((tab) => {
+            const active = tab.id === value;
+            const content = <>{tab.icon && <tab.icon size={17} />} {tab.label}{tab.badge !== undefined && <> <span>{tab.badge}</span></>}</>;
+            return tab.href
+              ? <Link key={tab.id} href={tab.href} className={active ? "active" : ""} aria-current={active ? "page" : undefined} draggable={false}>{content}</Link>
+              : <button key={tab.id} type="button" className={active ? "active" : ""} onClick={() => go(tab)}>{content}</button>;
+          })}
         </nav>
         {edges.right && <button type="button" className="section-tabs-arrow right" aria-label={t("shell.scrollTabsRight")} onClick={() => slide(1)}><ChevronRight size={16} /></button>}
       </div>
       <div className="section-pager">
-        <button type="button" className="button ghost" disabled={!previous} aria-label={previous?.label} onClick={() => previous && onChange(previous.id)}><ChevronLeft size={18} /></button>
+        <button type="button" className="button ghost" disabled={!previous} aria-label={previous?.label} onClick={() => go(previous)}><ChevronLeft size={18} /></button>
         <div className="section-pager-current">
           {current.icon && <current.icon size={17} />}<strong>{current.label}</strong>{current.badge !== undefined && <span>{current.badge}</span>}<small>{index + 1} / {tabs.length}</small>
         </div>
-        <button type="button" className="button ghost" disabled={!next} aria-label={next?.label} onClick={() => next && onChange(next.id)}><ChevronRight size={18} /></button>
+        <button type="button" className="button ghost" disabled={!next} aria-label={next?.label} onClick={() => go(next)}><ChevronRight size={18} /></button>
       </div>
     </>
   );

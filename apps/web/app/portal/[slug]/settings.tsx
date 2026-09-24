@@ -15,9 +15,11 @@ type Tab = "preferences" | "teams" | "tags" | "canned" | "templates";
 /** The portal's settings, in tabs: the person's own preferences first, then
  * what the business configures. A management tab shows only to someone whose
  * role can manage it; an agent sees Preferences and nothing else. */
-export function SettingsView({ slug, templatesSupported, can }: { slug: string; templatesSupported: boolean; can: (key: string) => boolean }) {
+export function SettingsView({ slug, templatesSupported, can, tab: tabFromUrl, hrefFor }: { slug: string; templatesSupported: boolean; can: (key: string) => boolean; /** The tab named by the address (/settings/{tab}); Preferences when absent or unknown. */ tab?: string; /** The address of a tab, so each one is a real link. */ hrefFor?: (tab: string) => string }) {
   const t = useT();
-  const [tab, setTab] = useState<Tab>("preferences");
+  const TABS: Tab[] = ["preferences", "teams", "tags", "canned", "templates"];
+  const tab: Tab = TABS.find((value) => value === tabFromUrl) ?? "preferences";
+  const [, setLocalTab] = useState<Tab>(tab);
   const base = `/portal/${slug}`;
   // The same tabs as before; SectionTabs keeps the strip on a desktop and
   // pages through them on a phone. A tab the role cannot manage is left out.
@@ -29,7 +31,7 @@ export function SettingsView({ slug, templatesSupported, can }: { slug: string; 
     ...(can("templates.manage") ? [{ id: "templates" as const, label: t("portal.inbox.nav.templates"), icon: FileText }] : []),
   ];
   return <div className="portal-settings">
-    <SectionTabs<Tab> tabs={tabs} value={tab} onChange={setTab} />
+    <SectionTabs<Tab> tabs={tabs.map((entry) => ({ ...entry, href: hrefFor?.(entry.id) }))} value={tab} onChange={setLocalTab} />
     {tab === "preferences" && <PreferencesSection />}
     {tab === "teams" && can("teams.manage") && <TeamsView base={base} canManage />}
     {tab === "tags" && can("tags.manage") && <TagsView base={`${base}/tags`} canManage />}

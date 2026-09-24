@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { BarChart3, Bot, Building2, CreditCard, Inbox, LayoutDashboard, LogOut, Menu, MessageSquareText, PanelLeftClose, PanelLeftOpen, Radio, Settings, Sparkles, Wallet, X } from "lucide-react";
 import { api } from "@/lib/api";
@@ -57,7 +57,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   // navigation back to the phone drawer. See lib/sidebar.ts.
   const { collapsed, toggle } = useCollapsibleNav("agency");
   const isLogin = pathname === "/login";
-  const isPortal = pathname.startsWith("/portal/");
+  // On a client's own domain the browser path has no /portal prefix, but the matched route still has its slug.
+  const routeParams = useParams<{ slug?: string }>();
+  const isPortal = pathname.startsWith("/portal/") || routeParams.slug !== undefined;
   const isWidget = pathname.startsWith("/widget/");
   // The Google Calendar connection link: opened by a team member who has no
   // OpenLivery account at all, straight from the link the agency or the
