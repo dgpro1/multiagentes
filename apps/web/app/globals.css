@@ -2834,3 +2834,12 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .composer-emoji { right: 0; left: auto; bottom: calc(100% + 6px); width: 232px; display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
 .portal-composer.composer-card .composer-emoji button { width: 100%; height: 28px; padding: 0; color: inherit; border-radius: 6px; background: transparent; font-size: 17px; }
 .portal-composer.composer-card .composer-emoji button:hover { background: var(--surface-3); }
+
+/* The composer's extra tools live behind a "+" that opens upward, like WhatsApp. */
+.portal-composer.composer-card .composer-icon.plus { width: 36px; height: 36px; color: var(--ink-2); border-radius: 50%; background: var(--surface-3); }
+.portal-composer.composer-card .composer-icon.plus svg { transition: transform .15s ease; }
+.portal-composer.composer-card .composer-icon.plus.open svg { transform: rotate(45deg); }
+.composer-menu-list.up { top: auto; bottom: calc(100% + 8px); left: auto; right: 0; min-width: 265px; }
+.composer-menu-list.up button span { white-space: nowrap; }
+.portal-composer.composer-card .composer-menu-list.up button:disabled { opacity: .45; }
+.portal-composer.composer-card .composer-menu-list.up button svg { flex: 0 0 auto; color: var(--muted); }

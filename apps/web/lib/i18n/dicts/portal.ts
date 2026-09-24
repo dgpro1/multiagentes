@@ -493,6 +493,7 @@ const en = {
       schedule: "Schedule (coming soon)",
       navigate: "Navigation (coming soon)",
       quick: "Quick actions (coming soon)",
+      more: "More options",
     },
     folders: {
       all: "All",
@@ -1062,6 +1063,7 @@ const es: typeof en = {
       schedule: "Agendar (próximamente)",
       navigate: "Navegación (próximamente)",
       quick: "Acciones rápidas (próximamente)",
+      more: "Más opciones",
     },
     folders: {
       all: "Todas",

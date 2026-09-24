@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { Archive, ArchiveRestore, ArrowLeft, Ban, BarChart3, Bot, Building2, Calendar as CalendarIcon, Check, CheckSquare, ChevronDown, Clock, Contact as ContactIcon, FileText, Filter, GitBranch, Images, Inbox, LoaderCircle, LogOut, MessageSquareText, PanelLeftClose, PanelLeftOpen, Navigation, Reply, Search, Smile, Settings, ShieldCheck, SmilePlus, Square, Trash2, UserRound, X, Zap } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, Ban, BarChart3, Bot, Building2, Calendar as CalendarIcon, Check, CheckSquare, ChevronDown, Clock, Contact as ContactIcon, FileText, Filter, GitBranch, Images, Inbox, LoaderCircle, LogOut, MessageSquareText, PanelLeftClose, PanelLeftOpen, Navigation, Paperclip, Plus, Reply, Search, Smile, Settings, ShieldCheck, SmilePlus, Square, Trash2, UserRound, X, Zap } from "lucide-react";
 import { useCannedReplies } from "./canned";
 import { ContactsView } from "./contacts";
 import { ReportsView } from "./reports";
@@ -10,7 +10,7 @@ import { CalendarView } from "@/components/calendar-view";
 import { PipelineBoard } from "@/components/pipeline-board";
 import { TemplatePicker } from "./templates";
 import { SettingsView } from "./settings";
-import { AttachButton, MessageAttachments, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
+import { MessageAttachments, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { MediaPanel } from "@/components/media-panel";
 import { PasswordInput } from "@/components/password-input";
 import { RichText } from "@/components/rich-text";
@@ -290,7 +290,8 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   };
   // The composer card: what is typed (drives the Send colour and Cancel), and its small menus.
   const [draft, setDraft] = useState("");
-  const [composerMenu, setComposerMenu] = useState<null | "action" | "channel" | "emoji">(null);
+  const [composerMenu, setComposerMenu] = useState<null | "action" | "channel" | "plus" | "emoji">(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (!composerMenu) return;
@@ -621,10 +622,17 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
         </div>
         <div className="composer-right">
           <button type="button" role="switch" aria-checked={selected.mode === "ai"} className={`ai-toggle${selected.mode === "ai" ? " on" : ""}`} title={t("portal.inbox.list.aiAgent")} onClick={() => setMode(selected.mode === "ai" ? "human" : "ai")}><Bot size={15} /> <span>{t("portal.inbox.folders.ai")}</span></button>
-          <div className="composer-menu"><button type="button" className="composer-icon" title={t("portal.inbox.composer.emoji")} aria-label={t("portal.inbox.composer.emoji")} aria-haspopup="menu" aria-expanded={composerMenu === "emoji"} disabled={!canReply || busy} onClick={() => setComposerMenu(composerMenu === "emoji" ? null : "emoji")}><Smile size={18} /></button>{composerMenu === "emoji" && <div className="composer-emoji" role="menu">{EMOJIS.map((emoji) => <button type="button" key={emoji} role="menuitem" onClick={() => { insertEmoji(emoji); setComposerMenu(null); }}>{emoji}</button>)}</div>}</div>
-          <button type="button" className="composer-icon" title={t("portal.inbox.composer.schedule")} aria-label={t("portal.inbox.composer.schedule")}><CalendarIcon size={18} /></button>
-          <AttachButton onFile={setPendingFile} disabled={!policy.canAttach || busy} title={t("chat.attachFile")} />
-          <button type="button" className="composer-icon" title={t("portal.inbox.composer.navigate")} aria-label={t("portal.inbox.composer.navigate")}><Navigation size={18} /></button>
+          <div className="composer-menu">
+            <button type="button" className={`composer-icon plus${composerMenu === "plus" || composerMenu === "emoji" ? " open" : ""}`} title={t("portal.inbox.composer.more")} aria-label={t("portal.inbox.composer.more")} aria-haspopup="menu" aria-expanded={composerMenu === "plus" || composerMenu === "emoji"} onClick={() => setComposerMenu(composerMenu === "plus" || composerMenu === "emoji" ? null : "plus")}><Plus size={20} /></button>
+            {composerMenu === "plus" && <div className="composer-menu-list up" role="menu">
+              <button type="button" role="menuitem" disabled={!canReply || busy} onClick={() => setComposerMenu("emoji")}><Smile size={18} /><span>{t("portal.inbox.composer.emoji")}</span></button>
+              <button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><CalendarIcon size={18} /><span>{t("portal.inbox.composer.schedule")}</span></button>
+              <button type="button" role="menuitem" disabled={!policy.canAttach || busy} onClick={() => { setComposerMenu(null); fileInputRef.current?.click(); }}><Paperclip size={18} /><span>{t("chat.attachFile")}</span></button>
+              <button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><Navigation size={18} /><span>{t("portal.inbox.composer.navigate")}</span></button>
+            </div>}
+            {composerMenu === "emoji" && <div className="composer-emoji" role="menu">{EMOJIS.map((emoji) => <button type="button" key={emoji} role="menuitem" onClick={() => { insertEmoji(emoji); setComposerMenu(null); }}>{emoji}</button>)}</div>}
+            <input ref={fileInputRef} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) setPendingFile(file); event.currentTarget.value = ""; }} />
+          </div>
         </div>
       </div>
     </div></form>}<MediaPanel open={mediaOpen} onClose={() => setMediaOpen(false)} messages={selected.messages ?? []} urlFor={attachmentUrl} /><TemplatePicker base={base} open={templateOpen} title={t("portal.inbox.window.sendTemplate")} contactValues={contactValues} onClose={() => setTemplateOpen(false)} onSend={replyWithTemplate} /></>}</section></div>}</section>
