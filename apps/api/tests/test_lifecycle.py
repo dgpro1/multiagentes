@@ -93,6 +93,8 @@ def test_deleting_an_agent_keeps_its_conversations(authenticated_client: TestCli
     assert client.get(f"/api/agents/{agent['id']}").status_code == 404
     assert [a["id"] for a in client.get("/api/agents").json()] == [other["id"]]
     assert [a["id"] for a in client.get(f"/api/clients/{customer['id']}").json()["agents"]] == [other["id"]]
+    # The portal's agents list is a function the agency switches on per client (off by default).
+    assert client.patch(f"/api/clients/{customer['id']}/portal", json={"portal_features": {"agents": True}}).status_code == 200
     assert [a["id"] for a in client.get(f"/api/portal/{slug}/agents").json()] == [other["id"]]
     detail = client.get(f"/api/portal/{slug}/conversations/{conversation_id}").json()
     assert detail["agent_id"] == agent["id"]
