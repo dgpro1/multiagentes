@@ -1026,8 +1026,8 @@ textarea { line-height: 1.55; }
 .template-detail dt { color: var(--muted); font-weight: 600; }
 .template-detail dd { margin: 0; }
 @media (max-width: 760px) { .template-detail { grid-template-columns: 1fr; } .template-button-row { grid-template-columns: 1fr; } }
-.activity-line { align-self: center; max-width: 90%; display: inline-flex; align-items: baseline; gap: 8px; padding: 4px 12px; border-radius: 20px; background: var(--surface-3); color: var(--muted); font-size: 12.5px; }
-.activity-line time { color: var(--subtle); font-size: 11px; }
+.activity-line { align-self: center; max-width: 90%; display: inline-flex; align-items: baseline; gap: 6px; padding: 2px 12px; background: none; color: var(--muted); font-size: 11px; }
+.activity-line time { color: var(--subtle); font-size: 10px; }
 .portal-inbox > aside button.unread .portal-inbox-preview { color: var(--ink); }
 .portal-inbox > aside button > span:last-child { min-width: 0; display: flex; flex-direction: column; }
 .portal-inbox > aside strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2404,7 +2404,7 @@ html[data-theme-transition], html[data-theme-transition] *, html[data-theme-tran
 :root[data-theme="dark"] .message-row.user .bubble, :root[data-theme="dark"] .inbox-message.user p { background: var(--accent); }
 :root[data-theme="dark"] .portal-messages article.mine p { background: var(--portal-color); }
 :root[data-theme="dark"] .portal-messages article.mine.ai p { color: var(--ink); background: color-mix(in srgb, var(--portal-color) 28%, var(--surface-3)); }
-:root[data-theme="dark"] .activity-line { color: var(--muted); background: var(--surface-2); border: 1px solid var(--line-soft); }
+:root[data-theme="dark"] .activity-line { color: var(--muted); background: none; border: 0; }
 :root[data-theme="dark"] .audio-bubble, :root[data-theme="dark"] .attachment-file { border-color: var(--accent-line); background: var(--accent-soft); }
 :root[data-theme="dark"] .audio-wave i { background: var(--accent-line); }
 :root[data-theme="dark"] .audio-wave i.filled { background: var(--accent-text); }
