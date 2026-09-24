@@ -49,6 +49,8 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- Fixed: the AI now resumes on its own after the pause that follows a reply typed from the phone
+  (`phone_handover_minutes`); the background worker had stopped calling it.
 - **The client portal gets API integrations for its own client.** With the **API** function
   on, portal admins see an **API** screen (the agency's client API tab) to create
   integrations, issue and revoke long-lived tokens (secret shown once) and manage webhooks,
@@ -160,6 +162,9 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Removed
 
+- `/internal/whatsapp` (the test-only WhatsApp simulation API) is no longer mounted unless
+  `WHATSAPP_INTERNAL_API=true`; production leaves it off, and the Coolify kit no longer asks for
+  `WHATSAPP_BRIDGE_TOKEN`. The stale `social-channels.md` guide (direct Meta Instagram/Messenger) is gone.
 - Cleanup of unused code: dead helpers and imports in the API, the ten legacy direct-Meta
   Instagram/Messenger settings that nothing read (the two `*_HUMAN_AGENT_ENABLED` flags stay),
   111 unused UI strings, about 190 lines of unused styles, two unused language/theme switcher

@@ -10,7 +10,7 @@ import sys
 from urllib.parse import urlparse
 
 REQUIRED = [
-    "FRONTEND_URL", "POSTGRES_PASSWORD", "SECRET_KEY", "ENCRYPTION_KEY", "WHATSAPP_BRIDGE_TOKEN",
+    "FRONTEND_URL", "POSTGRES_PASSWORD", "SECRET_KEY", "ENCRYPTION_KEY",
     "MESSAGING_PROVIDER_WEBHOOK_SECRET", "EVOLUTION_API_KEY", "EVOLUTION_WEBHOOK_SECRET", "EVOLUTION_DB_PASSWORD",
 ]
 SECRETS = [key for key in REQUIRED if key != "FRONTEND_URL"]
@@ -47,8 +47,8 @@ def main() -> int:
     for key in ("POSTGRES_PASSWORD", "EVOLUTION_DB_PASSWORD"):
         if env.get(key) and not re.fullmatch(r"[A-Za-z0-9]{16,}", env[key]):
             problems.append(f"{key} must be letters and numbers only (it goes inside a URL), 16 or more")
-    if len({env.get(k) for k in ("SECRET_KEY", "ENCRYPTION_KEY", "WHATSAPP_BRIDGE_TOKEN") if env.get(k)}) < len([k for k in ("SECRET_KEY", "ENCRYPTION_KEY", "WHATSAPP_BRIDGE_TOKEN") if env.get(k)]):
-        problems.append("SECRET_KEY, ENCRYPTION_KEY and WHATSAPP_BRIDGE_TOKEN must be different from each other")
+    if env.get("SECRET_KEY") and env.get("SECRET_KEY") == env.get("ENCRYPTION_KEY"):
+        problems.append("SECRET_KEY and ENCRYPTION_KEY must be different from each other")
 
     url = urlparse(env.get("FRONTEND_URL", ""))
     if env.get("FRONTEND_URL"):

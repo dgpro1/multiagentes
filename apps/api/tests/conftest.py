@@ -10,6 +10,7 @@ os.environ["DATABASE_URL"] = os.getenv(
     "postgresql+psycopg://openlivery:openlivery@localhost:5432/openlivery_test",
 )
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+os.environ.setdefault("WHATSAPP_INTERNAL_API", "true")
 os.environ.setdefault("SOCIAL_WORKER_ENABLED", "false")
 os.environ.setdefault("MESSAGING_PROVIDER_API_KEY", "test-provider-key")
 os.environ.setdefault("MESSAGING_PROVIDER_WEBHOOK_SECRET", "test-webhook-secret")

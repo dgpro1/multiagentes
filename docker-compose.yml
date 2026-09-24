@@ -23,7 +23,7 @@ services:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-    image: ${OPENLIVERY_IMAGE_PREFIX:-ghcr.io/sarrazola/openlivery}-api:${OPENLIVERY_VERSION:-latest}
+    image: ${OPENLIVERY_IMAGE_PREFIX:-ghcr.io/dgpro1/openlivery}-api:${OPENLIVERY_VERSION:-latest}
     container_name: openlivery_api
     env_file:
       - .env.docker
@@ -57,7 +57,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
-    image: ${OPENLIVERY_IMAGE_PREFIX:-ghcr.io/sarrazola/openlivery}-web:${OPENLIVERY_VERSION:-latest}
+    image: ${OPENLIVERY_IMAGE_PREFIX:-ghcr.io/dgpro1/openlivery}-web:${OPENLIVERY_VERSION:-latest}
     container_name: openlivery_web
     environment:
       # Used server-side by proxy.ts to resolve custom portal domains.

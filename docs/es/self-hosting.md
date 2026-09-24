@@ -100,7 +100,7 @@ Registry, así que un servidor puede saltarse el build y descargarlas:
 make pull        # docker compose pull + up -d
 ```
 
-Esto descarga `ghcr.io/sarrazola/openlivery-{api,web}:latest`. Fija una
+Esto descarga `ghcr.io/dgpro1/openlivery-{api,web}:latest`. Fija una
 versión con `OPENLIVERY_VERSION=v1.2.3 make pull`, o apunta a tu propio registro
 con `OPENLIVERY_IMAGE_PREFIX`. La imagen `web` precompilada llama a la API a
 través del gateway con un `/api` relativo; para apuntar a una API en otro origen

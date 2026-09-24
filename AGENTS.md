@@ -95,7 +95,7 @@ WhatsApp QR lines run through a self-hosted Evolution API instance (`app/service
 
 Incoming messages feed the shared pipeline in `app/services/whatsapp_inbound.py`, which waits for a quiet window that restarts on each new visitor message, then answers the whole burst with one reply delivered via `send_channel_message()` (replies are delayed per agent — `reply_delay_min_seconds` / `reply_delay_max_seconds`, a random wait between the two, 6 to 9s by default); with both bounds at 0 the reply returns synchronously instead. Conversations have a `mode` field: switching to `"human"` pauses the AI so an operator answers from the portal.
 
-`app/routers/whatsapp.py`'s `internal_router` (under `/internal/whatsapp`, gated by `WHATSAPP_BRIDGE_TOKEN` via the `X-Bridge-Token` header) is a driver-agnostic internal API the test suite uses to simulate inbound messages, reactions, and delivery confirmations directly over HTTP rather than through a real Evolution webhook payload; nothing in production calls it today.
+`app/routers/whatsapp.py`'s `internal_router` (under `/internal/whatsapp`, gated by `WHATSAPP_BRIDGE_TOKEN` via the `X-Bridge-Token` header) is a driver-agnostic internal API the test suite uses to simulate inbound messages, reactions, and delivery confirmations directly over HTTP rather than through a real Evolution webhook payload. It is only mounted when `WHATSAPP_INTERNAL_API=true` (the test suite sets it); production leaves it off, so the routes do not exist there.
 
 ### Frontend
 

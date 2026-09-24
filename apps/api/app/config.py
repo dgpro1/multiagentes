@@ -37,9 +37,9 @@ class Settings(BaseSettings):
     tools_allow_private_urls: bool = False
     storage_dir: Path = APP_DIR / "storage"
     backend_url: str = "http://localhost:8000"
-    # Auth for the whatsapp routers internal endpoints (X-Bridge-Token header) —
-    # inbound/reaction/etc. under /internal/whatsapp, used by the test suite as
-    # a driver-agnostic way to simulate WhatsApp events.
+    # /internal/whatsapp (X-Bridge-Token header) simulates WhatsApp events for the
+    # test suite. It is not mounted unless this is switched on; production leaves it off.
+    whatsapp_internal_api: bool = False
     whatsapp_bridge_token: str = "dev-local-change-this-bridge-token"
     # Evolution API (https://docs.evolutionfoundation.com.br) — the WhatsApp QR
     # driver. A WhatsApp QR line needs url and key set; without them, WhatsApp

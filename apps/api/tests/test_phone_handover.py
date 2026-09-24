@@ -86,6 +86,21 @@ def test_customer_does_not_resume_early_then_fresh_worker_answers_with_human_con
     assert state["mode"] == "ai" and state["phone_pause_until"] is None
 
 
+def test_background_worker_cycle_resumes_the_ai_after_the_pause(setup):
+    from app.services import social_worker
+
+    client, _, _, completion, send = setup
+    cid = phone(setup)
+    assert incoming(setup)["mode"] == "human"
+    expire(cid)
+    with TestingSession() as db:
+        asyncio.run(social_worker.run_scope(db))
+    completion.assert_awaited_once()
+    send.assert_awaited_once()
+    state = client.get(f"/api/conversations/{cid}").json()
+    assert state["mode"] == "ai" and state["phone_pause_until"] is None
+
+
 @pytest.mark.parametrize("manual_first", [True, False])
 def test_phone_never_overrides_manual_inbox_control(setup, manual_first):
     client, _, _, completion, send = setup

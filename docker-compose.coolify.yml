@@ -47,7 +47,6 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-openlivery}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-openlivery}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY (64 random hex characters)}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY once and never change it}
-      WHATSAPP_BRIDGE_TOKEN: ${WHATSAPP_BRIDGE_TOKEN:?Set WHATSAPP_BRIDGE_TOKEN}
       # The public https address of the app. Also the base of every callback and webhook.
       FRONTEND_URL: ${FRONTEND_URL:?Set FRONTEND_URL to the public https address}
       BACKEND_URL: http://api:8000
