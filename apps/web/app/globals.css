@@ -2802,3 +2802,35 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .ai-toggle { height: 34px; padding: 0 14px; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); border: 1px solid var(--line); border-radius: 9px; background: var(--surface-3); font-size: 13px; font-weight: 700; }
 .ai-toggle:hover { color: var(--ink); }
 .ai-toggle.on { color: var(--green-text); border-color: var(--green); background: var(--green-soft); }
+
+/* Composer card: a top row (what you do and where it goes), the text, and a
+   bottom row with Send on the left and the tools on the right. */
+.portal-composer.composer-card { padding: 12px 16px 14px; display: block; }
+.composer-box { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.composer-box:focus-within { border-color: var(--accent); }
+.composer-top { padding: 8px 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line-soft); }
+.composer-via { color: var(--muted); font-size: 13px; }
+.composer-menu { position: relative; display: flex; }
+.portal-composer.composer-card .composer-pill { width: auto; height: 30px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px; color: var(--ink); border-radius: 8px; background: transparent; font-size: 13.5px; font-weight: 600; }
+.portal-composer.composer-card .composer-pill.action { color: var(--accent-text); }
+.portal-composer.composer-card .composer-pill:hover { background: var(--surface-3); }
+.composer-menu-list, .composer-emoji { position: absolute; z-index: 30; left: 0; min-width: 170px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 10px 28px rgba(var(--shadow-rgb), calc(.2 * var(--shadow-k))); }
+.composer-menu-list { top: calc(100% + 6px); }
+.portal-composer.composer-card .composer-menu-list button { width: 100%; height: 34px; padding: 0 10px; display: flex; align-items: center; gap: 8px; color: var(--ink); border-radius: 7px; background: transparent; font-size: 13.5px; text-align: left; }
+.portal-composer.composer-card .composer-menu-list button:hover { background: var(--surface-3); }
+.portal-composer.composer-card .composer-menu-list button span:not(.channel-dot) { flex: 1; }
+.portal-composer.composer-card .composer-menu-list button svg:last-child { color: var(--accent-text); }
+.portal-composer.composer-card .composer-icon, .portal-composer.composer-card .composer-attach { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; color: var(--muted); border: 0; border-radius: 8px; background: transparent; }
+.portal-composer.composer-card .composer-icon:hover:not(:disabled), .portal-composer.composer-card .composer-attach:hover:not(:disabled) { color: var(--ink); background: var(--surface-3); }
+.portal-composer.composer-card .composer-icon.bolt { margin-left: auto; }
+.portal-composer.composer-card textarea { width: 100%; min-height: 64px; padding: 12px 14px; display: block; border: 0; border-radius: 0; background: transparent; box-shadow: none; outline: none; resize: none; }
+.composer-bottom { padding: 8px 10px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line-soft); }
+.composer-left, .composer-right { display: flex; align-items: center; gap: 6px; }
+.portal-composer.composer-card .composer-send { width: auto; height: 34px; padding: 0 16px; display: inline-flex; align-items: center; justify-content: center; color: var(--subtle); border: 1px solid var(--line); border-radius: 8px; background: var(--surface-3); font-size: 13.5px; font-weight: 700; }
+.portal-composer.composer-card .composer-send.ready { color: #fff; border-color: transparent; background: var(--portal-color); }
+.portal-composer.composer-card .composer-cancel { width: auto; height: 28px; padding: 0 6px; color: var(--subtle); background: transparent; font-size: 12px; font-weight: 500; }
+.portal-composer.composer-card .composer-cancel:hover { color: var(--ink); }
+.portal-composer.composer-card .ai-toggle { width: auto; height: 34px; margin-right: 4px; padding: 0 12px; display: inline-flex; }
+.composer-emoji { right: 0; left: auto; bottom: calc(100% + 6px); width: 232px; display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.portal-composer.composer-card .composer-emoji button { width: 100%; height: 28px; padding: 0; color: inherit; border-radius: 6px; background: transparent; font-size: 17px; }
+.portal-composer.composer-card .composer-emoji button:hover { background: var(--surface-3); }

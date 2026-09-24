@@ -43,6 +43,12 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- **The portal composer is a card.** A top row says what you do (**Chat**), *via* which
+  channel (a dropdown, ready for merged leads) and a quick-actions bolt; the text sits
+  in the middle; below, **Send** (it takes its colour once there is text), the voice
+  button and a subtle **Cancel** that appears with any content, and on the right the
+  **IA** button, an emoji picker, a calendar button, attach file and a navigation
+  button. The bolt, calendar and navigation buttons have no action yet.
 - **The chat is always writable, and the AI is one switch.** The portal thread header
   has a single **AI agent** switch that only turns the AI on or off; its label never
   changes, and the composer is open whatever the AI switch says or the chat's past
