@@ -22,6 +22,8 @@ export const PORTAL_FEATURES = [
   { key: "channels.instagram", default: false },
   { key: "channels.messenger", default: false },
   { key: "channels.webchat", default: false },
+  { key: "details", default: false },
+  { key: "professionals", default: false },
 ] as const;
 
 export type PortalFeature = (typeof PORTAL_FEATURES)[number]["key"];
@@ -51,6 +53,8 @@ export const FEATURES_BY_CLIENT_TAB: Record<string, readonly PortalFeature[]> = 
   calendar: ["calendar"],
   pipeline: ["pipeline"],
   api: ["api"],
+  details: ["details"],
+  professionals: ["professionals"],
   portal: PORTAL_FEATURES.map((entry) => entry.key),
 };
 
@@ -66,6 +70,8 @@ export const FEATURE_OF_PERMISSION: Record<string, PortalFeature> = {
   "canned.manage": "canned",
   "agents.manage": "agents",
   "api.manage": "api",
+  "client.manage": "details",
+  "professionals.manage": "professionals",
 };
 
 /** Permissions that hold while ANY of several functions is on (channel management needs at least one channel type). */

@@ -35,6 +35,8 @@ from .api_scopes import (
     PIPELINE_MANAGE,
     PIPELINE_READ,
     PRESETS,
+    PROFESSIONALS_MANAGE,
+    PROFESSIONALS_READ,
     REPORTS_READ,
     TAGS_MANAGE,
     TAGS_READ,
@@ -76,6 +78,8 @@ SCOPE_FEATURES: dict[str, tuple[str, ...]] = {
     CALENDAR_READ: ("calendar",),
     CALENDAR_MANAGE: ("calendar",),
     REPORTS_READ: ("reports",),
+    PROFESSIONALS_READ: ("professionals",),
+    PROFESSIONALS_MANAGE: ("professionals",),
     # The agent's configuration is the agency's work unless it opened that screen.
     AGENTS_READ: ("agents",),
     CHANNELS_READ: CHANNEL_FEATURES,

@@ -11,16 +11,17 @@ import type { Industry } from "@/types";
 let cached: Industry[] | null = null;
 let pending: Promise<Industry[]> | null = null;
 
-export function loadIndustries(): Promise<Industry[]> {
+export function loadIndustries(path = "/industries"): Promise<Industry[]> {
   if (cached) return Promise.resolve(cached);
-  if (!pending) pending = api<Industry[]>("/industries").then((items) => { cached = items; return items; }).finally(() => { pending = null; });
+  if (!pending) pending = api<Industry[]>(path).then((items) => { cached = items; return items; }).finally(() => { pending = null; });
   return pending;
 }
 
-/** `enabled` false skips the fetch (the catalog is an agency-panel endpoint; a client portal does not ask for it). */
-export function useIndustries(enabled = true): Industry[] {
+/** `enabled` false skips the fetch (the catalog is an agency-panel endpoint; a client portal does not ask for it,
+ * unless it passes its own `path`, e.g. `/portal/{slug}/industries`, as the portal's Details screen does). */
+export function useIndustries(enabled = true, path = "/industries"): Industry[] {
   const [items, setItems] = useState<Industry[]>(cached || []);
-  useEffect(() => { if (enabled && !cached) loadIndustries().then(setItems).catch(() => {}); }, [enabled]);
+  useEffect(() => { if (enabled && !cached) loadIndustries(path).then(setItems).catch(() => {}); }, [enabled, path]);
   return items;
 }
 

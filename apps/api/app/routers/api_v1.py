@@ -82,7 +82,7 @@ from ..services import tags as tags_service
 from ..services.whatsapp import send_channel_message
 from ..slugs import unique_slug
 from .agents import _agent as _panel_agent, _channels_of, _document_out
-from .clients import _check_industry
+from ..services.client_details import check_industry as _check_industry
 from .reports import Filters as _ReportFilters, _fold, _group_cost, _grouped, _joined, _money, _replies_query, _reply, _safe_tz
 
 router = APIRouter(prefix="/v1", tags=["Public API v1"])

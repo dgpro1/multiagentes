@@ -16,7 +16,6 @@ from ..api_scopes import (
 )
 from ..database import get_db
 from ..deps import confined_client_id, get_current_user, require
-from .. import industries
 from ..models import Agent, Client, Contact, Conversation, PortalUser, PushDevice, User, new_domain_token, Team
 from ..portal_features import merged as merged_features
 from ..portal_permissions import DEFAULT_ROLE
@@ -43,6 +42,7 @@ from ..schemas import (
 )
 from ..security import hash_password
 from ..services.attachments import logo_response
+from ..services.client_details import apply_details, check_industry, clear_logo, store_logo
 from ..services.tags import create_tag, delete_tag, get_tag, list_tags, rename_tag, tag_count, tag_out
 from ..services import evolution as evolution_driver
 from ..services.teams import create_team, delete_team, list_teams, members_out, team_out, update_team
@@ -60,8 +60,6 @@ from ..slugs import slugify, unique_slug
 
 
 router = APIRouter(prefix="/clients", tags=["Clients"])
-MAX_LOGO_BYTES = 2 * 1024 * 1024
-ALLOWED_LOGO_TYPES = {"image/png", "image/jpeg", "image/webp", "image/svg+xml"}
 
 
 def _domain_out(client: Client) -> ClientDomainOut:
@@ -73,12 +71,6 @@ def _domain_out(client: Client) -> ClientDomainOut:
         txt_host=dns_service.challenge_host(client.portal_domain),
         txt_value=client.portal_domain_token,
     )
-
-
-def _check_industry(industry: str, business_type: str) -> None:
-    error = industries.validate(industry, business_type)
-    if error:
-        raise HTTPException(status_code=422, detail=error)
 
 
 def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
@@ -111,7 +103,7 @@ def list_clients(db: Session = Depends(get_db), user: User = Depends(get_current
 
 @router.post("", response_model=ClientOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(CLIENTS_WRITE))])
 def create_client(payload: ClientCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    _check_industry(payload.industry, payload.business_type)
+    check_industry(payload.industry, payload.business_type)
     client = Client(
         agency_id=user.agency_id,
         portal_slug=unique_slug(db, Client, "portal_slug", payload.name),
@@ -130,17 +122,7 @@ def get_client(client_id: uuid.UUID, db: Session = Depends(get_db), user: User =
 @router.patch("/{client_id}", response_model=ClientOut, dependencies=[Depends(require(CLIENTS_WRITE))])
 def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
-    values = payload.model_dump(exclude_unset=True)
-    industry = values.get("industry", client.industry)
-    business_type = values.get("business_type", client.business_type)
-    # Changing the industry drops a type that no longer belongs to it.
-    if "industry" in values and "business_type" not in values and industries.get_type(industry, business_type) is None:
-        values["business_type"] = ""
-        business_type = ""
-    _check_industry(industry, business_type)
-    for key, value in values.items():
-        setattr(client, key, value)
-    db.commit()
+    apply_details(db, client, payload.model_dump(exclude_unset=True))
     return _client(db, user, client_id)
 
 
@@ -152,14 +134,7 @@ async def upload_client_logo(
     user: User = Depends(get_current_user),
 ):
     client = _client(db, user, client_id)
-    if file.content_type not in ALLOWED_LOGO_TYPES:
-        raise HTTPException(status_code=400, detail="Use a PNG, JPG, WebP or SVG logo")
-    data = await file.read(MAX_LOGO_BYTES + 1)
-    if len(data) > MAX_LOGO_BYTES:
-        raise HTTPException(status_code=413, detail="The logo exceeds the 2 MB limit")
-    client.logo_data = data
-    client.logo_mime = file.content_type
-    db.commit()
+    await store_logo(db, client, file)
     return _client(db, user, client_id)
 
 
@@ -174,9 +149,7 @@ def get_client_logo(client_id: uuid.UUID, db: Session = Depends(get_db), user: U
 @router.delete("/{client_id}/logo", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(CLIENTS_WRITE))])
 def delete_client_logo(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
-    client.logo_data = None
-    client.logo_mime = None
-    db.commit()
+    clear_logo(db, client)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

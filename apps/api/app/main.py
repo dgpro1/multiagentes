@@ -29,6 +29,7 @@ from .routers import (    agency,
     pipeline,
     portal,
     portal_manage,
+    professionals,
     providers,
     reports,
     whatsapp,
@@ -188,5 +189,6 @@ app.include_router(widget.router, prefix="/api")
 app.include_router(domains.public_router, prefix="/api")
 app.include_router(social.router, prefix="/api")
 app.include_router(calendar.router, prefix="/api")
+app.include_router(professionals.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")
 app.include_router(social_webhook.public_router, prefix="/api")

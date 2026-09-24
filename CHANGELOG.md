@@ -21,6 +21,12 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Added
 
+- **Portal Details and Professionals.** Two new portal functions, both off by default per client:
+  `details` (portal admins edit the business name, industry, time zone and logo) and `professionals`
+  (the client's staff, each with a weekly working schedule, in the agency panel and the portal;
+  `/api/clients/{id}/professionals` and `/api/portal/{slug}/professionals`). Schedules are only stored:
+  booking against them comes later. Migration `0062_professionals`.
+
 - **Coolify deployment.** `docker-compose.coolify.yml` (prebuilt images, no host ports, required
   secrets that stop a deploy when missing, memory limits, log rotation, a daily database backup
   and the same single-origin gateway), `scripts/generate-coolify-env.sh` to create the secrets,

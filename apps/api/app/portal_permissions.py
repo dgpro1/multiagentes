@@ -49,6 +49,24 @@ CHANNELS_MANAGE = "channels.manage"
 # hands out credentials, so what it may grant is narrower than the agency's
 # screen (see app.portal_api_access).
 API_MANAGE = "api.manage"
+# Edit the client's own details (name, industry, business type, time zone,
+# logo). Only takes effect where the agency switched the ``details`` portal
+# function on; the agency-only fields (activation, portal settings, domain)
+# never go through it.
+CLIENT_MANAGE = "client.manage"
+# Add, edit and delete the client's professionals and their weekly hours. Only
+# takes effect where the agency switched the ``professionals`` portal function
+# on. Listing them is free for anyone signed in to such a portal.
+PROFESSIONALS_MANAGE = "professionals.manage"
+
+# The portal function each permission belongs to, where it belongs to exactly
+# one. Guarded routes state both checks themselves; this is the readable map.
+PERMISSION_FEATURES: dict[str, str] = {
+    AGENTS_MANAGE: "agents",
+    API_MANAGE: "api",
+    CLIENT_MANAGE: "details",
+    PROFESSIONALS_MANAGE: "professionals",
+}
 
 PERMISSIONS: tuple[str, ...] = (
     INBOX_DELETE,
@@ -63,6 +81,8 @@ PERMISSIONS: tuple[str, ...] = (
     AGENTS_MANAGE,
     CHANNELS_MANAGE,
     API_MANAGE,
+    CLIENT_MANAGE,
+    PROFESSIONALS_MANAGE,
 )
 
 ROLES: dict[str, frozenset[str]] = {

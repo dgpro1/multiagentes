@@ -22,7 +22,7 @@ NO_FEATURE = {"detail": "This feature is not enabled for this portal"}
 ALWAYS_ON_TODAY = ["inbox", "contacts", "pipeline", "calendar", "reports", "teams", "tags", "templates", "canned"]
 NOT_BUILT_YET = [
     "agents", "api", "channels.whatsapp", "channels.whatsapp_cloud", "channels.instagram", "channels.messenger",
-    "channels.webchat",
+    "channels.webchat", "details", "professionals",
 ]
 ZERO = "00000000-0000-0000-0000-000000000000"
 
@@ -149,7 +149,7 @@ def test_the_database_itself_fills_the_defaults_for_rows_the_application_did_not
     assert _stored(customer) == portal_features.DEFAULTS
 
 
-def test_the_migration_writes_out_the_same_defaults_the_catalog_has():
+def test_every_key_the_migration_writes_has_the_catalog_default():
     import json
 
     source = (pathlib.Path(__file__).resolve().parents[1] / "migrations" / "versions" / "0059_portal_features.py").read_text(encoding="utf-8")
@@ -158,7 +158,12 @@ def test_the_migration_writes_out_the_same_defaults_the_catalog_has():
     match = re.search(r"^DEFAULTS = \((.*?)\n\)\n", source, re.S | re.M)
     assert match, "0059 must spell its defaults out"
     exec("DEFAULTS = (" + match.group(1) + ")", namespace)
-    assert json.loads(namespace["DEFAULTS"]) == portal_features.DEFAULTS
+    written = json.loads(namespace["DEFAULTS"])
+    # 0059 is never edited, so functions added later are not in it: they are
+    # read as their catalog default when a row does not store them. What it does
+    # write must agree with the catalog.
+    assert written and set(written) <= set(portal_features.DEFAULTS)
+    assert written == {key: portal_features.DEFAULTS[key] for key in written}
     assert not re.search(r"^\s*(from|import)\s+app", source, re.M)
 
 
@@ -325,6 +330,16 @@ GATED = [
     ("POST", "/calendar/members/{id}/disconnect", ["calendar"]),
     ("DELETE", "/calendar/members/{id}", ["calendar"]),
     ("GET", "/reports", ["reports"]),
+    # The client's own details and its professionals (tests/test_portal_details.py, tests/test_professionals.py).
+    ("GET", "/client", ["details"]),
+    ("PATCH", "/client", ["details"]),
+    ("POST", "/client/logo", ["details"]),
+    ("DELETE", "/client/logo", ["details"]),
+    ("GET", "/industries", ["details"]),
+    ("GET", "/professionals", ["professionals"]),
+    ("POST", "/professionals", ["professionals"]),
+    ("PATCH", "/professionals/{id}", ["professionals"]),
+    ("DELETE", "/professionals/{id}", ["professionals"]),
     ("POST", "/teams", ["teams"]),
     ("PATCH", "/teams/{id}", ["teams"]),
     ("DELETE", "/teams/{id}", ["teams"]),

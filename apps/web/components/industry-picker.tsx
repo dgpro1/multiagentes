@@ -19,14 +19,16 @@ type Props = {
   value: IndustryValue;
   onChange: (value: IndustryValue) => void;
   autoFocus?: boolean;
+  /** Where the catalog is fetched from; the agency panel's `/industries` by default. */
+  catalogPath?: string;
 };
 
 // Two dependent selects: the industry, then a business type within it. Both
 // end in "other"; picking it opens a text field for the client's own words,
 // which then describe the business wherever a label is needed.
-export function IndustryPicker({ value, onChange, autoFocus }: Props) {
+export function IndustryPicker({ value, onChange, autoFocus, catalogPath }: Props) {
   const { t, lang } = useLanguage();
-  const catalog = useIndustries();
+  const catalog = useIndustries(true, catalogPath);
   const sector = catalog.find((item) => item.code === value.industry);
   const industryIsOther = value.industry === "other";
   const needsWords = industryIsOther || value.businessType === "other";

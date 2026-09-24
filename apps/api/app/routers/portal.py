@@ -13,11 +13,14 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..config import get_settings
 from ..database import get_db, new_session
+from ..industries import catalog as industry_catalog
 from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTag, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
 from ..portal_features import enabled_keys, ensure_enabled
-from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CONTACTS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, REPORTS_VIEW, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
+from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
 from ..ratelimit import login_rate_limit, public_asset_rate_limit
 from ..schemas import (
+    ClientDetailsOut,
+    ClientDetailsUpdate,
     ContactBlockUpdate,
     BulkResult,
     ConversationArchiveUpdate,
@@ -73,9 +76,12 @@ from ..schemas import (
     TeamUpsert,
 )
 from ..security import create_portal_token, decode_portal_token, verify_password
+from ..schemas_professionals import ProfessionalCreate, ProfessionalOut, ProfessionalUpdate
 from ..schemas_calendar import CalendarEventsOut, CalendarMemberCreate, CalendarMemberOut, CalendarMemberUpdate, CalendarOverviewOut
 from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
+from ..services import professionals as professionals_service
+from ..services.client_details import apply_details, clear_logo, store_logo
 from ..services import channel_accounts
 from ..services.text_search import folded_like
 from ..services.contacts import display_name, merge_contacts, normalize_phone, rename_conversations
@@ -413,6 +419,99 @@ def portal_delete_team(
     slug: str, team_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
     delete_team(db, client, team_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _details_out(slug: str, client: Client) -> dict:
+    """The client's own details, as the portal's Details screen reads them.
+
+    ``logo_url`` is the portal's public client-logo route plus a cache buster
+    that moves whenever the row does, so a new logo shows at once.
+    """
+    return {
+        "name": client.name,
+        "industry": client.industry,
+        "business_type": client.business_type,
+        "business_custom": client.business_custom,
+        "timezone": client.timezone,
+        "logo_url": f"/api/portal/{slug}/client-logo?v={int(client.updated_at.timestamp())}" if client.logo_mime else None,
+    }
+
+
+_DETAILS_GUARDS = [Depends(require_feature("details")), Depends(require_permission(CLIENT_MANAGE))]
+
+
+@router.get("/{slug}/client", response_model=ClientDetailsOut, dependencies=_DETAILS_GUARDS)
+def portal_client_details(slug: str, client: Client = Depends(_portal_client)):
+    return _details_out(slug, client)
+
+
+@router.get("/{slug}/industries", dependencies=_DETAILS_GUARDS)
+def portal_industries():
+    """The industry catalog the Details screen's picker draws from; the same
+    list, in the same shape, as the agency's ``GET /api/industries``."""
+    return industry_catalog()
+
+
+@router.patch("/{slug}/client", response_model=ClientDetailsOut, dependencies=_DETAILS_GUARDS)
+def portal_update_client_details(
+    slug: str, payload: ClientDetailsUpdate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    apply_details(db, client, payload.model_dump(exclude_unset=True))
+    db.refresh(client)
+    return _details_out(slug, client)
+
+
+@router.post("/{slug}/client/logo", response_model=ClientDetailsOut, dependencies=_DETAILS_GUARDS)
+async def portal_upload_client_logo(
+    slug: str, file: UploadFile = File(...), client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    await store_logo(db, client, file)
+    db.refresh(client)
+    return _details_out(slug, client)
+
+
+@router.delete("/{slug}/client/logo", response_model=ClientDetailsOut, dependencies=_DETAILS_GUARDS)
+def portal_delete_client_logo(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    clear_logo(db, client)
+    db.refresh(client)
+    return _details_out(slug, client)
+
+
+@router.get("/{slug}/professionals", response_model=list[ProfessionalOut], dependencies=[Depends(require_feature("professionals"))])
+def portal_professionals(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return professionals_service.list_professionals(db, client)
+
+
+@router.post(
+    "/{slug}/professionals", response_model=ProfessionalOut, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_feature("professionals")), Depends(require_permission(PROFESSIONALS_MANAGE))],
+)
+def portal_create_professional(
+    slug: str, payload: ProfessionalCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    return professionals_service.create_professional(db, client, payload)
+
+
+@router.patch(
+    "/{slug}/professionals/{professional_id}", response_model=ProfessionalOut,
+    dependencies=[Depends(require_feature("professionals")), Depends(require_permission(PROFESSIONALS_MANAGE))],
+)
+def portal_update_professional(
+    slug: str, professional_id: uuid.UUID, payload: ProfessionalUpdate,
+    client: Client = Depends(_portal_client), db: Session = Depends(get_db),
+):
+    return professionals_service.update_professional(db, client, professional_id, payload)
+
+
+@router.delete(
+    "/{slug}/professionals/{professional_id}", status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_feature("professionals")), Depends(require_permission(PROFESSIONALS_MANAGE))],
+)
+def portal_delete_professional(
+    slug: str, professional_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    professionals_service.delete_professional(db, client, professional_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

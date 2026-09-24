@@ -9,7 +9,7 @@ migration, and a key that leaves the catalog is ignored where it is stored.
 
 The first nine switches govern screens the portal already has, so they default
 to on: every existing client keeps seeing exactly what it saw before. The
-rest belong to screens that do not exist yet and default to off.
+rest belong to screens the agency opens up per client and default to off.
 
 Features only govern the portal (``/portal/{slug}/...``). The agency panel and
 the public API are never affected by them.
@@ -39,6 +39,8 @@ CATALOG: tuple[tuple[str, bool], ...] = (
     ("channels.instagram", False),
     ("channels.messenger", False),
     ("channels.webchat", False),
+    ("details", False),
+    ("professionals", False),
 )
 
 KEYS: tuple[str, ...] = tuple(key for key, _ in CATALOG)

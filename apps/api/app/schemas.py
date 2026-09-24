@@ -97,6 +97,32 @@ class ClientUpdate(BaseModel):
         return None if value is None else check_timezone(value)
 
 
+class ClientDetailsUpdate(BaseModel):
+    """What a client's own portal may change about the client: identity and
+    nothing else. Anything else in the body (activation, portal settings,
+    domain) is ignored by the schema and never reaches the row."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=180)
+    industry: str | None = Field(default=None, max_length=160)
+    business_type: str | None = Field(default=None, max_length=80)
+    business_custom: str | None = Field(default=None, max_length=120)
+    timezone: str | None = Field(default=None, max_length=64)
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_timezone(cls, value: str | None) -> str | None:
+        return None if value is None else check_timezone(value)
+
+
+class ClientDetailsOut(BaseModel):
+    name: str
+    industry: str
+    business_type: str
+    business_custom: str
+    timezone: str
+    logo_url: str | None = None
+
+
 class ClientPortalUpdate(BaseModel):
     portal_enabled: bool | None = None
     portal_slug: str | None = Field(default=None, min_length=2, max_length=180)

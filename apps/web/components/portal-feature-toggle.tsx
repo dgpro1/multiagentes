@@ -24,6 +24,8 @@ const LABELS: Record<PortalFeature, I18nKey> = {
   "channels.instagram": "clients.detail.pfChannelInstagram",
   "channels.messenger": "clients.detail.pfChannelMessenger",
   "channels.webchat": "clients.detail.pfChannelWebchat",
+  details: "clients.detail.pfDetails",
+  professionals: "clients.detail.pfProfessionals",
 };
 
 /** One on/off switch per function of a client's portal. Turning one on makes that

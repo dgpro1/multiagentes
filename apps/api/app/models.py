@@ -125,6 +125,9 @@ class Client(Base):
     pipeline_stages: Mapped[list["PipelineStage"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", order_by="PipelineStage.position"
     )
+    professionals: Mapped[list["Professional"]] = relationship(
+        back_populates="client", cascade="all, delete-orphan", order_by="Professional.created_at"
+    )
 
     @property
     def logo_url(self) -> str | None:
@@ -1157,6 +1160,32 @@ class CalendarMember(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
     client: Mapped[Client] = relationship(back_populates="calendar_members")
+
+
+class Professional(Base):
+    """A person the client's business books time with: a dentist, a stylist, a
+    consultant. Unlike a calendar member it needs no Google account; it is the
+    name, the specialty and the hours the person works, per weekday.
+
+    ``weekly_hours`` maps ``mon``..``sun`` to a list of ``["HH:MM", "HH:MM"]``
+    ranges in the client's time zone; a missing or empty day is a day off.
+    ``slot_minutes`` is the length of one appointment.
+    """
+
+    __tablename__ = "professionals"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    # The specialty, in the business's words ("Orthodontist").
+    role: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    color: Mapped[str] = mapped_column(String(7), default="#2f6df0", server_default="#2f6df0")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    slot_minutes: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
+    weekly_hours: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+    client: Mapped[Client] = relationship(back_populates="professionals")
 
 
 class CalendarOAuthState(Base):

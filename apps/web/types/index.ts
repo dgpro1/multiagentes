@@ -665,3 +665,33 @@ export type CalendarConnectInfo = {
   expired: boolean;
   agency_name: string;
 };
+
+/** The client's own business details, as its portal reads and edits them (GET/PATCH /portal/{slug}/client). */
+export type PortalClientDetails = {
+  name: string;
+  industry: string;
+  business_type: string;
+  business_custom: string;
+  timezone: string;
+  logo_url: string | null;
+};
+
+export type WeekDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+/** One working range, "HH:MM" to "HH:MM" in the client's timezone. */
+export type TimeRange = [string, string];
+/** Every day of the week is always present; an empty list is a day off. */
+export type WeeklyHours = Record<WeekDay, TimeRange[]>;
+
+/** A member of a client's staff (e.g. one dentist of a clinic) with their own weekly hours. */
+export type Professional = {
+  id: string;
+  client_id: string;
+  name: string;
+  role: string | null;
+  color: string;
+  is_active: boolean;
+  slot_minutes: number;
+  weekly_hours: WeeklyHours;
+  created_at: string;
+  updated_at: string;
+};

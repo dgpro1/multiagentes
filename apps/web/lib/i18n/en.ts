@@ -16,6 +16,7 @@ import { reports } from "./dicts/reports";
 import { calendar } from "./dicts/calendar";
 import { oauth } from "./dicts/oauth";
 import { pipeline } from "./dicts/pipeline";
+import { professionals } from "./dicts/professionals";
 
 export const en = {
   ...core.en,
@@ -33,6 +34,7 @@ export const en = {
   calendar: calendar.en,
   oauth: oauth.en,
   pipeline: pipeline.en,
+  professionals: professionals.en,
 };
 
 export type Dictionary = typeof en;

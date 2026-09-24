@@ -2683,3 +2683,33 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .portal-main-channel-page > header { display: none; }
 .portal-main-channel-page .page { max-width: none; padding: 0; }
 .portal-channels .compact-channel-grid { align-items: stretch; }
+
+/* Professionals: the staff of a client with their weekly hours (components/professionals-view). */
+.professionals-view .portal-contacts-toolbar { border-bottom: 0; padding-left: 0; padding-right: 0; }
+.professionals-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.professionals-card { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.professionals-card.inactive { opacity: .7; }
+.professionals-dot { flex: 0 0 auto; width: 12px; height: 12px; margin-top: 5px; border-radius: 50%; }
+.professionals-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.professionals-info strong { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.professionals-info small { color: var(--muted); }
+.professionals-hours { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.professionals-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.professionals-field { display: flex; flex-direction: column; gap: 8px; }
+.professionals-label { font-size: 13px; font-weight: 600; }
+.professionals-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.professionals-swatch { width: 26px; height: 26px; padding: 0; border: 2px solid var(--surface); border-radius: 50%; box-shadow: 0 0 0 1px var(--line-strong); cursor: pointer; }
+.professionals-swatch.active { box-shadow: 0 0 0 2px var(--ink); }
+.professionals-schedule { display: grid; gap: 8px; }
+.professionals-day { display: grid; grid-template-columns: 68px 1fr auto; align-items: start; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.professionals-day-name { display: flex; align-items: center; gap: 8px; min-height: 34px; font-size: 13px; font-weight: 600; }
+.professionals-ranges { display: grid; gap: 6px; min-width: 0; }
+.professionals-ranges > .muted { display: flex; align-items: center; min-height: 34px; font-size: 13px; }
+.professionals-range { display: flex; align-items: center; gap: 6px; }
+.professionals-range input[type="time"] { width: 112px; height: 34px; min-height: 34px; padding: 0 8px; }
+.professionals-range .icon-button, .professionals-day-actions .icon-button { width: 30px; height: 30px; }
+.professionals-day-actions { display: flex; gap: 6px; min-height: 34px; align-items: center; }
+@media (max-width: 640px) {
+  .professionals-day { grid-template-columns: 1fr; }
+  .professionals-day-actions { justify-content: flex-start; }
+}

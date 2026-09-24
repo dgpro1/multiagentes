@@ -14,6 +14,7 @@ import { reports } from "./dicts/reports";
 import { calendar } from "./dicts/calendar";
 import { oauth } from "./dicts/oauth";
 import { pipeline } from "./dicts/pipeline";
+import { professionals } from "./dicts/professionals";
 
 // Spanish dictionary. Composed from the same modules; typed as Dictionary so it
 // must mirror the exact shape of `en` (each area's `es` mirrors its own `en`).
@@ -33,4 +34,5 @@ export const es: Dictionary = {
   calendar: calendar.es,
   oauth: oauth.es,
   pipeline: pipeline.es,
+  professionals: professionals.es,
 };

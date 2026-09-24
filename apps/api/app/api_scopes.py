@@ -34,6 +34,8 @@ PIPELINE_MANAGE = "pipeline.manage"
 CALENDAR_READ = "calendar.read"
 CALENDAR_MANAGE = "calendar.manage"
 REPORTS_READ = "reports.read"
+PROFESSIONALS_READ = "professionals.read"
+PROFESSIONALS_MANAGE = "professionals.manage"
 INTEGRATIONS_MANAGE = "integrations.manage"
 WEBHOOKS_MANAGE = "webhooks.manage"
 
@@ -63,6 +65,8 @@ ALL: tuple[str, ...] = (
     CALENDAR_READ,
     CALENDAR_MANAGE,
     REPORTS_READ,
+    PROFESSIONALS_READ,
+    PROFESSIONALS_MANAGE,
     INTEGRATIONS_MANAGE,
     WEBHOOKS_MANAGE,
 )
@@ -94,6 +98,8 @@ DESCRIPTIONS: dict[str, str] = {
     CALENDAR_READ: "See the calendar of a client.",
     CALENDAR_MANAGE: "Add, reconnect and remove calendar members.",
     REPORTS_READ: "See the reports.",
+    PROFESSIONALS_READ: "See the professionals of a client and their weekly hours.",
+    PROFESSIONALS_MANAGE: "Add, edit and delete professionals and their weekly hours.",
     INTEGRATIONS_MANAGE: "Create and revoke API credentials.",
     WEBHOOKS_MANAGE: "Create, edit and delete webhook subscriptions.",
 }
@@ -113,6 +119,7 @@ PRESETS: dict[str, frozenset[str]] = {
             PIPELINE_MANAGE,
             CALENDAR_MANAGE,
             TEAMS_MANAGE,
+            PROFESSIONALS_MANAGE,
         }
     ),
     "full": frozenset(ALL),

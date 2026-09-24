@@ -1,20 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Bot, Calendar as CalendarIcon, Copy, ExternalLink, FileText, GitBranch, Globe2, ImagePlus, Inbox, KeyRound, LoaderCircle, Pencil, Radio, Save, Settings2, ShieldAlert, ShieldCheck, Tag, Trash2, UserCheck, UserRound, Users, UserX } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, Calendar as CalendarIcon, Copy, ExternalLink, FileText, GitBranch, Globe2, Inbox, KeyRound, LoaderCircle, Pencil, Radio, Save, Settings2, ShieldAlert, ShieldCheck, Stethoscope, Tag, Trash2, UserCheck, UserRound, Users, UserX } from "lucide-react";
 import { Alert, EmptyState, Modal, StatusBadge } from "@/components/ui";
 import { SectionTabs } from "@/components/section-tabs";
 import { ApiIntegrations } from "@/components/api-integrations";
 import { CalendarView } from "@/components/calendar-view";
 import { PipelineBoard } from "@/components/pipeline-board";
-import { IndustryPicker, isBusinessComplete, type IndustryValue } from "@/components/industry-picker";
-import { AiHint } from "@/components/ai-hint";
-import { Combobox } from "@/components/combobox";
+import { ClientDetails } from "@/components/client-details";
+import { ProfessionalsView } from "@/components/professionals-view";
 import { GrowingTextarea } from "@/components/growing-textarea";
 import { RichText } from "@/components/rich-text";
-import { TIMEZONES } from "@/lib/timezones";
 import { TeamsView } from "@/app/portal/[slug]/teams";
 import { TagsView } from "@/app/portal/[slug]/tags";
 import { TemplatesView } from "@/app/portal/[slug]/templates";
@@ -33,7 +31,6 @@ import { PortalFeatureToggle } from "@/components/portal-feature-toggle";
 import { FEATURES_BY_CLIENT_TAB } from "@/lib/portal-features";
 
 type Tab = ClientTab;
-type DeletionPreview = { agents: number; channels: number; conversations: number; contacts: number; portal_users: number };
 
 export default function ClientDetailPage() {
   const { t, lang } = useLanguage();
@@ -48,8 +45,6 @@ export default function ClientDetailPage() {
   const catalog = useIndustries();
   const [client, setClient] = useState<Client | null>(null);
   const [domain, setDomain] = useState<ClientDomain | null>(null);
-  const [business, setBusiness] = useState<IndustryValue>({ industry: "", businessType: "", custom: "" });
-  const [timezone, setTimezone] = useState("UTC");
   // An unknown first segment goes to the default tab, and a legacy /clients/{id}?tab=channels
   // (older channel pages and API redirects still build it) moves to /clients/{id}/channels;
   // either way the rest of the query is kept.
@@ -66,28 +61,8 @@ export default function ClientDetailPage() {
     router.replace(`${clientPath(id, target)}${query ? `?${query}` : ""}${window.location.hash}`);
   }, [route.known, route.tab, id, router]);
   const [busy, setBusy] = useState(false);
-  const [logoVersion, setLogoVersion] = useState(0);
-  const logoRef = useRef<HTMLInputElement>(null);
-  const load = () => api<Client>(`/clients/${id}`).then((c) => { setClient(c); setBusiness({ industry: c.industry, businessType: c.business_type, custom: c.business_custom }); setTimezone(c.timezone || "UTC"); });
+  const load = () => api<Client>(`/clients/${id}`).then(setClient);
   useEffect(() => { load(); api<ClientDomain>(`/clients/${id}/domain`).then(setDomain); }, [id]);
-
-  async function uploadLogo(file?: File) {
-    if (!file) return;
-    setBusy(true);
-    const data = new FormData(); data.append("file", file);
-    try { setClient(await api<Client>(`/clients/${id}/logo`, { method: "POST", body: data })); setLogoVersion((v) => v + 1); toast.success(t("clients.detail.logoUpdated")); }
-    catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); if (logoRef.current) logoRef.current.value = ""; }
-  }
-  async function deleteLogo() {
-    await api(`/clients/${id}/logo`, { method: "DELETE" }); setLogoVersion((v) => v + 1); await load();
-  }
-
-  async function saveDetails(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true);
-    const data = new FormData(event.currentTarget);
-    try { setClient(await api<Client>(`/clients/${id}`, { method: "PATCH", body: JSON.stringify({ name: data.get("name"), industry: business.industry, business_type: business.businessType, business_custom: business.custom, timezone, is_active: data.get("is_active") === "on" }) })); toast.success(t("clients.detail.detailsSaved")); }
-    catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
-  }
 
   async function savePortal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true);
@@ -95,23 +70,6 @@ export default function ClientDetailPage() {
     const payload: Record<string, unknown> = { portal_enabled: data.get("portal_enabled") === "on", portal_slug: data.get("portal_slug"), portal_title: data.get("portal_title") };
     try { setClient(await api<Client>(`/clients/${id}/portal`, { method: "PATCH", body: JSON.stringify(payload) })); toast.success(t("clients.detail.portalUpdated")); }
     catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
-  }
-
-  // Deleting takes everything under the client with it, so the dialog shows
-  // the counts first and only arms the button once the client's name is typed.
-  const [deletePreview, setDeletePreview] = useState<DeletionPreview | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteName, setDeleteName] = useState("");
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  async function openDelete() {
-    setDeleteName(""); setDeleteError(null); setDeletePreview(null); setDeleteOpen(true);
-    try { setDeletePreview(await api<DeletionPreview>(`/clients/${id}/deletion-preview`)); } catch (err) { setDeleteError(messageFrom(err)); }
-  }
-  async function remove() {
-    if (!client || deleteName.trim() !== client.name.trim()) return;
-    setBusy(true); setDeleteError(null);
-    try { await api(`/clients/${id}`, { method: "DELETE" }); toast.success(t("clients.detail.clientDeleted", { name: client.name })); router.push("/clients"); }
-    catch (err) { setDeleteError(messageFrom(err)); setBusy(false); }
   }
 
   if (!client) return <div className="page"><FormSkeleton sections={2} /></div>;
@@ -130,6 +88,7 @@ export default function ClientDetailPage() {
       { id: "channels", label: t("clients.detail.tabChannels"), icon: Radio, href: clientPath(client.id, "channels") },
       { id: "inbox", label: t("clients.detail.tabInbox"), icon: Inbox, href: clientPath(client.id, "inbox") },
       { id: "teams", label: t("clients.detail.tabTeams"), icon: Users, href: clientPath(client.id, "teams") },
+      { id: "professionals", label: t("clients.detail.tabProfessionals"), icon: Stethoscope, href: clientPath(client.id, "professionals") },
       { id: "tags", label: t("clients.detail.tabTags"), icon: Tag, href: clientPath(client.id, "tags") },
       { id: "templates", label: t("clients.detail.tabTemplates"), icon: FileText, href: clientPath(client.id, "templates") },
       { id: "calendar", label: t("clients.detail.tabCalendar"), icon: CalendarIcon, href: clientPath(client.id, "calendar") },
@@ -139,23 +98,8 @@ export default function ClientDetailPage() {
     ]} />
 
     {FEATURES_BY_CLIENT_TAB[tab] && <PortalFeatureToggle client={client} keys={FEATURES_BY_CLIENT_TAB[tab]} onChange={setClient} title={tab === "portal" ? t("clients.detail.portalFeaturesTitle") : undefined} />}
-    {tab === "details" && <form className="page-form" onSubmit={saveDetails}><section className="form-section"><div className="section-copy"><h2>{t("clients.detail.clientInfo")}</h2><p>{t("clients.detail.clientInfoCopy")}</p></div><div className="form-fields"><div className="logo-editor"><button type="button" className="logo-preview" onClick={() => logoRef.current?.click()}>{client.logo_url ? <img src={`${client.logo_url}&r=${logoVersion}`} alt={t("clients.detail.logoAlt")} /> : <ImagePlus size={24} />}</button><div><strong>{t("clients.detail.logoLabel")}</strong><small>{t("clients.detail.logoHint")}</small><div><button type="button" className="text-button" onClick={() => logoRef.current?.click()}>{t("clients.detail.logoChange")}</button>{client.logo_url && <button type="button" className="text-button danger-text" onClick={deleteLogo}><Trash2 size={14} /> {t("clients.detail.logoRemove")}</button>}</div></div><input ref={logoRef} hidden type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => uploadLogo(e.target.files?.[0])} /></div><IndustryPicker value={business} onChange={setBusiness} /><label><span className="label-row">{t("clients.detail.name")} <AiHint text={t("aiContext.businessName")} /></span><input name="name" required defaultValue={client.name} /></label><label>{t("clients.detail.timezoneLabel")}<Combobox value={timezone} onChange={setTimezone} options={TIMEZONES} placeholder={t("clients.detail.timezoneLabel")} /><span className="field-help">{t("clients.detail.timezoneHint")}</span></label><label className="switch-row"><span><strong>{t("clients.detail.activeClient")}</strong><small>{t("clients.detail.activeClientHint")}</small></span><input name="is_active" type="checkbox" defaultChecked={client.is_active} /></label></div></section><div className="form-footer split"><button type="button" className="button danger" onClick={openDelete}><Trash2 size={16} /> {t("clients.detail.deleteClient")}</button><button className="button primary" disabled={busy || !isBusinessComplete(business)}>{busy ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />} {t("clients.detail.saveChanges")}</button></div></form>}
+    {tab === "details" && <ClientDetails mode="agency" clientId={client.id} client={client} onChange={setClient} />}
 
-    <Modal open={deleteOpen} title={t("clients.detail.deleteTitle", { name: client.name })} onClose={() => setDeleteOpen(false)}>
-      <div className="modal-form">
-        <p className="modal-copy">{t("clients.detail.deleteCopy")}</p>
-        {deletePreview ? <ul className="deletion-list">
-          <li><strong>{deletePreview.agents}</strong> {t("clients.detail.deleteCountAgents")}</li>
-          <li><strong>{deletePreview.channels}</strong> {t("clients.detail.deleteCountChannels")}</li>
-          <li><strong>{deletePreview.conversations}</strong> {t("clients.detail.deleteCountConversations")}</li>
-          <li><strong>{deletePreview.contacts}</strong> {t("clients.detail.deleteCountContacts")}</li>
-          <li><strong>{deletePreview.portal_users}</strong> {t("clients.detail.deleteCountPortalUsers")}</li>
-        </ul> : !deleteError && <p className="field-help"><LoaderCircle className="spin" size={14} /></p>}
-        <label>{t("clients.detail.deleteTypeName", { name: client.name })}<input value={deleteName} onChange={(e) => setDeleteName(e.target.value)} autoComplete="off" placeholder={client.name} /></label>
-        {deleteError && <Alert>{deleteError}</Alert>}
-        <div className="modal-actions"><button type="button" className="button" onClick={() => setDeleteOpen(false)}>{t("common.cancel")}</button><button type="button" className="button danger" disabled={busy || !deletePreview || deleteName.trim() !== client.name.trim()} onClick={remove}>{busy ? <LoaderCircle className="spin" size={16} /> : <><Trash2 size={15} /> {t("clients.detail.deleteClient")}</>}</button></div>
-      </div>
-    </Modal>
     {tab === "agents" && (client.agents.length ? <div className="table-shell"><table className="data-table"><thead><tr><th>{t("clients.detail.colAgent")}</th><th>{t("clients.detail.colStatus")}</th><th /></tr></thead><tbody>{client.agents.map((agent) => <tr key={agent.id}><td><Link className="entity-cell" href={`/agents/${agent.id}`}><span className="agent-avatar"><Bot size={18} /></span><strong>{agent.name}</strong></Link></td><td><StatusBadge active={agent.is_active} /></td><td><Link className="row-arrow" href={`/agents/${agent.id}`}><ArrowRight size={17} /></Link></td></tr>)}</tbody></table></div> : <EmptyState icon={<Bot />} title={t("clients.detail.agentsEmptyTitle")} description={t("clients.detail.agentsEmptyDescription")} action={<Link href={`/agents/new?client=${client.id}`} className="button primary">{t("clients.detail.createAgent")}</Link>} />)}
 
     {tab === "channels" && <ChannelsOverviewView client={{ id: client.id, name: client.name }} />}
@@ -164,6 +108,7 @@ export default function ClientDetailPage() {
 
     {/* Teams and WhatsApp templates are the client's own, managed here or from its portal; the views are the portal's, pointed at the agency routes. */}
     {tab === "teams" && <div className="embedded-portal-view"><TeamsView base={`/clients/${client.id}`} /></div>}
+    {tab === "professionals" && <div className="embedded-portal-view"><ProfessionalsView apiBase={`/clients/${client.id}`} canManage timezone={client.timezone} /></div>}
     {tab === "tags" && <div className="embedded-portal-view"><TagsView base={`/clients/${client.id}/contact-tags`} canManage /></div>}
     {tab === "templates" && <div className="embedded-portal-view"><TemplatesView base={`/clients/${client.id}`} /></div>}
     {tab === "calendar" && <CalendarView base={`/clients/${client.id}`} canManage />}
