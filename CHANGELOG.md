@@ -43,6 +43,10 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- **Search ignores case, accents and apostrophes.** `gomez`, `GOMEZ` and `Gómez` find the
+  same contact, and `obrien` finds `O'Brien`, in the inbox, contacts, reports and API v1
+  contact searches (server side, with `translate()`, no database extension) and in the
+  lists that filter in the browser (clients, agents, pipeline, replies, teams, templates).
 - **Every screen and every lead has its own URL.** The portal is no longer one address:
   `/portal/{slug}/inbox`, `/inbox/{number}` (one lead), `/contacts`, `/contacts/{id}`,
   `/pipeline`, `/calendar`, `/reports` and `/settings/{tab}`, with the inbox filters in the

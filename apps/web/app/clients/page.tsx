@@ -9,6 +9,7 @@ import { businessLabel, useIndustries } from "@/lib/industries";
 import { EmptyState, PageHead, StatusBadge } from "@/components/ui";
 import { TableSkeleton } from "@/components/skeleton";
 import type { Client } from "@/types";
+import { foldIncludes } from "@/lib/text";
 
 export default function ClientsPage() {
   const { t, lang } = useLanguage();
@@ -18,7 +19,7 @@ export default function ClientsPage() {
   useEffect(() => { api<Client[]>("/clients").then(setClients).catch(() => {}).finally(() => setLoaded(true)); }, []);
   const catalog = useIndustries();
   const labelOf = (item: Client) => businessLabel(catalog, item, lang);
-  const visible = useMemo(() => clients.filter((item) => `${item.name} ${labelOf(item)}`.toLowerCase().includes(search.toLowerCase())), [clients, search, catalog, lang]);
+  const visible = useMemo(() => clients.filter((item) => foldIncludes(`${item.name} ${labelOf(item)}`, search)), [clients, search, catalog, lang]);
 
   return <div className="page">
     <PageHead eyebrow={t("clients.list.eyebrow")} title={t("clients.list.title")} description={t("clients.list.description")} action={<Link href="/clients/new" className="button primary"><Plus size={18} /> {t("clients.list.newClient")}</Link>} />

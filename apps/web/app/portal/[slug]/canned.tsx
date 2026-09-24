@@ -8,6 +8,7 @@ import { api, ApiError, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { CONTACT_EXAMPLES, CONTACT_VARIABLES, type ContactValues } from "@/lib/contact-variables";
 import type { CannedResponse } from "@/types";
+import { fold } from "@/lib/text";
 
 export type CannedVars = ContactValues;
 
@@ -38,8 +39,8 @@ export function useCannedReplies({ slug, vars, onInsert }: { slug: string; vars:
 
   const matches = useMemo(() => {
     if (query === null) return [];
-    const q = query.toLowerCase();
-    return items.filter((item) => !q || item.shortcut.toLowerCase().includes(q) || item.content.toLowerCase().includes(q)).slice(0, SHOWN);
+    const q = fold(query);
+    return items.filter((item) => !q || fold(item.shortcut).includes(q) || fold(item.content).includes(q)).slice(0, SHOWN);
   }, [items, query]);
 
   function pick(item: CannedResponse) {

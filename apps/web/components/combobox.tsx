@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { useT } from "@/lib/i18n";
+import { fold } from "@/lib/text";
 
 // Searchable dropdown (autocomplete). Used for long option lists such as the
 // timezone selector and the model picker.
@@ -45,9 +46,9 @@ export function Combobox({
   function close() { setOpen(false); setQuery(""); }
   function pick(option: string) { onChange(option); close(); }
 
-  const q = query.trim().toLowerCase();
-  const filtered = q ? options.filter((option) => option.toLowerCase().includes(q) || (labels?.[option] ?? "").toLowerCase().includes(q)) : options;
-  const canUseCustom = allowCustom && q.length > 0 && !options.some((option) => option.toLowerCase() === q);
+  const q = fold(query.trim());
+  const filtered = q ? options.filter((option) => fold(option).includes(q) || fold(labels?.[option]).includes(q)) : options;
+  const canUseCustom = allowCustom && q.length > 0 && !options.some((option) => fold(option) === q);
 
   return (
     <div className={`combo ${open ? "open" : ""}`} ref={ref}>

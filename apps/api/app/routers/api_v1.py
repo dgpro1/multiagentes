@@ -73,6 +73,7 @@ from ..schemas_calendar import CalendarMemberCreate, CalendarMemberOut
 from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
 from ..services.contacts import find_contact, normalize_phone
+from ..services.text_search import folded_like
 from ..services.conversation_state import note_reply, set_mode, set_status
 from ..services.idempotency import abandon, complete, owner_of, use_key
 from ..services.knowledge import build_system_prompt, embed_document_chunks, reindex_agent, reindex_document
@@ -328,8 +329,7 @@ def v1_list_contacts(
     page, limit = _parse_pagination(page, limit)
     query = select(Contact).where(Contact.client_id == client.id)
     if search and search.strip():
-        term = f"%{search.strip().lower()}%"
-        query = query.where(or_(func.lower(Contact.name).like(term), Contact.phone.like(f"%{search.strip()}%")))
+        query = query.where(or_(folded_like(Contact.name, search), Contact.phone.like(f"%{search.strip()}%")))
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     rows = db.scalars(query.order_by(Contact.updated_at.desc()).offset((page - 1) * limit).limit(limit)).all()
     data = [{**_contact_out(row), "_links": {"self": f"/api/v1/clients/{client.id}/contacts/{row.id}"}} for row in rows]

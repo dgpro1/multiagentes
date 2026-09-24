@@ -11,6 +11,7 @@ import { tagStyle } from "@/lib/tags";
 import { api, messageFrom } from "@/lib/api";
 import { useLanguage, useT, type Lang } from "@/lib/i18n";
 import type { PipelineBoard as PipelineBoardData, PipelineCard, PipelineStage } from "@/types";
+import { fold } from "@/lib/text";
 
 const UNASSIGNED = "__unassigned__";
 // Distinct on both themes, in the order new stages take them.
@@ -46,9 +47,9 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
 
   const matches = useCallback((card: PipelineCard) => {
-    const needle = query.trim().toLowerCase();
+    const needle = fold(query.trim());
     if (!needle) return true;
-    return [card.contact_name, card.title, card.preview].some((field) => (field || "").toLowerCase().includes(needle));
+    return [card.contact_name, card.title, card.preview].some((field) => fold(field).includes(needle));
   }, [query]);
 
   const cardsByStage = useMemo(() => {

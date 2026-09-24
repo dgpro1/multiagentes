@@ -25,6 +25,7 @@ from ..deps import get_current_user, require
 from ..models import Agent, Client, Conversation, Message, UsageRecord, User
 from ..schemas import CostReport, RepliesPage
 from ..services.model_catalog import get_model
+from ..services.text_search import folded_like
 from ..services.report_operations import ConversationFilters, filter_options, operations
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
@@ -97,7 +98,7 @@ class Filters:
             query = query.where(UsageRecord.model == self.model)
         if self.q:
             query = query.where(
-                Conversation.contact_name.ilike(f"%{self.q}%")
+                folded_like(Conversation.contact_name, self.q)
                 | cast(UsageRecord.conversation_id, String).like(f"{self.q.lower()}%")
             )
         return query

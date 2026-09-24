@@ -77,6 +77,7 @@ from ..schemas_calendar import CalendarEventsOut, CalendarMemberCreate, Calendar
 from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
 from ..services import channel_accounts
+from ..services.text_search import folded_like
 from ..services.contacts import display_name, merge_contacts, normalize_phone, rename_conversations
 from ..services.tags import create_tag, delete_tag, get_tag, list_tags, rename_tag, tag_count, tag_out
 from ..services.teams import TEAM_CHANNELS, create_team, delete_team, get_team, list_teams, members_out, team_out, update_team
@@ -618,12 +619,11 @@ def _conversation_page(
             last.c.sender_type == "visitor",
         )
     if search and search.strip():
-        term = f"%{search.strip().lower()}%"
         query = query.where(
             or_(
-                func.lower(Conversation.title).like(term),
-                func.lower(func.coalesce(Conversation.contact_name, "")).like(term),
-                func.lower(func.coalesce(last.c.content, "")).like(term),
+                folded_like(Conversation.title, search),
+                folded_like(Conversation.contact_name, search),
+                folded_like(last.c.content, search),
             )
         )
     # A conversation moves up only when the contact writes. Reading it,
@@ -863,12 +863,11 @@ def portal_contacts(
     stats = _contact_stats()
     scope = [Contact.client_id == client.id]
     if search and search.strip():
-        term = f"%{search.strip().lower()}%"
         scope.append(
             or_(
-                func.lower(Contact.name).like(term),
-                func.coalesce(Contact.phone, "").like(term),
-                func.lower(func.coalesce(Contact.email, "")).like(term),
+                folded_like(Contact.name, search),
+                folded_like(Contact.phone, search),
+                folded_like(Contact.email, search),
             )
         )
     if tag is not None:

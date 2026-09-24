@@ -37,6 +37,7 @@ from ..services.providers import resolve_agent_credentials
 from ..services.usage import record_usage
 from ..services.whatsapp import deliver_reaction, resolve_quote, send_channel_location, send_channel_message, signal_channel_read
 from ..services import channel_accounts
+from ..services.text_search import folded_like
 from ..services.whatsapp_inbound import InboundMessage, resolve_inbound_content
 
 
@@ -173,12 +174,11 @@ def inbox(
     if unread:
         query = query.where(unread_count > 0)
     if search and search.strip():
-        term = f"%{search.strip().lower()}%"
         query = query.where(
             or_(
-                func.lower(Conversation.title).like(term),
-                func.lower(func.coalesce(Conversation.contact_name, "")).like(term),
-                func.lower(func.coalesce(last.c.content, "")).like(term),
+                folded_like(Conversation.title, search),
+                folded_like(Conversation.contact_name, search),
+                folded_like(last.c.content, search),
             )
         )
     # Same rule as the portal: only a new visitor message moves a row up.

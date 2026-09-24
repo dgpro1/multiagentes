@@ -8,6 +8,7 @@ import { ChannelIcon } from "@/lib/channels";
 import { api, ApiError, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import type { PortalMember, Team } from "@/types";
+import { fold } from "@/lib/text";
 
 const STRATEGIES = ["round_robin", "least_busy"] as const;
 const CHANNEL_OPTIONS = ["whatsapp", "whatsapp_cloud", "instagram", "messenger", "widget"] as const;
@@ -95,12 +96,12 @@ export function TeamsView({ base, canManage = true }: { base: string; canManage?
     : value === "messenger" ? t("social.messenger.title")
     : t("portal.teams.channel.widget");
 
-  const query = memberQuery.trim().toLowerCase();
+  const query = fold(memberQuery.trim());
   const chosenMembers = members.filter((member) => selectedMembers.includes(member.id));
   const memberOptions = members.filter(
     (member) =>
       !selectedMembers.includes(member.id) &&
-      (!query || member.name.toLowerCase().includes(query) || member.email.toLowerCase().includes(query))
+      (!query || fold(member.name).includes(query) || fold(member.email).includes(query))
   );
 
   return <>

@@ -20,6 +20,7 @@ import { useLanguage, useT, type I18nKey } from "@/lib/i18n";
 import { tagStyle } from "@/lib/tags";
 import type { Attachment, Contact, ContactImportResult, ContactTag, Conversation, PortalChannel, TemplateSend } from "@/types";
 import type { ContactValues } from "@/lib/contact-variables";
+import { fold, foldIncludes } from "@/lib/text";
 
 const LIMIT = 50;
 const HISTORY_LIMIT = 20;
@@ -138,8 +139,8 @@ export function ContactsView({ slug, channels, openConversation, can, agentName,
     } catch (err) { setError(messageFrom(err)); } finally { setBusy(false); }
   }
   const tagQueryTrimmed = tagQuery.trim();
-  const pickerTags = tags.filter((tag) => !tagQueryTrimmed || tag.name.toLowerCase().includes(tagQueryTrimmed.toLowerCase()));
-  const pickerExact = tags.some((tag) => tag.name.toLowerCase() === tagQueryTrimmed.toLowerCase());
+  const pickerTags = tags.filter((tag) => !tagQueryTrimmed || foldIncludes(tag.name, tagQueryTrimmed));
+  const pickerExact = tags.some((tag) => fold(tag.name) === fold(tagQueryTrimmed));
 
   function openImport() { setImportFile(null); setImportResult(null); setImportError(""); setImporting(true); }
   async function runImport(event: FormEvent<HTMLFormElement>) {
@@ -530,7 +531,7 @@ export function ContactsView({ slug, channels, openConversation, can, agentName,
         <div className="merge-candidates">
           {items
             .filter((contact) => contact.id !== selected?.id)
-            .filter((contact) => !mergeQuery.trim() || `${contact.name} ${contact.phone ?? ""} ${contact.email ?? ""}`.toLowerCase().includes(mergeQuery.trim().toLowerCase()))
+            .filter((contact) => !mergeQuery.trim() || foldIncludes(`${contact.name} ${contact.phone ?? ""} ${contact.email ?? ""}`, mergeQuery.trim()))
             .slice(0, 8)
             .map((contact) => <button type="button" key={contact.id} className={mergePrimary?.id === contact.id ? "active" : ""} onClick={() => setMergePrimary(contact)}>
               <span className="entity-avatar tiny"><UserRound size={15} /></span>

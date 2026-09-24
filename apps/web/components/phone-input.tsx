@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { COUNTRIES, countryName, defaultCountry, dialCodeOf, flagOf, splitPhone } from "@/lib/dial-codes";
+import { fold } from "@/lib/text";
 
 /** Country picker plus national number, stored the way WhatsApp keys people:
  * dial code and digits, nothing else. Whatever gets typed or pasted is
@@ -38,9 +39,9 @@ export function PhoneInput({
       ),
     [locale]
   );
-  const term = query.trim().toLowerCase();
+  const term = fold(query.trim());
   const filtered = term
-    ? options.filter((entry) => `${entry.label} +${entry.code}`.toLowerCase().includes(term))
+    ? options.filter((entry) => fold(`${entry.label} +${entry.code}`).includes(term))
     : options;
 
   useEffect(() => {

@@ -10,6 +10,7 @@ import { api, ApiError, messageFrom } from "@/lib/api";
 import { useT, type TranslateFn } from "@/lib/i18n";
 import { TEMPLATE_LANGUAGES, TEMPLATE_LANGUAGE_CODES, templateLanguageLabel } from "@/lib/template-languages";
 import type { Template, TemplateSend } from "@/types";
+import { fold } from "@/lib/text";
 
 // The limits Meta enforces, mirrored from the API so the editor can warn
 // before submitting.
@@ -157,9 +158,9 @@ export function TemplatesView({ base, supported, canManage = true }: { base: str
   useEffect(() => { setUnsupported(supported === false); }, [supported]);
   const categories = useMemo(() => Array.from(new Set(items.map((i) => i.category))).sort(), [items]);
   const shown = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query = fold(search.trim());
     return items.filter((item) => {
-      if (query && !`${item.name} ${item.body} ${item.language}`.toLowerCase().includes(query)) return false;
+      if (query && !fold(`${item.name} ${item.body} ${item.language}`).includes(query)) return false;
       if (categoryFilter && item.category !== categoryFilter) return false;
       if (statusFilter === "PENDING") return item.status !== "APPROVED" && item.status !== "REJECTED";
       if (statusFilter) return item.status === statusFilter;
