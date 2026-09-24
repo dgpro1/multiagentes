@@ -14,10 +14,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
+from ..deps import confine, confined_client_id
 from ..models import Agent, Client, SocialChannel, SocialOAuthState, User, new_public_id, now_utc
 from ..security import decrypt_secret, encrypt_secret
 from . import messaging_provider as provider
 from . import messaging_profiles as profiles
+from . import portal_return
 from . import social_graph as graph
 
 
@@ -91,7 +93,8 @@ def get_app_config(provider_name: str) -> SocialAppConfig:
 
 
 def owned_client(db: Session, user: User, client_id, agent_id=None):
-    client = db.scalar(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id))
+    # A client's portal admin reaches only its own client; see PortalActor.
+    client = db.scalar(confine(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id), user, Client.id))
     if not client:
         raise HTTPException(404, "Client not found")
     if agent_id is not None and not db.scalar(select(Agent.id).where(Agent.id == agent_id, Agent.client_id == client.id, Agent.agency_id == user.agency_id)):
@@ -103,7 +106,8 @@ def owned_channel(db: Session, user: User, ref, provider_name: str):
     """``ref`` is a channel id, or a client id for that client's first account
     of the provider (the shape the routes had while a client could only have one)."""
     graph.provider_name(provider_name)
-    channel = db.scalar(select(SocialChannel).where(SocialChannel.id == ref, SocialChannel.agency_id == user.agency_id, SocialChannel.provider == provider_name))
+    channel = db.scalar(confine(select(SocialChannel).where(SocialChannel.id == ref, SocialChannel.agency_id == user.agency_id,
+        SocialChannel.provider == provider_name), user, SocialChannel.client_id))
     if channel:
         return channel
     owned_client(db, user, ref)
@@ -216,7 +220,8 @@ def _new_state(db, user, client_id, agent_id, provider_name, next_url, payload):
 
     raw = secrets.token_urlsafe(32)
     state = SocialOAuthState(id=hashlib.sha256(raw.encode()).hexdigest(), agency_id=user.agency_id,
-        user_id=user.id, client_id=client_id, agent_id=agent_id, provider=provider_name,
+        # A portal admin is not a row of users; the state then names nobody.
+        user_id=None if confined_client_id(user) is not None else user.id, client_id=client_id, agent_id=agent_id, provider=provider_name,
         redirect_uri=provider.connect_callback_url(), next_url=next_url,
         encrypted_payload=encrypt_secret(json.dumps(payload)),
         expires_at=now_utc() + timedelta(minutes=max(1, min(get_settings().social_oauth_state_minutes, 30))))
@@ -236,13 +241,17 @@ async def begin_oauth(db: Session, user: User, provider_name: str, client_id, ag
     graph.provider_name(provider_name)
     client = owned_client(db, user, client_id, agent_id)
     provider.require_config()
-    path = next_path or f"/clients/{client_id}/channels/{provider_name}"
-    # Return only to the connection screen of the client bound into this state.
-    if path != f"/clients/{client_id}/channels/{provider_name}":
-        raise HTTPException(400, "Use this client's messaging connection page as the return path")
-    origin = (get_settings().frontend_url or "").rstrip("/")
-    parsed = urlsplit(origin)
-    next_url = urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+    if confined_client_id(user) is not None:
+        # From the portal the flow returns to the portal's own screen.
+        next_url = portal_return.portal_url(client, provider_name, next_path=next_path)
+    else:
+        path = next_path or f"/clients/{client_id}/channels/{provider_name}"
+        # Return only to the connection screen of the client bound into this state.
+        if path != f"/clients/{client_id}/channels/{provider_name}":
+            raise HTTPException(400, "Use this client's messaging connection page as the return path")
+        origin = (get_settings().frontend_url or "").rstrip("/")
+        parsed = urlsplit(origin)
+        next_url = urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
     _new_state(db, user, client_id, agent_id, provider_name, next_url, {"phase": "link"})
     profile_id = await profiles.ensure_client_profile(db, client)
     link = await provider.connect_url(_platform_of(provider_name), profile_id)
@@ -266,7 +275,7 @@ async def complete_oauth(db: Session, user: User, provider_name: str, setup_id: 
     """Bind one of the profile's accounts to the client."""
     graph.provider_name(provider_name)
     provider.require_config()
-    client = db.scalar(select(Client).where(Client.provider_profile_id == setup_id, Client.agency_id == user.agency_id))
+    client = db.scalar(confine(select(Client).where(Client.provider_profile_id == setup_id, Client.agency_id == user.agency_id), user, Client.id))
     if not client:
         raise HTTPException(400, "Start the connection again with the current application")
     agent = db.scalar(select(Agent).where(Agent.client_id == client.id, Agent.agency_id == user.agency_id,
@@ -302,7 +311,7 @@ async def bind_callback_account(db, provider_name: str, profile_id: str, account
         SocialOAuthState.expires_at > now_utc()).order_by(SocialOAuthState.created_at.desc()).limit(1))
     if state:
         state.used_at = now_utc()
-        user = db.get(User, state.user_id)
+        user = db.get(User, state.user_id) if state.user_id else None
         agent_id, next_url = state.agent_id, state.next_url
     else:
         user = None

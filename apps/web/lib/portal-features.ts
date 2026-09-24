@@ -3,6 +3,8 @@
 // refuses the rest. The catalog below mirrors apps/api/app/portal_features.py: a test
 // compares the two lists, so change both together.
 
+import { CHANNEL_TYPES, type ChannelType } from "@/lib/routes";
+
 export const PORTAL_FEATURES = [
   { key: "inbox", default: true },
   { key: "contacts", default: true },
@@ -25,9 +27,18 @@ export const PORTAL_FEATURES = [
 export type PortalFeature = (typeof PORTAL_FEATURES)[number]["key"];
 
 /** Functions whose portal screen is not built yet: the switch is stored, nothing shows. */
-export const FEATURES_WITHOUT_SCREEN: readonly PortalFeature[] = ["api", "channels.whatsapp", "channels.whatsapp_cloud", "channels.instagram", "channels.messenger", "channels.webchat"];
+export const FEATURES_WITHOUT_SCREEN: readonly PortalFeature[] = ["api"];
 
 export const CHANNEL_FEATURES: readonly PortalFeature[] = ["channels.whatsapp", "channels.whatsapp_cloud", "channels.instagram", "channels.messenger", "channels.webchat"];
+
+/** The function behind each channel type's portal page (the type is the path segment of lib/routes.ts). */
+export const FEATURE_OF_CHANNEL_TYPE: Record<ChannelType, PortalFeature> = {
+  whatsapp: "channels.whatsapp",
+  "whatsapp-cloud": "channels.whatsapp_cloud",
+  instagram: "channels.instagram",
+  messenger: "channels.messenger",
+  webchat: "channels.webchat",
+};
 
 /** The switches shown on each tab of the client page; the Portal tab shows all of them. */
 export const FEATURES_BY_CLIENT_TAB: Record<string, readonly PortalFeature[]> = {
@@ -55,6 +66,24 @@ export const FEATURE_OF_PERMISSION: Record<string, PortalFeature> = {
   "canned.manage": "canned",
   "agents.manage": "agents",
 };
+
+/** Permissions that hold while ANY of several functions is on (channel management needs at least one channel type). */
+const ANY_FEATURE_OF_PERMISSION: Record<string, readonly PortalFeature[]> = {
+  "channels.manage": CHANNEL_FEATURES,
+};
+
+/** Whether the function behind a permission is on; a permission with no function behind it always is. */
+export function permissionFeatureOn(permission: string, enabled: (key: PortalFeature) => boolean): boolean {
+  const single = FEATURE_OF_PERMISSION[permission];
+  if (single) return enabled(single);
+  const any = ANY_FEATURE_OF_PERMISSION[permission];
+  return any ? any.some(enabled) : true;
+}
+
+/** The channel types switched on for the portal, in the order the overview shows them. */
+export function enabledChannelTypes(enabled: (key: PortalFeature) => boolean): ChannelType[] {
+  return CHANNEL_TYPES.filter((type) => enabled(FEATURE_OF_CHANNEL_TYPE[type]));
+}
 
 const DEFAULTS = new Map<string, boolean>(PORTAL_FEATURES.map((entry) => [entry.key, entry.default]));
 

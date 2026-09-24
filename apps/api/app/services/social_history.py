@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from ..deps import confined_client_id
 from ..models import SocialChannel, now_utc
 from . import messaging_provider as provider
 from .social_connections import owned_channel
@@ -36,7 +37,7 @@ def request_import(db, user, client_id, provider_name):
         return prior
     # A subsequent batch continues from the checkpoint of the prior batch.
     resume = bool(prior and prior.cursor)
-    job = SocialHistoryImport(channel_id=channel.id, requested_by=user.id,
+    job = SocialHistoryImport(channel_id=channel.id, requested_by=None if confined_client_id(user) is not None else user.id,
         cutoff_at=min(prior.cutoff_at, channel.last_connected_at) if resume else channel.last_connected_at,
         cursor=prior.cursor if resume else None, max_conversations=MAX_CONVERSATIONS)
     db.add(job)

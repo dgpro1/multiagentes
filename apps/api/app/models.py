@@ -1029,7 +1029,8 @@ class SocialOAuthState(Base):
     __tablename__ = "social_oauth_states"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # None when a client's portal admin started the flow (not a row of users).
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True)
     client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"))
     provider: Mapped[str] = mapped_column(String(30))

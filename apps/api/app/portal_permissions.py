@@ -38,6 +38,11 @@ PIPELINE_MANAGE = "pipeline.manage"
 # edit, delete, knowledge, tools, escalation rules, the playground. It only
 # takes effect where the agency switched the ``agents`` portal function on.
 AGENTS_MANAGE = "agents.manage"
+# Everything the agency's channel screens do for the channel types the agency
+# switched on (``channels.*`` portal functions): connect, configure and
+# disconnect the client's WhatsApp, WhatsApp API, Instagram, Messenger and web
+# chat lines. It only takes effect for a type that is on for the client.
+CHANNELS_MANAGE = "channels.manage"
 
 PERMISSIONS: tuple[str, ...] = (
     INBOX_DELETE,
@@ -50,6 +55,7 @@ PERMISSIONS: tuple[str, ...] = (
     CALENDAR_MANAGE,
     PIPELINE_MANAGE,
     AGENTS_MANAGE,
+    CHANNELS_MANAGE,
 )
 
 ROLES: dict[str, frozenset[str]] = {

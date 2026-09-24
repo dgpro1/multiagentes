@@ -7,17 +7,23 @@
 //            /portal/{slug}/contacts[/{id}]  /pipeline  /calendar  /reports
 //            /portal/{slug}/settings[/{tab}]
 //            /portal/{slug}/agents[/new]     /agents/{id}[/{basics|knowledge|tools|playground}]
+//            /portal/{slug}/channels[/{whatsapp|whatsapp-cloud|instagram|messenger|webchat}]
 //   Agency   /clients/{id}[/{tab}]           /clients/{id}/inbox/{number}
+//            /clients/{id}/channels/{whatsapp|whatsapp-cloud|instagram|messenger|webchat}
 //            /agents/{id}[/{tab}]
 //
 // A client's own domain serves the portal from the root (proxy.ts rewrites it to
 // /portal/{slug}), so the portal prefix is worked out from where the page is.
 
-export const PORTAL_VIEWS = ["inbox", "contacts", "calendar", "pipeline", "reports", "agents", "settings"] as const;
+export const PORTAL_VIEWS = ["inbox", "contacts", "calendar", "pipeline", "reports", "agents", "channels", "settings"] as const;
 export type PortalView = (typeof PORTAL_VIEWS)[number];
 
 export const CLIENT_TABS = ["details", "agents", "channels", "inbox", "teams", "tags", "templates", "calendar", "pipeline", "api", "portal"] as const;
 export type ClientTab = (typeof CLIENT_TABS)[number];
+
+// In the order the channel cards are shown.
+export const CHANNEL_TYPES = ["whatsapp-cloud", "whatsapp", "webchat", "instagram", "messenger"] as const;
+export type ChannelType = (typeof CHANNEL_TYPES)[number];
 
 export const AGENT_TABS = ["basics", "knowledge", "tools", "playground"] as const;
 export type AgentTab = (typeof AGENT_TABS)[number];
@@ -48,6 +54,8 @@ export type PortalRoute = {
   agentId?: string;
   /** On /agents/{id}/...: the segments after the id (the agent's tab). */
   agentSegments?: string[];
+  /** On /channels/{type}: which channel type's page is open (absent on the overview). */
+  channelType?: ChannelType;
 };
 
 export function parsePortalPath(segments?: string[]): PortalRoute {
@@ -59,7 +67,18 @@ export function parsePortalPath(segments?: string[]): PortalRoute {
   if (view === "contacts" && second) route.contactId = second;
   if (view === "settings" && second) route.tab = second;
   if (view === "agents" && second) { route.agentId = second; route.agentSegments = rest; }
+  if (view === "channels" && second) route.channelType = CHANNEL_TYPES.find((value) => value === second);
   return route;
+}
+
+/** A portal channel address: the overview, or one channel type's page. */
+export function portalChannelPath(base: string, type?: ChannelType | null): string {
+  return type ? `${base}/channels/${type}` : `${base}/channels`;
+}
+
+/** A client's channel address in the agency panel: the Channels tab, or one channel type's page. */
+export function clientChannelPath(clientId: string, type?: ChannelType | null): string {
+  return type ? `/clients/${clientId}/channels/${type}` : `/clients/${clientId}/channels`;
 }
 
 /** A portal agent address: the list, `"new"` for the wizard, or an agent with its tab ("basics" is the bare id). */

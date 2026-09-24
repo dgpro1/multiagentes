@@ -1,13 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Bot, CheckCircle2, CircleAlert, Facebook, Instagram, History, LoaderCircle, Plug, Power, ShieldCheck } from "lucide-react";
 import { Alert, Modal } from "@/components/ui";
 import { AccountList } from "@/components/account-list";
-import { api, ApiError, messageFrom } from "@/lib/api";
-import { clientPath } from "@/lib/routes";
+import { ApiError, messageFrom } from "@/lib/api";
+import { ChannelsScopeProvider, useBackToChannels, useChannelClient, useChannelsApi, useChannelsScope, type ChannelHrefs } from "@/components/channels/scope";
 import { accountName, accountTitle, rememberLine, requestedLine } from "@/lib/channels";
 import { useLanguage } from "@/lib/i18n";
 import type { Client, SocialChannel, SocialConfig, SocialHistoryJob, SocialProvider } from "@/types";
@@ -16,9 +15,16 @@ import type { Client, SocialChannel, SocialConfig, SocialHistoryJob, SocialProvi
  * one is picked from there (or named by `?line=<id>`) and the panels below
  * then configure that one. `?new`, or an empty list, starts another through
  * the hosted authorization page, opened in a new tab. */
-export function SocialChannelSetup({ provider }: { provider: SocialProvider }) {
+export function SocialChannelSetup({ provider, apiBase, hrefFor, client }: { provider: SocialProvider; apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; name: string } | null }) {
+  return <ChannelsScopeProvider apiBase={apiBase} hrefFor={hrefFor} client={client}><SocialScreen provider={provider} /></ChannelsScopeProvider>;
+}
+
+function SocialScreen({ provider }: { provider: SocialProvider }) {
   const { t } = useLanguage();
-  const { id } = useParams<{ id: string }>();
+  const { hrefFor, portal } = useChannelsScope();
+  const { api } = useChannelsApi();
+  const { clientId: id, loadClient } = useChannelClient();
+  const backLabel = useBackToChannels();
   const [client, setClient] = useState<Client | null>(null);
   const [config, setConfig] = useState<SocialConfig[SocialProvider] | null>(null);
   const [lines, setLines] = useState<SocialChannel[]>([]);
@@ -72,13 +78,13 @@ export function SocialChannelSetup({ provider }: { provider: SocialProvider }) {
       setHistoryJob(null);
       if (!(err instanceof ApiError && err.status === 404)) setHistoryPollFailed(true);
     }
-  }, [provider]);
+  }, [api, provider]);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const [owner, setup, items] = await Promise.all([
-        api<Client>(`/clients/${id}`),
+        loadClient(),
         api<SocialConfig>("/social/config"),
         api<SocialChannel[]>(`/social/${provider}/clients/${id}/channels`),
       ]);
@@ -98,7 +104,7 @@ export function SocialChannelSetup({ provider }: { provider: SocialProvider }) {
       }
     } catch (err) { setError(messageFrom(err)); }
     finally { setLoading(false); }
-  }, [id, provider, applyChannel, startAdding, showList, loadHistory]);
+  }, [id, api, loadClient, provider, applyChannel, startAdding, showList, loadHistory]);
   useEffect(() => { void load(); }, [load]);
 
   // The hosted page approves in another tab; reload when coming back.
@@ -130,7 +136,7 @@ export function SocialChannelSetup({ provider }: { provider: SocialProvider }) {
       } finally { polling = false; }
     }, 3000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [provider, channelId, importing]);
+  }, [api, provider, channelId, importing]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true); setError(""); setCallbackNotice(null); setSaved(false);
@@ -143,7 +149,7 @@ export function SocialChannelSetup({ provider }: { provider: SocialProvider }) {
     if (!agentId) return;
     await run(async () => {
       const result = await api<{ authorization_url: string }>(`/social/${provider}/oauth/start`, {
-        method: "POST", body: JSON.stringify({ client_id: id, agent_id: agentId, next_path: `/clients/${id}/channels/${provider}` }),
+        method: "POST", body: JSON.stringify({ client_id: id, agent_id: agentId, next_path: hrefFor.type(provider) }),
       });
       window.open(result.authorization_url, "_blank", "noopener");
       setPendingApproval(true);
@@ -206,7 +212,7 @@ export function SocialChannelSetup({ provider }: { provider: SocialProvider }) {
 
   return <div className="page wa-page social-page">
     {listView || !lines.length
-      ? <Link href={clientPath(id, "channels")} className="back-link"><ArrowLeft size={17} /> {t("clients.whatsapp.back", { name: client.name })}</Link>
+      ? <Link href={hrefFor.overview()} className="back-link"><ArrowLeft size={17} /> {backLabel(client.name)}</Link>
       : <button type="button" className="back-link" onClick={showList}><ArrowLeft size={17} /> {t(`social.${provider}.title`)}</button>}
     <header className="wa-header"><div className={`wa-mark ${provider}`}><Icon size={26} /></div><div><span>{listView ? t("clients.whatsapp.channelOf", { name: client.name }) : `${t(`social.${provider}.title`)} · ${client.name}`}</span><h1>{channel ? accountTitle(channel, nameOf(channel)) : adding ? t("social.newAccount") : t(`social.${provider}.title`)}</h1><p>{t(`social.${provider}.description`)}</p></div>{channel && <div className={`wa-state ${connected ? "connected" : channel.status === "error" ? "error" : "disconnected"}`}>{connected ? <CheckCircle2 size={17} /> : <CircleAlert size={17} />} {t(statusLabel)}</div>}</header>
     {error && <Alert>{error}</Alert>}
@@ -220,7 +226,7 @@ export function SocialChannelSetup({ provider }: { provider: SocialProvider }) {
         {channel && <div className="social-account"><Icon size={24} /><div><strong>{channel.display_name || channel.username || channel.external_account_id}</strong>{channel.username && <small>@{channel.username.replace(/^@/, "")}</small>}<small>{channel.external_account_id}</small>{connected && <small>{t("social.connectedCopy")}</small>}</div></div>}
         {channel?.last_error && <Alert>{channel.last_error}</Alert>}
         {pendingApproval && <p className="social-meta" role="status">{t("social.approvalPending")}</p>}
-        {!config.oauth_ready && <p className="social-setup-notice">{t("social.providerNotReady")}</p>}
+        {!config.oauth_ready && <p className="social-setup-notice">{t(portal ? "social.providerNotReadyPortal" : "social.providerNotReady")}</p>}
         <div className="wa-actions"><button className="button primary" onClick={authorize} disabled={!config.oauth_ready || !agentId || busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <Plug size={17} />} {t(channel ? "social.reconnect" : "social.connect")}</button>{channel && <button className="button secondary" disabled={busy} onClick={verifySaved}>{t(connected ? "social.verify" : "social.connectSaved")}</button>}{channel && <button className="button danger" onClick={() => setDisconnectOpen(true)} disabled={busy}><Power size={17} /> {t("social.disconnect")}</button>}</div>
         <Modal open={disconnectOpen} title={t("social.disconnectTitle", { name: channel?.display_name || channel?.username || channel?.external_account_id || "" })} onClose={() => setDisconnectOpen(false)}>
           <div className="modal-form">

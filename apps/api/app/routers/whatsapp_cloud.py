@@ -6,11 +6,12 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
-from ..deps import get_current_user, require
+from ..deps import confine, get_current_user, require
 from ..models import Agent, Client, User, WhatsAppCloudChannel, new_public_id, now_utc
 from ..schemas_whatsapp_cloud import WhatsAppCloudChannelOut, WhatsAppCloudChannelUpdate
 from ..services import messaging_provider as provider
 from ..services import messaging_profiles as profiles
+from ..services import portal_return
 from ..services.whatsapp_cloud import verify_account
 
 
@@ -21,13 +22,18 @@ def _channel_for_user(db: Session, user: User, ref: uuid.UUID) -> WhatsAppCloudC
     """``ref`` is a channel id, or a client id for that client's first number
     (the shape these routes had while a client could only have one)."""
     channel = db.scalar(
-        select(WhatsAppCloudChannel).where(WhatsAppCloudChannel.id == ref, WhatsAppCloudChannel.agency_id == user.agency_id)
+        confine(
+            select(WhatsAppCloudChannel).where(WhatsAppCloudChannel.id == ref, WhatsAppCloudChannel.agency_id == user.agency_id),
+            user, WhatsAppCloudChannel.client_id,
+        )
     )
     if channel:
         return channel
     channel = db.scalar(
-        select(WhatsAppCloudChannel)
-        .where(WhatsAppCloudChannel.client_id == ref, WhatsAppCloudChannel.agency_id == user.agency_id)
+        confine(
+            select(WhatsAppCloudChannel).where(WhatsAppCloudChannel.client_id == ref, WhatsAppCloudChannel.agency_id == user.agency_id),
+            user, WhatsAppCloudChannel.client_id,
+        )
         .order_by(WhatsAppCloudChannel.created_at)
         .limit(1)
     )
@@ -37,7 +43,8 @@ def _channel_for_user(db: Session, user: User, ref: uuid.UUID) -> WhatsAppCloudC
 
 
 def _owned_client(db: Session, user: User, client_id: uuid.UUID) -> Client:
-    client = db.scalar(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id))
+    # A client's portal admin reaches only its own client; see PortalActor.
+    client = db.scalar(confine(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id), user, Client.id))
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     return client
@@ -175,7 +182,10 @@ def configure_channel(
     """Save a number's agent and name. Called with a client id it
     configures that client's first number, creating it when there is none."""
     channel = db.scalar(
-        select(WhatsAppCloudChannel).where(WhatsAppCloudChannel.id == ref, WhatsAppCloudChannel.agency_id == user.agency_id)
+        confine(
+            select(WhatsAppCloudChannel).where(WhatsAppCloudChannel.id == ref, WhatsAppCloudChannel.agency_id == user.agency_id),
+            user, WhatsAppCloudChannel.client_id,
+        )
     )
     if not channel:
         client = _owned_client(db, user, ref)
@@ -199,7 +209,10 @@ async def remove_channel(channel_id: uuid.UUID, db: Session = Depends(get_db), u
     """Remove a number. Its conversations stay as history; the provider-side
     profile is released so the name can be used again (best-effort)."""
     channel = db.scalar(
-        select(WhatsAppCloudChannel).where(WhatsAppCloudChannel.id == channel_id, WhatsAppCloudChannel.agency_id == user.agency_id)
+        confine(
+            select(WhatsAppCloudChannel).where(WhatsAppCloudChannel.id == channel_id, WhatsAppCloudChannel.agency_id == user.agency_id),
+            user, WhatsAppCloudChannel.client_id,
+        )
     )
     if not channel:
         raise HTTPException(status_code=404, detail="Number not found")
@@ -226,6 +239,9 @@ async def connect_channel(ref: uuid.UUID, db: Session = Depends(get_db), user: U
             db.refresh(channel)
         return _public_channel(channel)
     profile_id = await profiles.ensure_channel_profile(db, channel)
+    # Note where the hosted page's callback sends the browser back to: the portal
+    # screen when a portal admin started this, the panel's otherwise.
+    portal_return.remember(db, user, channel)
     try:
         link = await provider.connect_url("whatsapp", profile_id, onboarding="api")
     except HTTPException as exc:

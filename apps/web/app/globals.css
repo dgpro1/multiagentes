@@ -2862,3 +2862,10 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
    shell's title bar and the page gutter step aside and the portal's padding rules. */
 .portal-main-agents > header { display: none; }
 .portal-main-agents .page { max-width: none; padding: 0; }
+
+/* Channels in the client portal: a channel type's page is the agency's own screen
+   (components/channels), which brings its page head and padding, so the shell's title
+   bar and the page gutter step aside. The overview keeps the shell's title bar. */
+.portal-main-channel-page > header { display: none; }
+.portal-main-channel-page .page { max-width: none; padding: 0; }
+.portal-channels .compact-channel-grid { align-items: stretch; }

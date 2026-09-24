@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..config import get_settings
 from ..database import get_db
 from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
-from ..deps import get_current_user, require
+from ..deps import confine, get_current_user, require
 from ..models import Agent, Client, Conversation, Message, User, WhatsAppChannel, now_utc
 from ..schemas import (
     WhatsAppChannelOut,
@@ -37,12 +37,16 @@ internal_router = APIRouter(prefix="/internal/whatsapp", tags=["WhatsApp interna
 def _channel_for_user(db: Session, user: User, ref: uuid.UUID) -> WhatsAppChannel:
     """``ref`` is a line id, or a client id for that client's first line (the
     shape these routes had while a client could only have one)."""
-    channel = db.scalar(select(WhatsAppChannel).where(WhatsAppChannel.id == ref, WhatsAppChannel.agency_id == user.agency_id))
+    channel = db.scalar(
+        confine(select(WhatsAppChannel).where(WhatsAppChannel.id == ref, WhatsAppChannel.agency_id == user.agency_id), user, WhatsAppChannel.client_id)
+    )
     if channel:
         return channel
     channel = db.scalar(
-        select(WhatsAppChannel)
-        .where(WhatsAppChannel.client_id == ref, WhatsAppChannel.agency_id == user.agency_id)
+        confine(
+            select(WhatsAppChannel).where(WhatsAppChannel.client_id == ref, WhatsAppChannel.agency_id == user.agency_id),
+            user, WhatsAppChannel.client_id,
+        )
         .order_by(WhatsAppChannel.created_at)
         .limit(1)
     )
@@ -52,7 +56,8 @@ def _channel_for_user(db: Session, user: User, ref: uuid.UUID) -> WhatsAppChanne
 
 
 def _owned_client(db: Session, user: User, client_id: uuid.UUID) -> Client:
-    client = db.scalar(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id))
+    # A client's portal admin reaches only its own client; see PortalActor.
+    client = db.scalar(confine(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id), user, Client.id))
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     return client
@@ -178,7 +183,9 @@ async def configure_channel(
 ):
     """Change the agent or the name of a line. Called with a client id it
     configures that client's first line, creating it when there is none."""
-    channel = db.scalar(select(WhatsAppChannel).where(WhatsAppChannel.id == ref, WhatsAppChannel.agency_id == user.agency_id))
+    channel = db.scalar(
+        confine(select(WhatsAppChannel).where(WhatsAppChannel.id == ref, WhatsAppChannel.agency_id == user.agency_id), user, WhatsAppChannel.client_id)
+    )
     if not channel:
         client = _owned_client(db, user, ref)
         channel = db.scalar(
@@ -206,7 +213,9 @@ async def configure_channel(
 async def remove_channel(channel_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Remove a line. The phone is logged out first (best effort) and the
     line's conversations stay as history."""
-    channel = db.scalar(select(WhatsAppChannel).where(WhatsAppChannel.id == channel_id, WhatsAppChannel.agency_id == user.agency_id))
+    channel = db.scalar(
+        confine(select(WhatsAppChannel).where(WhatsAppChannel.id == channel_id, WhatsAppChannel.agency_id == user.agency_id), user, WhatsAppChannel.client_id)
+    )
     if not channel:
         raise HTTPException(status_code=404, detail="Line not found")
     if evolution_driver.enabled():

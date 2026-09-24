@@ -130,8 +130,12 @@ def test_only_admins_hold_the_permission():
     assert AGENTS_MANAGE in permissions_for("admin") and AGENTS_MANAGE not in permissions_for("agent")
 
 
+# The channel screens are mounted beside the agent ones (tests/test_portal_channels.py).
+CHANNEL_PREFIXES = ("/whatsapp", "/webchat", "/social")
+
+
 def test_the_mounted_surface_is_exactly_the_agent_screens_and_none_takes_a_panel_user():
-    """The surface grows on purpose, and every route of it asks for the portal
+    """The surface grows on purpose, and every route of it asks for a portal
     actor, never for the agency's own session."""
     mounted = set()
     for route in portal_manage.router.routes:
@@ -141,9 +145,10 @@ def test_the_mounted_surface_is_exactly_the_agent_screens_and_none_takes_a_panel
             node = stack.pop()
             seen.append(node.call)
             stack.extend(node.dependencies)
-        assert portal_manage.portal_actor in seen, route.path
+        assert portal_manage.ACTORS & set(seen), route.path
         assert get_current_user not in seen, route.path
-    assert mounted == EXPECTED_ROUTES
+    agent_side = {(m, p) for m, p in mounted if not p.startswith(CHANNEL_PREFIXES) and (m, p) != ("GET", "/clients/{client_id}")}
+    assert agent_side == EXPECTED_ROUTES
 
 
 def test_without_a_session_every_mounted_route_is_a_401(world):

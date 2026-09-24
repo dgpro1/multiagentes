@@ -43,6 +43,15 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- **The client portal gets the agency's channel management, by type.** With a channel type
+  on for a client (WhatsApp QR, WhatsApp API, Instagram, Messenger, Web chat), its portal
+  admins get a **Channels** screen showing only the enabled types, with the same setup
+  screens the agency has, limited to the client's own lines. Switching is per type, never
+  per line, and switching a type off only removes the portal's access: lines keep working.
+  Routes are mounted under `/api/portal/{slug}/manage` behind the type's function and a new
+  admin-only `channels.manage` permission; provider identifiers are blanked, and OAuth /
+  hosted-page flows started from the portal return to the portal (address rebuilt on the
+  server). Migration `0060` lets those flows be stored without an agency user.
 - **The client portal gets the agency's agent management.** With the **Agents** function on
   for a client, its portal admins see an **Agents** screen with the same list, creation
   wizard and agent page (prompt, knowledge, tools, playground) the agency has, limited to

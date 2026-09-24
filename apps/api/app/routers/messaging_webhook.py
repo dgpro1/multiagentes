@@ -21,6 +21,7 @@ from ..deps import get_current_user
 from ..models import Client, Conversation, Message, SocialChannel, SocialOutbox, User, WhatsAppCloudChannel, now_utc
 from ..ratelimit import whatsapp_cloud_webhook_rate_limit
 from ..services import messaging_provider as provider
+from ..services import portal_return
 from ..services.social_inbound import enqueue_provider_event, event_time
 from ..services.whatsapp_format import markdown_to_whatsapp
 from ..services.whatsapp_inbound import InboundMessage, process_inbound, send_reply_attachments
@@ -391,6 +392,17 @@ def _landing(url: str, *, line: str | None, status: str) -> RedirectResponse:
                             status_code=303, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
 
+def _client_screen(db: Session, client_id, frontend: str) -> str:
+    """Where a failed connection with no known channel type lands: the portal's
+    screen for a flow a portal admin started, the client's channels tab otherwise."""
+    default = f"{frontend}/clients/{client_id}?tab=channels"
+    for flow in ("instagram", "messenger"):
+        target = portal_return.landing(db, client_id, flow, "")
+        if target:
+            return target
+    return default
+
+
 @public_router.get("/connect/callback")
 async def connect_callback(
     request: Request, db: Session = Depends(get_db),
@@ -407,9 +419,13 @@ async def connect_callback(
         db.scalar(select(Client).where(Client.provider_profile_id == profileId).limit(1)) if profileId else None)
     if channel is None and client is None:
         raise HTTPException(status_code=400, detail="This connection request is invalid or expired")
+    if channel:
+        cloud_screen = portal_return.landing(
+            db, channel.client_id, portal_return.CLOUD_FLOW,
+            f"{frontend}/clients/{channel.client_id}/channels/whatsapp-cloud", consume=True,
+        )
     if error or connected == "error" or not accountId:
-        target = (f"{frontend}/clients/{channel.client_id}/channels/whatsapp-cloud" if channel
-                  else f"{frontend}/clients/{client.id}?tab=channels")
+        target = cloud_screen if channel else _client_screen(db, client.id, frontend)
         return _landing(target, line=str(channel.id) if channel else None, status="error")
     if channel:
         from ..services.whatsapp_cloud import verify_account
@@ -423,8 +439,7 @@ async def connect_callback(
             channel.last_error = str(exc.detail)[:400]
             channel.updated_at = now_utc()
             db.commit()
-            return _landing(f"{frontend}/clients/{channel.client_id}/channels/whatsapp-cloud",
-                            line=str(channel.id), status="error")
+            return _landing(cloud_screen, line=str(channel.id), status="error")
         channel.status = "connected"
         channel.phone_number = profile.get("display_phone_number")
         channel.display_name = profile.get("verified_name")
@@ -435,8 +450,7 @@ async def connect_callback(
         channel.last_connected_at = now_utc()
         channel.updated_at = now_utc()
         db.commit()
-        return _landing(f"{frontend}/clients/{channel.client_id}/channels/whatsapp-cloud",
-                        line=str(channel.id), status="ready")
+        return _landing(cloud_screen, line=str(channel.id), status="ready")
     client = db.scalar(select(Client).where(Client.provider_profile_id == profileId).limit(1))
     if not client:
         raise HTTPException(status_code=400, detail="This connection request is invalid or expired")
@@ -450,17 +464,18 @@ async def connect_callback(
         try:
             remote = await provider.require_account(accountId, profileId)
         except HTTPException:
-            return _landing(f"{frontend}/clients/{client.id}?tab=channels", line=None, status="error")
+            return _landing(_client_screen(db, client.id, frontend), line=None, status="error")
         remote_platform = str(remote.get("platform") or "")
         provider_name = {"instagram": "instagram", "facebook": "messenger"}.get(remote_platform)
         if not provider_name:
-            return _landing(f"{frontend}/clients/{client.id}?tab=channels", line=None, status="error")
+            return _landing(_client_screen(db, client.id, frontend), line=None, status="error")
     from ..services import social_connections as connections
 
     try:
         bound, next_url = await connections.bind_callback_account(db, provider_name, profileId, accountId)
     except HTTPException:
-        return _landing(f"{frontend}/clients/{client.id}/channels/{provider_name}", line=None, status="error")
+        screen = portal_return.landing(db, client.id, provider_name, f"{frontend}/clients/{client.id}/channels/{provider_name}")
+        return _landing(screen, line=None, status="error")
     return _landing(next_url, line=str(bound.id), status="ready")
 
 

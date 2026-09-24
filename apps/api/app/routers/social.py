@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
-from ..deps import get_current_user, require
+from ..deps import confine, get_current_user, require
 from ..models import SocialChannel, User, now_utc
 from ..schemas_social import SocialChannelOut, SocialChannelRename, SocialChannelUpdate, SocialOAuthComplete, SocialOAuthStart
 from ..services import social_connections as connections
@@ -42,8 +42,8 @@ def get_channel(provider: str, ref: uuid.UUID, db: Session = Depends(get_db), us
 def rename_channel(provider: str, channel_id: uuid.UUID, payload: SocialChannelRename,
                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Change the agent or the name of an account without touching its authorization."""
-    channel = db.scalar(select(SocialChannel).where(SocialChannel.id == channel_id, SocialChannel.agency_id == user.agency_id,
-        SocialChannel.provider == provider_name(provider)))
+    channel = db.scalar(confine(select(SocialChannel).where(SocialChannel.id == channel_id, SocialChannel.agency_id == user.agency_id,
+        SocialChannel.provider == provider_name(provider)), user, SocialChannel.client_id))
     if not channel:
         raise HTTPException(404, "This messaging channel has not been configured")
     if payload.agent_id is not None:

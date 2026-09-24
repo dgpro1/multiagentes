@@ -83,6 +83,8 @@ class PortalActor:
     name: str = ""
     email: str = ""
     role: str = "portal_admin"
+    # The portal functions switched on for the client when the request arrived.
+    features: frozenset[str] = frozenset()
 
     @property
     def confined_client_id(self) -> uuid.UUID:
@@ -92,6 +94,13 @@ class PortalActor:
 def confined_client_id(actor) -> uuid.UUID | None:
     """The one client this actor may touch, or None for the agency's own people."""
     return getattr(actor, "confined_client_id", None)
+
+
+def confine(query, actor, column):
+    """``query`` limited to the actor's own client through ``column``; the
+    agency's people and API tokens get it back unchanged."""
+    only = confined_client_id(actor)
+    return query if only is None else query.where(column == only)
 
 
 def _now() -> datetime:

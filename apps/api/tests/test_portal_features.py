@@ -377,6 +377,38 @@ GATED = [
     ("GET", "/manage/catalog/embedding-models", ["agents"]),
     ("GET", "/manage/catalog/models/{id}", ["agents"]),
     ("GET", "/manage/providers", ["agents"]),
+    # The agency's channel screens, one function per channel type (tests/test_portal_channels.py).
+    ("GET", "/manage/whatsapp/clients/{id}/channels", ["channels.whatsapp"]),
+    ("POST", "/manage/whatsapp/clients/{id}/channels", ["channels.whatsapp"]),
+    ("GET", "/manage/whatsapp/channels/{id}", ["channels.whatsapp"]),
+    ("PUT", "/manage/whatsapp/channels/{id}", ["channels.whatsapp"]),
+    ("DELETE", "/manage/whatsapp/channels/{id}", ["channels.whatsapp"]),
+    ("POST", "/manage/whatsapp/channels/{id}/connect", ["channels.whatsapp"]),
+    ("POST", "/manage/whatsapp/channels/{id}/disconnect", ["channels.whatsapp"]),
+    ("GET", "/manage/whatsapp-cloud/clients/{id}/channels", ["channels.whatsapp_cloud"]),
+    ("POST", "/manage/whatsapp-cloud/clients/{id}/channels", ["channels.whatsapp_cloud"]),
+    ("PUT", "/manage/whatsapp-cloud/channels/{id}", ["channels.whatsapp_cloud"]),
+    ("DELETE", "/manage/whatsapp-cloud/channels/{id}", ["channels.whatsapp_cloud"]),
+    ("POST", "/manage/whatsapp-cloud/channels/{id}/connect", ["channels.whatsapp_cloud"]),
+    ("POST", "/manage/whatsapp-cloud/channels/{id}/refresh", ["channels.whatsapp_cloud"]),
+    ("POST", "/manage/whatsapp-cloud/channels/{id}/disconnect", ["channels.whatsapp_cloud"]),
+    ("GET", "/manage/webchat/channels/{id}", ["channels.webchat"]),
+    ("PUT", "/manage/webchat/channels/{id}", ["channels.webchat"]),
+]
+
+# Channel routes whose function is not one fixed key: the ``/social/{provider}``
+# routes need the provider's own type, the config and the client's own record
+# need any one of several. Their refusals are held in tests/test_portal_channels.py.
+CHANNEL_SPECIAL = [
+    ("GET", "/manage/social/config"),
+    ("GET", "/manage/social/{id}/clients/{id}/channels"),
+    ("PATCH", "/manage/social/{id}/channels/{id}"),
+    ("POST", "/manage/social/{id}/channels/{id}/connect"),
+    ("POST", "/manage/social/{id}/channels/{id}/disconnect"),
+    ("POST", "/manage/social/{id}/oauth/start"),
+    ("GET", "/manage/social/{id}/channels/{id}/import-history"),
+    ("POST", "/manage/social/{id}/channels/{id}/import-history"),
+    ("GET", "/manage/clients/{id}"),
 ]
 
 # Reads the portal draws itself with: they answer whatever the switches say.
@@ -417,7 +449,7 @@ def test_every_portal_route_has_a_feature_decision():
         for method in route.methods
         if method != "HEAD"
     }
-    decided = {(m, _shape(p)) for m, p, _ in GATED} | {(m, p) for m, p in ALWAYS_OPEN} | set(UNGATED)
+    decided = {(m, _shape(p)) for m, p, _ in GATED} | {(m, p) for m, p in ALWAYS_OPEN} | set(UNGATED) | set(CHANNEL_SPECIAL)
     assert not actual - decided, f"portal routes with no feature decision: {sorted(actual - decided)}"
     assert not decided - actual, f"the matrix names routes that do not exist: {sorted(decided - actual)}"
 
