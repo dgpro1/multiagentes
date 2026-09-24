@@ -3,7 +3,9 @@
 When the agency switches the ``agents`` function on for a client, that client's
 portal admins get the same agent management the agency has: list, create, edit,
 delete, knowledge, tools, escalation rules, the playground, the model catalog.
-When it switches a channel type on (``channels.whatsapp``,
+When it switches the ``api`` function on they get the API tab: their own client's
+integrations, tokens and webhooks (``api.manage``, stricter than the agency's own
+screen, see ``app/portal_api_access.py``). When it switches a channel type on (``channels.whatsapp``,
 ``channels.whatsapp_cloud``, ``channels.instagram``, ``channels.messenger``,
 ``channels.webchat``) they get the agency's connect, configure and disconnect
 screens for that type's lines. The web app reuses the agency's screens with one
@@ -49,9 +51,9 @@ from ..database import get_db
 from ..deps import PortalActor, get_current_user
 from ..models import Client, PortalUser
 from ..portal_features import FEATURE_DISABLED_DETAIL, enabled_keys, ensure_enabled, is_enabled
-from ..portal_permissions import AGENTS_MANAGE, CHANNELS_MANAGE, has_permission
+from ..portal_permissions import AGENTS_MANAGE, API_MANAGE, CHANNELS_MANAGE, has_permission
 from ..schemas import ProviderOut
-from . import agent_tools, agents, catalog, clients, conversations, providers, social, webchat, whatsapp, whatsapp_cloud
+from . import agent_tools, agents, catalog, clients, conversations, integrations, providers, social, webchat, whatsapp, whatsapp_cloud
 from .portal import _portal_client, _portal_user, require_feature
 
 FEATURE = "agents"
@@ -120,6 +122,7 @@ social_actor = _door(CHANNELS_MANAGE, by_provider=True)
 social_config_actor = _door(CHANNELS_MANAGE, any_of=("channels.instagram", "channels.messenger"))
 # The client's name and agents, which every channel screen draws its agent picker from.
 channel_client_actor = _door(CHANNELS_MANAGE, any_of=CHANNEL_FEATURES)
+api_actor = _door(API_MANAGE, all_of=("api",))
 
 
 def _as_portal(endpoint, actor_dependency: Callable = portal_actor, redact: Callable | None = None):
@@ -266,6 +269,24 @@ MOUNTED: tuple[Mount, ...] = (
     }), social_actor, _hide_social_details),
     # The client's own name and agents, for the agent picker of every channel screen.
     Mount(clients.router, frozenset({("GET", "/clients/{client_id}")}), channel_client_actor),
+    # The API tab: the client's own integrations, their long-lived tokens and
+    # webhooks. Not the OAuth client registration (`/oauth-client`, and the
+    # `/oauth` consent routes), which needs an agency user to approve.
+    Mount(integrations.router, frozenset({
+        ("GET", "/integrations/scopes"),
+        ("GET", "/integrations"),
+        ("POST", "/integrations"),
+        ("PATCH", "/integrations/{integration_id}"),
+        ("DELETE", "/integrations/{integration_id}"),
+        ("GET", "/integrations/{integration_id}/tokens"),
+        ("POST", "/integrations/{integration_id}/tokens"),
+        ("DELETE", "/integrations/{integration_id}/tokens/{token_id}"),
+        ("GET", "/integrations/{integration_id}/webhooks"),
+        ("POST", "/integrations/{integration_id}/webhooks"),
+        ("DELETE", "/integrations/{integration_id}/webhooks/{subscription_id}"),
+        ("GET", "/integrations/{integration_id}/webhooks/{subscription_id}/deliveries"),
+        ("POST", "/integrations/{integration_id}/webhooks/{subscription_id}/deliveries/{delivery_id}/replay"),
+    }), api_actor),
 )
 
 # Extra functions a mounted route needs on top of its own. Routing a tag to a

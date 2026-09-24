@@ -43,6 +43,12 @@ AGENTS_MANAGE = "agents.manage"
 # disconnect the client's WhatsApp, WhatsApp API, Instagram, Messenger and web
 # chat lines. It only takes effect for a type that is on for the client.
 CHANNELS_MANAGE = "channels.manage"
+# The agency's API screen for the client's own integrations: create, rename and
+# delete them, issue and revoke their tokens, manage their webhooks. Admins
+# only, and only where the agency switched the ``api`` portal function on. It
+# hands out credentials, so what it may grant is narrower than the agency's
+# screen (see app.portal_api_access).
+API_MANAGE = "api.manage"
 
 PERMISSIONS: tuple[str, ...] = (
     INBOX_DELETE,
@@ -56,6 +62,7 @@ PERMISSIONS: tuple[str, ...] = (
     PIPELINE_MANAGE,
     AGENTS_MANAGE,
     CHANNELS_MANAGE,
+    API_MANAGE,
 )
 
 ROLES: dict[str, frozenset[str]] = {

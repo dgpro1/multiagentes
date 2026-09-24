@@ -1,22 +1,47 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ClipboardCopy, KeyRound, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { Alert, Modal } from "@/components/ui";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
-import { api, messageFrom } from "@/lib/api";
+import { api as rawApi, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import type { ApiIntegration, ApiScopes, ApiTokenIssued, Client, WebhookDelivery, WebhookSecret, WebhookSubscription } from "@/types";
 
 const EXPIRY_OPTIONS = [7, 30, 90, 365, 1825];
 
+// Where the integrations screen runs. The agency's (Settings, and a client's API
+// tab) and the client portal's share this component; what differs is the API
+// prefix every call carries and what the backend mounts. Same idea as
+// components/agents/scope.tsx.
+//
+//   Agency  apiBase ""                       everything, agency-wide integrations included
+//   Portal  apiBase "/portal/{slug}/manage"  the client's own integrations, tokens and
+//                                            webhooks; no OAuth client, no client picker
+type IntegrationsScope = { apiBase: string; portal: boolean };
+const ScopeContext = createContext<IntegrationsScope>({ apiBase: "", portal: false });
+
+/** `api()` with the scope's prefix in front of every path. */
+function useIntegrationsApi() {
+  const { apiBase } = useContext(ScopeContext);
+  return useMemo(() => <T,>(path: string, options?: RequestInit) => rawApi<T>(`${apiBase}${path}`, options), [apiBase]);
+}
+
 /** API integrations: the credentials handed to a third party. Shared by the
- * agency Settings and each client's API tab; with `clientId` the list is
- * filtered and new integrations are confined to that client. A token secret
- * is shown once, right after issuing it. */
-export function ApiIntegrations({ clientId, clientName }: { clientId?: string; clientName?: string }) {
+ * agency Settings, each client's API tab and the client portal's API screen;
+ * with `clientId` the list is filtered and new integrations are confined to that
+ * client. `apiBase` is "" in the agency and "/portal/{slug}/manage" in the
+ * portal. A token secret is shown once, right after issuing it. */
+export function ApiIntegrations({ clientId, clientName, apiBase = "" }: { clientId?: string; clientName?: string; apiBase?: string }) {
+  const scope = useMemo<IntegrationsScope>(() => ({ apiBase, portal: apiBase !== "" }), [apiBase]);
+  return <ScopeContext.Provider value={scope}><IntegrationsScreen clientId={clientId} clientName={clientName} /></ScopeContext.Provider>;
+}
+
+function IntegrationsScreen({ clientId, clientName }: { clientId?: string; clientName?: string }) {
+  const api = useIntegrationsApi();
+  const { portal } = useContext(ScopeContext);
   const t = useT();
   const toast = useToast();
   const [catalog, setCatalog] = useState<ApiScopes | null>(null);
@@ -38,7 +63,7 @@ export function ApiIntegrations({ clientId, clientName }: { clientId?: string; c
       setCatalog(scopes); setItems(rows);
       if (!clientId) setClients(await api<Client[]>("/clients"));
     } catch (err) { setError(messageFrom(err)); }
-  }, [clientId]);
+  }, [api, clientId]);
   useEffect(() => { load().finally(() => setLoading(false)); }, [load]);
 
   const visible = useMemo(
@@ -93,7 +118,7 @@ export function ApiIntegrations({ clientId, clientName }: { clientId?: string; c
         <th>{t("settings.integrations.colLastUsed")}</th>
         <th />
       </tr></thead><tbody>
-        {visible.map((item) => <IntegrationRow key={item.id} item={item} showClient={!clientId}
+        {visible.map((item) => <IntegrationRow key={item.id} item={item} showClient={!clientId} showOAuth={!portal}
           expanded={expanded === item.id} onToggle={() => setExpanded((id) => (id === item.id ? null : item.id))}
           onEdit={() => { setEditing(item); setFormOpen(true); }}
           onIssue={() => { setIssuing(item); setIssued(null); setCopied(false); }}
@@ -130,8 +155,8 @@ export function ApiIntegrations({ clientId, clientName }: { clientId?: string; c
   </div>;
 }
 
-function IntegrationRow({ item, showClient, expanded, onToggle, onEdit, onIssue, onRevoke, onDelete }: {
-  item: ApiIntegration; showClient: boolean; expanded: boolean;
+function IntegrationRow({ item, showClient, showOAuth, expanded, onToggle, onEdit, onIssue, onRevoke, onDelete }: {
+  item: ApiIntegration; showClient: boolean; showOAuth: boolean; expanded: boolean;
   onToggle: () => void; onEdit: () => void; onIssue: () => void;
   onRevoke: (tokenId: string) => void; onDelete: () => void;
 }) {
@@ -165,13 +190,14 @@ function IntegrationRow({ item, showClient, expanded, onToggle, onEdit, onIssue,
           <button type="button" className="text-button danger-text" onClick={() => onRevoke(token.id)}>{t("settings.integrations.revoke")}</button>
         </li>)}
       </ul>}
-      <OAuthClientSection item={item} />
+      {showOAuth && <OAuthClientSection item={item} />}
       <WebhookSection item={item} />
     </td></tr>}
   </>;
 }
 
 function OAuthClientSection({ item }: { item: ApiIntegration }) {
+  const api = useIntegrationsApi();
   const t = useT();
   const toast = useToast();
   const [uris, setUris] = useState(item.redirect_uris.join("\n"));
@@ -231,6 +257,7 @@ function webhookEventLabel(t: ReturnType<typeof useT>, event: string): string {
 }
 
 function WebhookSection({ item }: { item: ApiIntegration }) {
+  const api = useIntegrationsApi();
   const t = useT();
   const toast = useToast();
   const [subs, setSubs] = useState<WebhookSubscription[] | null>(null);
@@ -246,7 +273,7 @@ function WebhookSection({ item }: { item: ApiIntegration }) {
     try {
       setSubs(await api<WebhookSubscription[]>(`/integrations/${item.id}/webhooks`));
     } catch (err) { toast.error(messageFrom(err)); }
-  }, [item.id, toast]);
+  }, [api, item.id, toast]);
   useEffect(() => { load(); }, [load]);
 
   function toggleEvent(event: string) {
@@ -328,6 +355,7 @@ function WebhookSection({ item }: { item: ApiIntegration }) {
 }
 
 function WebhookLog({ integrationId, subscription }: { integrationId: string; subscription: WebhookSubscription }) {
+  const api = useIntegrationsApi();
   const t = useT();
   const toast = useToast();
   const [filter, setFilter] = useState("");
@@ -338,7 +366,7 @@ function WebhookLog({ integrationId, subscription }: { integrationId: string; su
       const query = filter ? `?status_filter=${filter}` : "";
       setRows(await api<WebhookDelivery[]>(`/integrations/${integrationId}/webhooks/${subscription.id}/deliveries${query}`));
     } catch (err) { toast.error(messageFrom(err)); }
-  }, [integrationId, subscription.id, filter, toast]);
+  }, [api, integrationId, subscription.id, filter, toast]);
   useEffect(() => { load(); }, [load]);
 
   async function replay(delivery: WebhookDelivery) {
@@ -395,12 +423,15 @@ function IntegrationForm({ catalog, clients, fixedClientId, initial, onClose, on
   catalog: ApiScopes; clients: Client[]; fixedClientId?: string;
   initial: ApiIntegration | null; onClose: () => void; onSaved: (saved: ApiIntegration) => void;
 }) {
+  const api = useIntegrationsApi();
   const t = useT();
   const toast = useToast();
   const [name, setName] = useState(initial?.name ?? "");
-  const [preset, setPreset] = useState("operator");
-  const [scopes, setScopes] = useState<string[]>(initial?.scopes ?? []);
-  const [custom, setCustom] = useState(Boolean(initial));
+  // The catalogue decides which presets exist (a portal admin gets only the client-level ones).
+  const defaultPreset = "operator" in catalog.presets ? "operator" : Object.keys(catalog.presets)[0] ?? "custom";
+  const [preset, setPreset] = useState(defaultPreset);
+  const [scopes, setScopes] = useState<string[]>(initial?.scopes ?? catalog.presets[defaultPreset] ?? []);
+  const [custom, setCustom] = useState(Boolean(initial) || defaultPreset === "custom");
   const [clientChoice, setClientChoice] = useState(fixedClientId ?? initial?.client_id ?? "");
   const [busy, setBusy] = useState(false);
 

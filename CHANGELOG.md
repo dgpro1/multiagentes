@@ -43,6 +43,16 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- **The client portal gets API integrations for its own client.** With the **API** function
+  on, portal admins see an **API** screen (the agency's client API tab) to create
+  integrations, issue and revoke long-lived tokens (secret shown once) and manage webhooks,
+  always for their own client and limited to client-level scopes whose portal function is on
+  (never `clients.*`, `integrations.manage`, `webhooks.manage`, `channels.manage` or agent
+  write scopes, and never the `full` preset). Caps: 10 integrations per client, 20 tokens
+  per integration, 10 webhooks per integration; webhook URLs must be https and pass the
+  private-address guard, re-checked at delivery. OAuth client registration stays agency-only.
+  Behind `/api/portal/{slug}/manage/integrations` and the admin-only `api.manage`
+  permission; migration `0061` records which portal person made each integration.
 - **The client portal gets the agency's channel management, by type.** With a channel type
   on for a client (WhatsApp QR, WhatsApp API, Instagram, Messenger, Web chat), its portal
   admins get a **Channels** screen showing only the enabled types, with the same setup

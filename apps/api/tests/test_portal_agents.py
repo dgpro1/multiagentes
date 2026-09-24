@@ -147,7 +147,7 @@ def test_the_mounted_surface_is_exactly_the_agent_screens_and_none_takes_a_panel
             stack.extend(node.dependencies)
         assert portal_manage.ACTORS & set(seen), route.path
         assert get_current_user not in seen, route.path
-    agent_side = {(m, p) for m, p in mounted if not p.startswith(CHANNEL_PREFIXES) and (m, p) != ("GET", "/clients/{client_id}")}
+    agent_side = {(m, p) for m, p in mounted if not p.startswith(CHANNEL_PREFIXES + ("/integrations",)) and (m, p) != ("GET", "/clients/{client_id}")}
     assert agent_side == EXPECTED_ROUTES
 
 

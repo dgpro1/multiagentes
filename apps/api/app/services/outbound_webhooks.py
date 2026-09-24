@@ -7,6 +7,7 @@ ladder and then rests as ``failed`` in the log, where an operator replays
 it by hand. Delivery is at-least-once and unordered by design.
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session, aliased
 
 from ..models import ApiIntegration, WebhookDelivery, WebhookSubscription, now_utc
 from ..security import decrypt_secret, encrypt_secret
+from .tools.http_exec import _blocked_reason
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +155,11 @@ async def process_due(db: Session, *, limit: int = BATCH_LIMIT) -> int:
                 db.delete(row)
                 db.commit()
                 continue
+            if integration.created_via_portal:
+                # A client's own admin chose this address: look again where it points now.
+                reason = await asyncio.to_thread(_blocked_reason, subscription.url)
+                if reason:
+                    raise RuntimeError(f"Delivery refused: {reason}")
             secret = decrypt_secret(subscription.encrypted_secret)
             code = await _post(subscription.url, secret, _payload(row))
             done = db.get(WebhookDelivery, delivery_id)

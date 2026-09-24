@@ -1203,6 +1203,14 @@ class ApiIntegration(Base):
     # audit columns that point at users, while the lines they write into a
     # thread name the integration instead.
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # Set when a client's portal admin made it: ``created_by`` then names the
+    # agency's owner (a portal admin is not a row of ``users``) and these say who
+    # really did, by id while that person exists and by name and e-mail after.
+    created_via_portal: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_by_portal_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("portal_users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by_portal_label: Mapped[str] = mapped_column(String(500), default="", server_default="")
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

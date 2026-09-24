@@ -27,7 +27,7 @@ export const PORTAL_FEATURES = [
 export type PortalFeature = (typeof PORTAL_FEATURES)[number]["key"];
 
 /** Functions whose portal screen is not built yet: the switch is stored, nothing shows. */
-export const FEATURES_WITHOUT_SCREEN: readonly PortalFeature[] = ["api"];
+export const FEATURES_WITHOUT_SCREEN: readonly PortalFeature[] = [];
 
 export const CHANNEL_FEATURES: readonly PortalFeature[] = ["channels.whatsapp", "channels.whatsapp_cloud", "channels.instagram", "channels.messenger", "channels.webchat"];
 
@@ -65,6 +65,7 @@ export const FEATURE_OF_PERMISSION: Record<string, PortalFeature> = {
   "templates.manage": "templates",
   "canned.manage": "canned",
   "agents.manage": "agents",
+  "api.manage": "api",
 };
 
 /** Permissions that hold while ANY of several functions is on (channel management needs at least one channel type). */

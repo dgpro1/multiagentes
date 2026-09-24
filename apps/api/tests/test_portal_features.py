@@ -394,6 +394,20 @@ GATED = [
     ("POST", "/manage/whatsapp-cloud/channels/{id}/disconnect", ["channels.whatsapp_cloud"]),
     ("GET", "/manage/webchat/channels/{id}", ["channels.webchat"]),
     ("PUT", "/manage/webchat/channels/{id}", ["channels.webchat"]),
+    # The API tab: the client's own integrations, tokens and webhooks (tests/test_portal_api.py).
+    ("GET", "/manage/integrations/scopes", ["api"]),
+    ("GET", "/manage/integrations", ["api"]),
+    ("POST", "/manage/integrations", ["api"]),
+    ("PATCH", "/manage/integrations/{id}", ["api"]),
+    ("DELETE", "/manage/integrations/{id}", ["api"]),
+    ("GET", "/manage/integrations/{id}/tokens", ["api"]),
+    ("POST", "/manage/integrations/{id}/tokens", ["api"]),
+    ("DELETE", "/manage/integrations/{id}/tokens/{id}", ["api"]),
+    ("GET", "/manage/integrations/{id}/webhooks", ["api"]),
+    ("POST", "/manage/integrations/{id}/webhooks", ["api"]),
+    ("DELETE", "/manage/integrations/{id}/webhooks/{id}", ["api"]),
+    ("GET", "/manage/integrations/{id}/webhooks/{id}/deliveries", ["api"]),
+    ("POST", "/manage/integrations/{id}/webhooks/{id}/deliveries/{id}/replay", ["api"]),
 ]
 
 # Channel routes whose function is not one fixed key: the ``/social/{provider}``
