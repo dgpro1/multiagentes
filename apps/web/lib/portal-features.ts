@@ -25,7 +25,7 @@ export const PORTAL_FEATURES = [
 export type PortalFeature = (typeof PORTAL_FEATURES)[number]["key"];
 
 /** Functions whose portal screen is not built yet: the switch is stored, nothing shows. */
-export const FEATURES_WITHOUT_SCREEN: readonly PortalFeature[] = ["agents", "api", "channels.whatsapp", "channels.whatsapp_cloud", "channels.instagram", "channels.messenger", "channels.webchat"];
+export const FEATURES_WITHOUT_SCREEN: readonly PortalFeature[] = ["api", "channels.whatsapp", "channels.whatsapp_cloud", "channels.instagram", "channels.messenger", "channels.webchat"];
 
 export const CHANNEL_FEATURES: readonly PortalFeature[] = ["channels.whatsapp", "channels.whatsapp_cloud", "channels.instagram", "channels.messenger", "channels.webchat"];
 
@@ -53,6 +53,7 @@ export const FEATURE_OF_PERMISSION: Record<string, PortalFeature> = {
   "tags.manage": "tags",
   "templates.manage": "templates",
   "canned.manage": "canned",
+  "agents.manage": "agents",
 };
 
 const DEFAULTS = new Map<string, boolean>(PORTAL_FEATURES.map((entry) => [entry.key, entry.default]));

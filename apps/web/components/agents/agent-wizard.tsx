@@ -1,0 +1,199 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, ArrowRight, AudioLines, Check, ChevronLeft, ChevronRight, ImageIcon, LoaderCircle, PencilLine, Sparkles } from "lucide-react";
+import { Alert } from "@/components/ui";
+import { useToast } from "@/components/toast";
+import { messageFrom } from "@/lib/api";
+import { useLanguage } from "@/lib/i18n";
+import { DEFAULT_PROVIDER, modelsFor, modelOptionsFor, defaultModelFor, estimateTokens } from "@/lib/providers";
+import { narrowModels, useAvailableModels } from "@/lib/use-available-models";
+import { Combobox } from "@/components/combobox";
+import { agentTemplates, localize } from "@/lib/agent-templates";
+import type { Agent, Client } from "@/types";
+import { AiHint } from "@/components/ai-hint";
+import { AgentsScopeProvider, useAgentsApi, useAgentsScope, type AgentHrefs } from "./scope";
+
+const STEP_KEYS = ["agents.wizard.s1", "agents.wizard.s2", "agents.wizard.s3", "agents.wizard.s4", "agents.wizard.s5"] as const;
+
+/** The create-agent wizard, shared by the agency panel and the client portal (see scope.tsx). */
+export function AgentWizardView({ apiBase, hrefFor, client }: { apiBase?: string; hrefFor?: AgentHrefs; client?: { id: string; name: string } | null }) {
+  return <AgentsScopeProvider apiBase={apiBase} hrefFor={hrefFor} client={client}><AgentWizard /></AgentsScopeProvider>;
+}
+
+function AgentWizard() {
+  const { t, lang } = useLanguage();
+  const { apiBase, portal, hrefFor, client: fixedClient } = useAgentsScope();
+  const { api } = useAgentsApi();
+  const available = useAvailableModels(apiBase);
+  const toast = useToast();
+  const router = useRouter();
+  const [step, setStepState] = useState(0);
+  const [reached, setReached] = useState(0);
+  const setStep = (next: number | ((s: number) => number)) => setStepState((s) => { const value = typeof next === "function" ? next(s) : next; setReached((r) => Math.max(r, value)); return value; });
+  const [clients, setClients] = useState<Pick<Client, "id" | "name">[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const [templateId, setTemplateId] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const provider = DEFAULT_PROVIDER;
+  const [model, setModel] = useState(defaultModelFor(provider));
+  const [temperature, setTemperature] = useState(0.7);
+  const [maxTokens, setMaxTokens] = useState(2048);
+  const [memoryLimit, setMemoryLimit] = useState(30);
+  const [phoneHandoverMinutes, setPhoneHandoverMinutes] = useState(10);
+  const [replyDelayMin, setReplyDelayMin] = useState(6);
+  const [replyDelayMax, setReplyDelayMax] = useState(9);
+  // Multimodal understanding is on unless the user switches it off here.
+  const [imageEnabled, setImageEnabled] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+
+  const fixedId = fixedClient?.id ?? "";
+  const fixedName = fixedClient?.name ?? "";
+  useEffect(() => {
+    // In the portal the client is the portal's own: nothing to pick, nothing to fetch.
+    if (portal) {
+      if (fixedId) { setClients([{ id: fixedId, name: fixedName }]); setClientId(fixedId); }
+      return;
+    }
+    const preferred = new URLSearchParams(window.location.search).get("client") || "";
+    api<Client[]>("/clients").then((c) => {
+      setClients(c);
+      setClientId(preferred || c[0]?.id || "");
+    }).catch(() => {});
+  }, [api, portal, fixedId, fixedName]);
+
+  const promptTokens = useMemo(() => estimateTokens(prompt), [prompt]);
+
+  function applyTemplate(id: string) {
+    setTemplateId(id);
+    const tpl = agentTemplates.find((item) => item.id === id);
+    setPrompt(tpl ? localize(tpl.prompt, lang) : "");
+    setStep(1);
+  }
+
+  const canNext = step === 1 ? name.trim().length > 0 && Boolean(clientId) : true;
+
+  async function create() {
+    setBusy(true);
+    try {
+      const agent = await api<Agent>("/agents", { method: "POST", body: JSON.stringify({
+        client_id: clientId, name, instructions: prompt,
+        provider, model: model || "", prompt_language: lang,
+        temperature, max_tokens: maxTokens, memory_limit: memoryLimit, phone_handover_minutes: phoneHandoverMinutes, reply_delay_min_seconds: replyDelayMin, reply_delay_max_seconds: replyDelayMax, is_active: true,
+        image_enabled: imageEnabled, audio_enabled: audioEnabled,
+      }) });
+      router.push(hrefFor.agent(agent.id));
+    } catch (err) { toast.error(messageFrom(err)); setBusy(false); }
+  }
+
+  if (!clients.length) {
+    return <div className="page narrow-page">
+      <Link href={hrefFor.list()} className="back-link"><ArrowLeft size={17} /> {t("agents.new.back")}</Link>
+      {!portal && <Alert type="info">{t("agents.new.needClient")} <Link href="/clients/new">{t("agents.new.createClient")}</Link></Alert>}
+    </div>;
+  }
+
+  return <div className="page narrow-page">
+    <Link href={hrefFor.list()} className="back-link"><ArrowLeft size={17} /> {t("agents.new.back")}</Link>
+    <header className="wizard-head"><span className="eyebrow">{t("agents.new.eyebrow")}</span><h1>{t("agents.new.title")}</h1></header>
+
+    <ol className="wizard-steps">
+      {STEP_KEYS.map((key, index) => { const reachable = index <= reached && (index <= 1 || (name.trim().length > 0 && Boolean(clientId))); return (
+        <li key={key} className={`${index === step ? "current" : index < step ? "done" : ""}${reachable && index !== step ? " clickable" : ""}`} onClick={() => reachable && !busy && setStep(index)} role={reachable ? "button" : undefined} tabIndex={reachable && index !== step ? 0 : undefined} onKeyDown={(e) => { if (reachable && (e.key === "Enter" || e.key === " ")) setStep(index); }}>
+          <span>{index < step ? <Check size={14} /> : index + 1}</span>
+          <small>{t(key)}</small>
+        </li>
+      ); })}
+    </ol>
+    {/* Phone stand-in for the step pills (the stylesheet swaps one for the
+        other): one step at a time, under the same reachability rule the pills
+        enforce, so the arrows can never skip a step the footer would refuse. */}
+    {(() => {
+      const reachable = (index: number) => index >= 0 && index < STEP_KEYS.length && index <= reached && (index <= 1 || (name.trim().length > 0 && Boolean(clientId)));
+      const canForward = !busy && step < STEP_KEYS.length - 1 && (reachable(step + 1) || canNext);
+      return (
+        <div className="section-pager wizard-pager">
+          <button type="button" className="button ghost" disabled={step === 0 || busy} aria-label={t("agents.wizard.back")} onClick={() => setStep((s) => Math.max(0, s - 1))}><ChevronLeft size={18} /></button>
+          <div className="section-pager-current"><span>{step + 1}</span><strong>{t(STEP_KEYS[step])}</strong><small>{step + 1} / {STEP_KEYS.length}</small></div>
+          <button type="button" className="button ghost" disabled={!canForward} aria-label={t("agents.wizard.next")} onClick={() => setStep((s) => Math.min(STEP_KEYS.length - 1, s + 1))}><ChevronRight size={18} /></button>
+        </div>
+      );
+    })()}
+
+    <section className="wizard-card">
+      {step === 0 && <div className="wizard-templates">
+        <div className="wizard-copy"><h2>{t("agents.wizard.templatesTitle")}</h2><p>{t("agents.wizard.templatesSubtitle")}</p></div>
+        <div className="template-grid">
+          {agentTemplates.map((tpl) => (
+            <button type="button" key={tpl.id} className={`template-card ${templateId === tpl.id ? "active" : ""}`} onClick={() => applyTemplate(tpl.id)}>
+              <span className="template-icon"><tpl.icon size={20} /></span>
+              <strong>{localize(tpl.name, lang)}</strong>
+              <small>{localize(tpl.tagline, lang)}</small>
+            </button>
+          ))}
+          <button type="button" className={`template-card blank ${templateId === "" ? "active" : ""}`} onClick={() => { applyTemplate(""); }}>
+            <span className="template-card-top"><span className="template-icon"><PencilLine size={20} /></span><em className="template-badge">{t("agents.wizard.modelBadgeRecommended")}</em></span>
+            <strong>{t("agents.wizard.blankName")}</strong>
+            <small>{t("agents.wizard.blankTagline")}</small>
+          </button>
+        </div>
+      </div>}
+
+      {step === 1 && <div className="wizard-fields">
+        <div className="wizard-copy"><h2>{t("agents.wizard.identityTitle")}</h2><p>{t("agents.wizard.identitySubtitle")}</p></div>
+        <div className="form-grid">
+          {!portal && <label>{t("agents.new.clientLabel")}<select value={clientId} onChange={(e) => setClientId(e.target.value)}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
+          <label>{t("agents.new.nameLabel")}<input value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder={t("agents.new.namePlaceholder")} /></label>
+        </div>
+        {name.trim() && <p className="greeting-preview">{t("agents.detail.greetingPreview", { name: name.trim(), client: clients.find((c) => c.id === clientId)?.name || "" })}</p>}
+      </div>}
+
+      {step === 2 && <div className="wizard-fields">
+        <div className="wizard-copy"><h2>{t("agents.wizard.essentialsTitle")}</h2><p>{t("agents.wizard.essentialsSubtitle")}</p></div>
+        <label>{t("agents.new.promptLabel")}<textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={16} autoFocus placeholder={t("agents.new.promptPlaceholder")} /></label>
+        <span className="field-help">{t("agents.wizard.essentialsLater")}</span>
+      </div>}
+
+      {step === 3 && <div className="wizard-fields">
+        <div className="wizard-copy"><h2>{t("agents.wizard.modelTitle")}</h2><p>{t("agents.wizard.modelSubtitle")}</p></div>
+        <label>{t("agents.new.modelLabel")}{(() => { const allowed = narrowModels(modelsFor(provider), available?.chat?.[provider]); const catalog = modelOptionsFor(provider); const known = catalog.filter((item) => allowed.includes(item.id)); const ordered = [...known.filter((item) => item.recommended), ...known.filter((item) => !item.recommended)].map((item) => item.id); const options = [...ordered, ...allowed.filter((id) => !ordered.includes(id))]; const labels = Object.fromEntries(known.map((item) => [item.id, item.label])); const tierOf = (g: string) => g === "fast" ? t("agents.wizard.modelGroupFast") : g === "balanced" ? t("agents.wizard.modelGroupBalanced") : t("agents.wizard.modelGroupCapable"); const tags = Object.fromEntries(known.map((item) => [item.id, item.recommended ? t("agents.wizard.modelBadgeRecommended") : tierOf(item.group)])); return <Combobox value={model} onChange={setModel} options={options} labels={labels} tags={tags} placeholder={t("agents.new.modelPlaceholder")} allowCustom />; })()}</label>
+        <details className="advanced-options wizard-advanced"><summary>{t("agents.detail.advancedHeading")}</summary><p className="field-help">{t("agents.detail.advancedCopy")}</p>
+        <div className="slider-field"><div className="slider-head"><span>{t("agents.detail.temperatureLabel")}</span><strong>{temperature.toFixed(1)}/2</strong></div><input type="range" min="0" max="2" step="0.1" value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} /><span className="field-help">{t("agents.detail.temperatureHint")}</span></div>
+        <div className="slider-field"><div className="slider-head"><span>{t("agents.detail.maxTokensLabel")}</span><strong>{maxTokens}/8192</strong></div><input type="range" min="256" max="8192" step="256" value={maxTokens} onChange={(e) => setMaxTokens(Number(e.target.value))} /><span className="field-help">{t("agents.detail.maxTokensHint")}</span></div>
+        <div className="slider-field"><div className="slider-head"><span>{t("agents.detail.memoryLimitLabel")}</span><strong>{memoryLimit}/100</strong></div><input type="range" min="0" max="100" step="1" value={memoryLimit} onChange={(e) => setMemoryLimit(Number(e.target.value))} /><span className="field-help">{t("agents.detail.memoryLimitHint")}</span></div>
+        <label>{t("agents.detail.phoneHandoverLabel")}<input type="number" min="1" max="1440" required value={phoneHandoverMinutes} onChange={(e) => setPhoneHandoverMinutes(Number(e.target.value))} /><span className="field-help">{t("agents.detail.phoneHandoverHint")}</span></label>
+        <div className="group-intro"><strong>{t("agents.detail.replyDelayHeading")}</strong></div>
+        <div className="slider-field"><div className="slider-head"><span>{t("agents.detail.replyDelayMinLabel")} <AiHint text={t("agents.detail.replyDelayMinHint")} /></span><strong>{replyDelayMin}/60 s</strong></div><input type="range" min="0" max="60" step="1" value={replyDelayMin} onChange={(e) => { const v = Number(e.target.value); setReplyDelayMin(v); if (v > replyDelayMax) setReplyDelayMax(v); }} /></div>
+        <div className="slider-field"><div className="slider-head"><span>{t("agents.detail.replyDelayMaxLabel")} <AiHint text={t("agents.detail.replyDelayMaxHint")} /></span><strong>{replyDelayMax}/60 s</strong></div><input type="range" min="0" max="60" step="1" value={replyDelayMax} onChange={(e) => { const v = Number(e.target.value); setReplyDelayMax(v); if (v < replyDelayMin) setReplyDelayMin(v); }} /></div>
+        <div className="capabilities-intro"><strong>{t("agents.detail.capabilitiesHeading")}</strong><span className="field-help">{t("agents.detail.capabilitiesCopy")}</span></div>
+        <div className="capability"><label className="capability-head"><input type="checkbox" checked={imageEnabled} onChange={(e) => setImageEnabled(e.target.checked)} /><ImageIcon size={17} /><span><strong>{t("agents.detail.imageLabel")}</strong><small>{t("agents.detail.imageHint")}</small></span></label></div>
+        <div className="capability"><label className="capability-head"><input type="checkbox" checked={audioEnabled} onChange={(e) => setAudioEnabled(e.target.checked)} /><AudioLines size={17} /><span><strong>{t("agents.detail.audioLabel")}</strong><small>{t("agents.detail.audioHint")}</small></span></label></div>
+        </details>
+      </div>}
+
+      {step === 4 && <div className="wizard-fields">
+        <div className="wizard-copy"><h2>{t("agents.wizard.reviewTitle")}</h2><p>{t("agents.wizard.reviewSubtitle")}</p></div>
+        <dl className="review-list">
+          <div><dt>{t("agents.new.nameLabel")}</dt><dd>{name}</dd></div>
+          <div><dt>{t("agents.new.clientLabel")}</dt><dd>{clients.find((c) => c.id === clientId)?.name || ""}</dd></div>
+          <div><dt>{t("agents.wizard.reviewTemplate")}</dt><dd>{templateId ? localize(agentTemplates.find((x) => x.id === templateId)!.name, lang) : t("agents.wizard.blankName")}</dd></div>
+          <div><dt>{t("agents.new.modelLabel")}</dt><dd>{modelOptionsFor(provider).find((item) => item.id === model)?.label || model}</dd></div>
+          <div><dt>{t("agents.wizard.reviewPrompt")}</dt><dd><span className="token-pill"><Sparkles size={13} /> {t("agents.wizard.tokens", { count: promptTokens.toLocaleString(lang) })}</span></dd></div>
+        </dl>
+      </div>}
+    </section>
+
+    <div className="wizard-nav">
+      <button className="button secondary" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0 || busy}><ArrowLeft size={16} /> {t("agents.wizard.back")}</button>
+      <span className="wizard-progress">{t("agents.wizard.stepOf", { n: step + 1, total: STEP_KEYS.length })}</span>
+      {step < STEP_KEYS.length - 1
+        ? <button className="button primary" onClick={() => canNext && setStep((s) => s + 1)} disabled={!canNext}>{t("agents.wizard.next")} <ArrowRight size={16} /></button>
+        : <button className="button primary" onClick={create} disabled={busy || !name.trim()}>{busy ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />} {t("agents.new.createAgent")}</button>}
+    </div>
+  </div>;
+}

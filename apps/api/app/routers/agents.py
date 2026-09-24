@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..config import get_settings
 from ..database import get_db
 from ..api_scopes import AGENTS_KNOWLEDGE, AGENTS_READ, AGENTS_WRITE
-from ..deps import get_current_user, require
+from ..deps import confined_client_id, get_current_user, require
 from ..models import Agent, AgentQA, AgentTool, Client, EscalationRule, KnowledgeChunk, KnowledgeDocument, PortalUser, Team, User, WhatsAppChannel, WhatsAppCloudChannel, WidgetChannel, now_utc
 from ..schemas import AgentCreate, AgentOut, AgentPromptOut, AgentUpdate, DocumentOut, EscalationConfigIn, EscalationConfigOut, QAPairCreate, QAPairOut, check_reply_delay
 from ..services.knowledge import build_system_prompt, embed_document_chunks, reindex_agent, reindex_document
@@ -22,17 +22,24 @@ MAX_PDF_BYTES = 20 * 1024 * 1024
 
 
 def _agent(db: Session, user: User, agent_id: uuid.UUID) -> Agent:
-    agent = db.scalar(
+    query = (
         select(Agent)
         .options(joinedload(Agent.client).selectinload(Client.agents))
         .where(Agent.id == agent_id, Agent.agency_id == user.agency_id, Agent.deleted_at.is_(None))
     )
+    # A client's portal admin reaches only that client's agents; see PortalActor.
+    if (only_client := confined_client_id(user)) is not None:
+        query = query.where(Agent.client_id == only_client)
+    agent = db.scalar(query)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     return agent
 
 
 def _validate_client(db: Session, user: User, client_id: uuid.UUID) -> None:
+    only_client = confined_client_id(user)
+    if only_client is not None and client_id != only_client:
+        raise HTTPException(status_code=404, detail="Client not found")
     client = db.scalar(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id))
     if not client:
         raise HTTPException(status_code=400, detail="The selected client does not exist")
@@ -51,12 +58,15 @@ def _channels_of(db: Session, agent: Agent) -> list[WhatsAppChannel | WhatsAppCl
 
 @router.get("", response_model=list[AgentOut], dependencies=[Depends(require(AGENTS_READ))])
 def list_agents(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return db.scalars(
+    query = (
         select(Agent)
         .options(joinedload(Agent.client).selectinload(Client.agents))
         .where(Agent.agency_id == user.agency_id, Agent.deleted_at.is_(None))
         .order_by(Agent.created_at.desc())
-    ).unique().all()
+    )
+    if (only_client := confined_client_id(user)) is not None:
+        query = query.where(Agent.client_id == only_client)
+    return db.scalars(query).unique().all()
 
 
 @router.post("", response_model=AgentOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(AGENTS_WRITE))])

@@ -6,13 +6,14 @@
 //            /portal/{slug}/inbox/{number}   one lead (its short number in the client)
 //            /portal/{slug}/contacts[/{id}]  /pipeline  /calendar  /reports
 //            /portal/{slug}/settings[/{tab}]
+//            /portal/{slug}/agents[/new]     /agents/{id}[/{basics|knowledge|tools|playground}]
 //   Agency   /clients/{id}[/{tab}]           /clients/{id}/inbox/{number}
 //            /agents/{id}[/{tab}]
 //
 // A client's own domain serves the portal from the root (proxy.ts rewrites it to
 // /portal/{slug}), so the portal prefix is worked out from where the page is.
 
-export const PORTAL_VIEWS = ["inbox", "contacts", "calendar", "pipeline", "reports", "settings"] as const;
+export const PORTAL_VIEWS = ["inbox", "contacts", "calendar", "pipeline", "reports", "agents", "settings"] as const;
 export type PortalView = (typeof PORTAL_VIEWS)[number];
 
 export const CLIENT_TABS = ["details", "agents", "channels", "inbox", "teams", "tags", "templates", "calendar", "pipeline", "api", "portal"] as const;
@@ -43,17 +44,29 @@ export type PortalRoute = {
   contactId?: string;
   /** The settings tab, on /settings/{tab}. */
   tab?: string;
+  /** On /agents/{id}: the agent's id, or "new" for the create wizard. */
+  agentId?: string;
+  /** On /agents/{id}/...: the segments after the id (the agent's tab). */
+  agentSegments?: string[];
 };
 
 export function parsePortalPath(segments?: string[]): PortalRoute {
-  const [first, second] = segments ?? [];
+  const [first, second, ...rest] = segments ?? [];
   const view = PORTAL_VIEWS.find((value) => value === first);
   if (!view) return { view: "inbox", known: false };
   const route: PortalRoute = { view, known: true };
   if (view === "inbox" && second && /^\d+$/.test(second)) route.number = Number(second);
   if (view === "contacts" && second) route.contactId = second;
   if (view === "settings" && second) route.tab = second;
+  if (view === "agents" && second) { route.agentId = second; route.agentSegments = rest; }
   return route;
+}
+
+/** A portal agent address: the list, `"new"` for the wizard, or an agent with its tab ("basics" is the bare id). */
+export function portalAgentPath(base: string, agentId?: string | null, tab: AgentTab = "basics"): string {
+  if (!agentId) return `${base}/agents`;
+  if (agentId === "new" || tab === "basics") return `${base}/agents/${agentId}`;
+  return `${base}/agents/${agentId}/${tab}`;
 }
 
 /** A client's address in the agency panel; "details" is the bare `/clients/{id}`. */

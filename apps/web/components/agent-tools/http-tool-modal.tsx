@@ -2,7 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { LoaderCircle, Plus, Save, Trash2, Zap } from "lucide-react";
-import { api, messageFrom } from "@/lib/api";
+import { messageFrom } from "@/lib/api";
+import { useAgentsApi } from "@/components/agents/scope";
 import { useT } from "@/lib/i18n";
 import { Alert, Modal } from "@/components/ui";
 import { useToast } from "@/components/toast";
@@ -54,6 +55,7 @@ export function HttpToolModal({ agentId, tool, open, onClose, onSaved }: {
   onSaved: (tool: AgentTool) => void;
 }) {
   const t = useT();
+  const { api } = useAgentsApi();
   const toast = useToast();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");

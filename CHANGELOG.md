@@ -43,6 +43,13 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- **The client portal gets the agency's agent management.** With the **Agents** function on
+  for a client, its portal admins see an **Agents** screen with the same list, creation
+  wizard and agent page (prompt, knowledge, tools, playground) the agency has, limited to
+  that client's own agents. Backed by the agency's own routes mounted under
+  `/api/portal/{slug}/manage` and guarded by the function switch and a new admin-only
+  `agents.manage` permission; every lookup is confined to the client, provider keys are
+  never exposed, and MCP discovery refuses private addresses for portal admins.
 - **The agency switches the client portal's functions on and off, client by client.** A
   **Available in the client's portal** switch sits on every tab of the client page (Inbox,
   Agents, Channels by type, Teams, Tags, Templates, Calendar, Pipeline, API) and the

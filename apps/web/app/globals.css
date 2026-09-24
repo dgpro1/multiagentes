@@ -2856,3 +2856,9 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .portal-feature-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; }
 .portal-feature-list .switch-row { margin: 0; padding: 8px 0; }
 .portal-feature-list .switch-row small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+
+/* Agents in the client portal: the agency's own screens (components/agents) drop
+   into the portal shell. They bring their own page head and padding, so the
+   shell's title bar and the page gutter step aside and the portal's padding rules. */
+.portal-main-agents > header { display: none; }
+.portal-main-agents .page { max-width: none; padding: 0; }

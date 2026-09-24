@@ -28,6 +28,7 @@ from .routers import (    agency,
     oauth,
     pipeline,
     portal,
+    portal_manage,
     providers,
     reports,
     whatsapp,
@@ -174,6 +175,7 @@ app.include_router(conversations.client_router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(mobile.router, prefix="/api")
+app.include_router(portal_manage.router, prefix="/api")
 app.include_router(portal.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
 app.include_router(whatsapp.internal_router, prefix="/api")

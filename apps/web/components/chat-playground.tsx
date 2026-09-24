@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, FileText, ImageIcon, LoaderCircle, MessageSquarePlus, Send, Sparkles, Trash2, TriangleAlert, UserRound, Wrench } from "lucide-react";
-import { api, apiUrl, messageFrom } from "@/lib/api";
+import { messageFrom } from "@/lib/api";
+import { useAgentsApi, useAgentsScope } from "@/components/agents/scope";
 import { AttachButton, MessageAttachments, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { RichText } from "@/components/rich-text";
 import { GrowingTextarea } from "@/components/growing-textarea";
@@ -18,6 +19,9 @@ export function ChatPlayground({ lockedAgentId }: { lockedAgentId?: string }) {
   const t = useT();
   const { lang } = useLanguage();
   const toast = useToast();
+  // Inside a client portal the calls go under /portal/{slug}/manage and the agency's client and provider-key lists are never asked for (see components/agents/scope.tsx).
+  const { portal, hrefFor } = useAgentsScope();
+  const { api, apiUrl } = useAgentsApi();
   const [clients, setClients] = useState<Client[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [clientId, setClientId] = useState("");
@@ -32,13 +36,13 @@ export function ChatPlayground({ lockedAgentId }: { lockedAgentId?: string }) {
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    Promise.all([api<Client[]>("/clients"), api<Agent[]>("/agents"), api<Provider[]>("/providers")]).then(([c, a, p]) => {
+    Promise.all([portal ? Promise.resolve([] as Client[]) : api<Client[]>("/clients"), api<Agent[]>("/agents"), portal ? Promise.resolve([] as Provider[]) : api<Provider[]>("/providers")]).then(([c, a, p]) => {
       setClients(c); setAgents(a); setProviders(p);
       const initial = lockedAgentId ? a.find((item) => item.id === lockedAgentId) : a[0];
       if (initial) { setAgentId(initial.id); setClientId(initial.client_id); }
       else if (c[0]) setClientId(c[0].id);
     }).catch(() => {}).finally(() => setLoaded(true));
-  }, [lockedAgentId]);
+  }, [api, portal, lockedAgentId]);
 
   useEffect(() => {
     if (!agentId) { setConversations([]); setConversation(null); return; }
@@ -47,12 +51,12 @@ export function ChatPlayground({ lockedAgentId }: { lockedAgentId?: string }) {
       if (items[0]) api<Conversation>(`/conversations/${items[0].id}`).then(setConversation);
       else setConversation(null);
     });
-  }, [agentId]);
+  }, [api, agentId]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [conversation?.messages?.length]);
 
   const availableAgents = useMemo(() => agents.filter((agent) => agent.client_id === clientId), [agents, clientId]);
   const selectedAgent = agents.find((agent) => agent.id === agentId);
-  const needsKey = Boolean(selectedAgent) && !providers.find((item) => item.provider === selectedAgent!.provider)?.configured;
+  const needsKey = !portal && Boolean(selectedAgent) && !providers.find((item) => item.provider === selectedAgent!.provider)?.configured;
   const needsModel = Boolean(selectedAgent) && !selectedAgent!.model.trim();
   const agentReady = Boolean(selectedAgent) && !needsKey && !needsModel;
 
@@ -143,7 +147,7 @@ export function ChatPlayground({ lockedAgentId }: { lockedAgentId?: string }) {
         {busy && <div className="message-row assistant"><span className="message-avatar"><Bot size={17} /></span><div className="thinking"><i /><i /><i /></div></div>}
         <div ref={endRef} />
       </div>
-      <div className="composer-wrap">{needsKey ? <Alert type="info">{t("playground.notReady.keyPrefix")}<Link href="/settings">{t("playground.notReady.settingsLink")}</Link>.</Alert> : needsModel ? <Alert type="info">{t("playground.notReady.modelPrefix")}<Link href={`/agents/${agentId}`}>{t("playground.notReady.modelLink")}</Link>.</Alert> : null}{pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}<form className="composer" onSubmit={send}><AttachButton onFile={setPendingFile} disabled={!agentId || busy || !agentReady} title={t("chat.attachFile")} /><AttachButton onFile={setPendingFile} accept="image/*" icon={ImageIcon} disabled={!agentId || busy || !agentReady} title={t("chat.attachImage")} /><RecordButton onRecorded={sendFile} onError={() => toast.error(t("chat.micDenied"))} disabled={!agentId || busy || !agentReady} title={t("chat.recordAudio")} titleStop={t("chat.stopRecording")} /><GrowingTextarea ref={composerRef} name="message" maxRows={5} placeholder={agentId ? t("playground.composer.placeholder") : t("playground.composer.placeholderNoAgent")} disabled={!agentId || !agentReady} /><button disabled={!agentId || busy || !agentReady} aria-label={t("playground.composer.send")}>{busy ? <LoaderCircle className="spin" size={18} /> : <Send size={18} />}</button></form><small>{t("playground.composer.disclaimer")}</small></div>
+      <div className="composer-wrap">{needsKey ? <Alert type="info">{t("playground.notReady.keyPrefix")}<Link href="/settings">{t("playground.notReady.settingsLink")}</Link>.</Alert> : needsModel ? <Alert type="info">{t("playground.notReady.modelPrefix")}<Link href={hrefFor.agent(agentId)}>{t("playground.notReady.modelLink")}</Link>.</Alert> : null}{pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}<form className="composer" onSubmit={send}><AttachButton onFile={setPendingFile} disabled={!agentId || busy || !agentReady} title={t("chat.attachFile")} /><AttachButton onFile={setPendingFile} accept="image/*" icon={ImageIcon} disabled={!agentId || busy || !agentReady} title={t("chat.attachImage")} /><RecordButton onRecorded={sendFile} onError={() => toast.error(t("chat.micDenied"))} disabled={!agentId || busy || !agentReady} title={t("chat.recordAudio")} titleStop={t("chat.stopRecording")} /><GrowingTextarea ref={composerRef} name="message" maxRows={5} placeholder={agentId ? t("playground.composer.placeholder") : t("playground.composer.placeholderNoAgent")} disabled={!agentId || !agentReady} /><button disabled={!agentId || busy || !agentReady} aria-label={t("playground.composer.send")}>{busy ? <LoaderCircle className="spin" size={18} /> : <Send size={18} />}</button></form><small>{t("playground.composer.disclaimer")}</small></div>
     </section>
   <Modal open={deleting !== null} title={t("playground.conversations.delete")} description={t("playground.conversations.confirmDelete")} onClose={() => setDeleting(null)}>
       <div className="modal-form"><div className="modal-actions"><button type="button" className="button" onClick={() => setDeleting(null)}>{t("playground.conversations.cancel")}</button><button type="button" className="button danger" onClick={() => deleting && removeConversation(deleting)}><Trash2 size={15} /> {t("playground.conversations.deleteConfirm")}</button></div></div>

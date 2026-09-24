@@ -4,6 +4,7 @@ MCP servers are validated by connecting and listing their tools before any
 row is saved; the discovered list is cached on the row for chat-time use.
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -14,11 +15,12 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..api_scopes import AGENTS_TOOLS
-from ..deps import get_current_user, require
+from ..deps import confined_client_id, get_current_user, require
 from ..models import AgentTool, User, now_utc
 from ..schemas_tools import AgentToolIn, AgentToolOut, HttpToolUpdate, McpTestIn, McpTestOut
 from ..security import decrypt_secret, encrypt_secret
 from ..services.tools.mcp_client import _flatten_exceptions, describe_mcp_error, discover_mcp_tools
+from ..services.tools.http_exec import _blocked_reason
 from .agents import _agent
 
 
@@ -62,7 +64,13 @@ def _prune_selection(selection: list[str] | None, cached: list[dict]) -> list[st
     return kept
 
 
-async def _discover_or_502(url: str, transport: str, headers: dict[str, str] | None) -> list[dict]:
+async def _discover_or_502(url: str, transport: str, headers: dict[str, str] | None, actor=None) -> list[dict]:
+    if confined_client_id(actor) is not None:
+        # The agency chooses where its servers live; a client's portal admin
+        # may not point this backend at addresses inside its own network.
+        reason = await asyncio.to_thread(_blocked_reason, url)
+        if reason:
+            raise HTTPException(status_code=422, detail=reason)
     try:
         return await discover_mcp_tools(url, transport, headers)
     except Exception as exc:
@@ -93,7 +101,7 @@ async def create_tool(
     if headers:
         tool.encrypted_headers = encrypt_secret(json.dumps(headers))
     if payload.type == "mcp":
-        tool.cached_tools = await _discover_or_502(payload.url, payload.transport, headers)
+        tool.cached_tools = await _discover_or_502(payload.url, payload.transport, headers, user)
         tool.tools_cached_at = now_utc()
         tool.enabled_tools = _prune_selection(payload.enabled_tools, tool.cached_tools)
     db.add(tool)
@@ -126,7 +134,7 @@ async def update_tool(
     if headers is not None:
         tool.encrypted_headers = encrypt_secret(json.dumps(headers)) if headers else None
     if tool.type == "mcp" and ({"url", "transport"} & updates.keys() or headers is not None):
-        tool.cached_tools = await _discover_or_502(tool.url, tool.transport, _stored_headers(tool))
+        tool.cached_tools = await _discover_or_502(tool.url, tool.transport, _stored_headers(tool), user)
         tool.tools_cached_at = now_utc()
     if tool.type == "mcp":
         # A re-discovery can drop tools the selection still names; prune either way.
@@ -158,7 +166,7 @@ async def test_mcp(
             headers = _stored_headers(tool)
     if not url:
         raise HTTPException(status_code=422, detail="A server URL is required")
-    tools = await _discover_or_502(url, transport, headers)
+    tools = await _discover_or_502(url, transport, headers, user)
     return McpTestOut(
         ok=True,
         tools=[

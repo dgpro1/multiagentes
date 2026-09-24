@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { Pencil, Plus, Server, Trash2, Wrench, Zap } from "lucide-react";
-import { api, messageFrom } from "@/lib/api";
+import { messageFrom } from "@/lib/api";
+import { useAgentsApi } from "@/components/agents/scope";
 import { useT } from "@/lib/i18n";
 import { useToast } from "@/components/toast";
 import { ConfirmModal } from "@/components/confirm-modal";
@@ -16,6 +17,7 @@ export function AgentToolsTab({ agentId, tools, onToolsChange }: {
   onToolsChange: (tools: AgentTool[]) => void;
 }) {
   const t = useT();
+  const { api } = useAgentsApi();
   const toast = useToast();
   // null = closed, "new" = create, otherwise the tool being edited.
   const [httpModal, setHttpModal] = useState<AgentTool | "new" | null>(null);

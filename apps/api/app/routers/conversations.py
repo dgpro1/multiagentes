@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..database import get_db
 from ..api_scopes import INBOX_MANAGE, INBOX_READ, INBOX_REPLY, PIPELINE_MANAGE
-from ..deps import get_current_user, require
+from ..deps import confined_client_id, get_current_user, require
 from ..services.conversation_state import STATUSES, note_reply, set_mode, set_status
 from ..models import Agent, Contact, Conversation, Message, now_utc, User
 from ..schemas import (
@@ -49,7 +49,7 @@ MAX_MEDIA_BYTES = MAX_ATTACHMENT_BYTES
 
 
 def _conversation(db: Session, user: User, conversation_id: uuid.UUID) -> Conversation:
-    conversation = db.scalar(
+    query = (
         select(Conversation)
         .options(
             selectinload(Conversation.messages).selectinload(Message.attachments),
@@ -58,6 +58,11 @@ def _conversation(db: Session, user: User, conversation_id: uuid.UUID) -> Conver
         .execution_options(populate_existing=True)
         .where(Conversation.id == conversation_id, Conversation.agency_id == user.agency_id)
     )
+    # A client's portal admin reaches only its own playground rehearsals (see
+    # PortalActor); the client's customer threads are the inbox's business.
+    if (only_client := confined_client_id(user)) is not None:
+        query = query.where(Conversation.client_id == only_client, Conversation.channel == "playground")
+    conversation = db.scalar(query)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
@@ -93,6 +98,8 @@ def list_conversations(
     user: User = Depends(get_current_user),
 ):
     query = select(Conversation).where(Conversation.agency_id == user.agency_id, Conversation.archived_at.is_(None))
+    if (only_client := confined_client_id(user)) is not None:
+        query = query.where(Conversation.client_id == only_client, Conversation.channel == "playground")
     if agent_id:
         query = query.where(Conversation.agent_id == agent_id)
     if client_id:
@@ -212,7 +219,10 @@ def inbox(
 
 @router.post("", response_model=ConversationDetail, status_code=status.HTTP_201_CREATED)
 def create_conversation(payload: ConversationCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    agent = db.scalar(select(Agent).where(Agent.id == payload.agent_id, Agent.agency_id == user.agency_id, Agent.deleted_at.is_(None)))
+    query = select(Agent).where(Agent.id == payload.agent_id, Agent.agency_id == user.agency_id, Agent.deleted_at.is_(None))
+    if (only_client := confined_client_id(user)) is not None:
+        query = query.where(Agent.client_id == only_client)
+    agent = db.scalar(query)
     if not agent:
         raise HTTPException(status_code=400, detail="The selected agent does not exist")
     conversation = Conversation(

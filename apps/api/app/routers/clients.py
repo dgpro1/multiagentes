@@ -15,7 +15,7 @@ from ..api_scopes import (
     TEMPLATES_READ,
 )
 from ..database import get_db
-from ..deps import get_current_user, require
+from ..deps import confined_client_id, get_current_user, require
 from .. import industries
 from ..models import Agent, Client, Contact, Conversation, PortalUser, PushDevice, User, new_domain_token, Team
 from ..portal_features import merged as merged_features
@@ -82,11 +82,15 @@ def _check_industry(industry: str, business_type: str) -> None:
 
 
 def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
-    client = db.scalar(
+    query = (
         select(Client)
         .options(selectinload(Client.agents))
         .where(Client.id == client_id, Client.agency_id == user.agency_id)
     )
+    # A client's portal admin reaches only its own client; see PortalActor.
+    if (only_client := confined_client_id(user)) is not None:
+        query = query.where(Client.id == only_client)
+    client = db.scalar(query)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     return client
@@ -94,12 +98,15 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
 
 @router.get("", response_model=list[ClientOut], dependencies=[Depends(require(CLIENTS_READ))])
 def list_clients(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return db.scalars(
+    query = (
         select(Client)
         .options(selectinload(Client.agents))
         .where(Client.agency_id == user.agency_id)
         .order_by(Client.created_at.desc())
-    ).all()
+    )
+    if (only_client := confined_client_id(user)) is not None:
+        query = query.where(Client.id == only_client)
+    return db.scalars(query).all()
 
 
 @router.post("", response_model=ClientOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(CLIENTS_WRITE))])

@@ -17,9 +17,10 @@ export function loadIndustries(): Promise<Industry[]> {
   return pending;
 }
 
-export function useIndustries(): Industry[] {
+/** `enabled` false skips the fetch (the catalog is an agency-panel endpoint; a client portal does not ask for it). */
+export function useIndustries(enabled = true): Industry[] {
   const [items, setItems] = useState<Industry[]>(cached || []);
-  useEffect(() => { if (!cached) loadIndustries().then(setItems).catch(() => {}); }, []);
+  useEffect(() => { if (enabled && !cached) loadIndustries().then(setItems).catch(() => {}); }, [enabled]);
   return items;
 }
 

@@ -16,26 +16,29 @@ export type AvailableModels = {
   embedding?: string[];
 };
 
-let cached: AvailableModels | null = null;
-let metadataLoaded = false;
+// Kept per API prefix: the agency panel and a client portal ask different
+// routes (the portal's live under /portal/{slug}/manage) and may not see the same list.
+const cached = new Map<string, AvailableModels>();
+const metadataLoaded = new Set<string>();
 
-export function useAvailableModels(): AvailableModels | null {
-  const [data, setData] = useState<AvailableModels | null>(cached);
+export function useAvailableModels(apiBase = ""): AvailableModels | null {
+  const [data, setData] = useState<AvailableModels | null>(cached.get(apiBase) ?? null);
   useEffect(() => {
     // Names, context windows and prices for every model on offer, so the
     // pickers can label what they list.
-    if (!metadataLoaded) {
-      metadataLoaded = true;
-      api<LiveModel[]>("/catalog/models").then(setLiveModels).catch(() => { metadataLoaded = false; });
+    if (!metadataLoaded.has(apiBase)) {
+      metadataLoaded.add(apiBase);
+      api<LiveModel[]>(`${apiBase}/catalog/models`).then(setLiveModels).catch(() => { metadataLoaded.delete(apiBase); });
     }
-    if (cached) return;
-    api<AvailableModels>("/catalog/available")
+    const hit = cached.get(apiBase);
+    if (hit) { setData(hit); return; }
+    api<AvailableModels>(`${apiBase}/catalog/available`)
       .then((payload) => {
-        cached = payload;
+        cached.set(apiBase, payload);
         setData(payload);
       })
       .catch(() => {});
-  }, []);
+  }, [apiBase]);
   return data;
 }
 

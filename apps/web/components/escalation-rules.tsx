@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { tagStyle } from "@/lib/tags";
 import { ArrowDown, ArrowUp, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 import { Alert } from "@/components/ui";
-import { api, messageFrom } from "@/lib/api";
+import { messageFrom } from "@/lib/api";
+import { useAgentsApi } from "@/components/agents/scope";
 import { useT } from "@/lib/i18n";
 
 type Rule = {
@@ -28,6 +29,7 @@ type TagRow = { id: string; name: string; color: string; contact_count: number; 
  * The list is edited as a whole and saved with one button. */
 export function EscalationRulesEditor({ agentId, clientId }: { agentId: string; clientId: string }) {
   const t = useT();
+  const { api } = useAgentsApi();
   const [rules, setRules] = useState<Rule[]>([]);
   const [builtinOn, setBuiltinOn] = useState(true);
   const [defaultDest, setDefaultDest] = useState("");
@@ -54,7 +56,7 @@ export function EscalationRulesEditor({ agentId, clientId }: { agentId: string; 
     setDefaultDest(config.default_team_id ? `team:${config.default_team_id}` : config.default_assignee_id ? `user:${config.default_assignee_id}` : "");
     setTeams(teamRows);
     setPeople(peopleRows.map((row) => ({ id: row.id, name: row.name.trim() || row.email })));
-  }, [agentId, clientId]);
+  }, [api, agentId, clientId]);
 
   useEffect(() => {
     setLoading(true);

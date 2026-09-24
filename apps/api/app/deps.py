@@ -64,6 +64,36 @@ class Principal:
         return self._agency
 
 
+@dataclass(frozen=True)
+class PortalActor:
+    """A client's portal admin acting through the agency's own routes.
+
+    The routes the agent screens use are written for the agency's people; the
+    portal mounts them again (``routers/portal_manage.py``) with this actor in
+    place of the ``User``. It carries what those routes read (``agency_id``,
+    ``id``, ``name``, ``role``) plus ``confined_client_id``: every lookup helper
+    that finds an agent, a client or a playground thread asks ``confined_client_id``
+    and adds that client to its query, so confinement lives where rows are
+    fetched and not in each handler.
+    """
+
+    agency_id: uuid.UUID
+    id: uuid.UUID
+    client_id: uuid.UUID
+    name: str = ""
+    email: str = ""
+    role: str = "portal_admin"
+
+    @property
+    def confined_client_id(self) -> uuid.UUID:
+        return self.client_id
+
+
+def confined_client_id(actor) -> uuid.UUID | None:
+    """The one client this actor may touch, or None for the agency's own people."""
+    return getattr(actor, "confined_client_id", None)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 

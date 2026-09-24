@@ -34,6 +34,10 @@ CALENDAR_MANAGE = "calendar.manage"
 # Create, rename, recolor, delete and reorder pipeline stages. Viewing the
 # board and dragging a card between existing stages is free.
 PIPELINE_MANAGE = "pipeline.manage"
+# Everything the agency's agent screens do, for the client's own agents: create,
+# edit, delete, knowledge, tools, escalation rules, the playground. It only
+# takes effect where the agency switched the ``agents`` portal function on.
+AGENTS_MANAGE = "agents.manage"
 
 PERMISSIONS: tuple[str, ...] = (
     INBOX_DELETE,
@@ -45,6 +49,7 @@ PERMISSIONS: tuple[str, ...] = (
     REPORTS_VIEW,
     CALENDAR_MANAGE,
     PIPELINE_MANAGE,
+    AGENTS_MANAGE,
 )
 
 ROLES: dict[str, frozenset[str]] = {
