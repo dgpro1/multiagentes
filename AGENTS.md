@@ -112,6 +112,7 @@ session for anything that spans domains or needs judgment about scope.
 
 ## Environment gotchas
 
+- A git worktree does not inherit the main checkout's `.env` (it is gitignored), so a server started from a worktree misses settings such as `GOOGLE_CLIENT_ID`. Point `OPENLIVERY_ENV_FILE` at the main `.env` to share it (it has the lowest priority; production leaves it unset), or copy only the variables the task needs. Do not copy `DATABASE_URL`, `SECRET_KEY` or `ENCRYPTION_KEY` into a scratch worktree unless it is meant to use that database.
 - `ENCRYPTION_KEY` must never change after secrets are stored — it decrypts AI API keys and WhatsApp sessions.
 - The app is served single-origin through a Caddy gateway (`docker/Caddyfile`): `/api/*` → backend, everything else → frontend. The browser uses relative `/api` (`lib/api.ts` falls back to `""`), so `NEXT_PUBLIC_API_URL` is empty by default and only set to point the frontend at an API on a separate origin (baked at build time — rebuild the web image to change it).
 - TLS is operator-provided: put your own reverse proxy in front of the gateway port; the stack itself only serves plain HTTP. No bundled TLS/`make deploy`.

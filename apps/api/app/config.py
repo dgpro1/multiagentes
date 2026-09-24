@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -5,7 +6,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 APP_DIR = Path(__file__).resolve().parents[1]   # apps/api
+
 REPO_ROOT = Path(__file__).resolve().parents[3]  # monorepo root (used for a shared local .env)
+# A git worktree does not inherit the main checkout's .env (it is gitignored). Point this at
+# that file to share it; the repo-root and apps/api .env files still override it, and unset
+# (the production default) changes nothing.
+SHARED_ENV_FILE = os.environ.get("OPENLIVERY_ENV_FILE", "")
 
 
 class Settings(BaseSettings):
@@ -106,7 +112,7 @@ class Settings(BaseSettings):
     push_webhook_secret: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=(REPO_ROOT / ".env", APP_DIR / ".env"),
+        env_file=tuple(Path(p) for p in (SHARED_ENV_FILE,) if p) + (REPO_ROOT / ".env", APP_DIR / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
