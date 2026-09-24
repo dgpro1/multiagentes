@@ -43,6 +43,12 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- **The portal inbox filter is a panel.** The funnel opens a panel with the chat state
+  (all, or **Unanswered**: open chats where the contact wrote last and nobody has
+  replied) and the chat source, which lists only the channels the client has. The
+  Open/Resolved switch and the All/Unread/Mine/AI row are gone; the list shows open
+  and resolved chats together. `GET /api/portal/{slug}/conversations` and `/inbox`
+  take `unanswered=1`, and the inbox summary returns an `unanswered` count.
 - **One prompt per agent.** The agent's Basics tab and the creation wizard now
   have a single **Prompt** field (`instructions`) instead of separate sections
   for identity, the business, the agent's job, rules and tone. Migration `0057`

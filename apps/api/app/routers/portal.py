@@ -534,6 +534,7 @@ def _conversation_page(
     team: uuid.UUID | None = None,
     search: str | None = None,
     unread: bool = False,
+    unanswered: bool = False,
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[ConversationOut], int]:
@@ -545,6 +546,7 @@ def _conversation_page(
         select(
             Message.conversation_id.label("cid"),
             Message.content.label("content"),
+            Message.sender_type.label("sender_type"),
             func.row_number().over(partition_by=Message.conversation_id, order_by=Message.created_at.desc()).label("rn"),
         )
         .where(Message.kind == "message")
@@ -607,6 +609,14 @@ def _conversation_page(
         query = query.where(Conversation.mode == mode)
     if unread:
         query = query.where(unread_count > 0)
+    if unanswered:
+        # Open, and the contact spoke last: neither the AI nor a person has
+        # answered. Activity lines are not messages, so `last` already skips them.
+        query = query.where(
+            Conversation.status == "open",
+            Conversation.archived_at.is_(None),
+            last.c.sender_type == "visitor",
+        )
     if search and search.strip():
         term = f"%{search.strip().lower()}%"
         query = query.where(
@@ -654,6 +664,7 @@ def portal_conversations(
     team: uuid.UUID | None = None,
     search: str | None = None,
     unread: bool = False,
+    unanswered: bool = False,
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     response: Response = None,  # type: ignore[assignment]
@@ -663,7 +674,7 @@ def portal_conversations(
 ):
     items, total = _conversation_page(
         db, client, user, status=status, mode=mode, archived=archived, channel=channel, assignee=assignee,
-        team=team, search=search, unread=unread, limit=limit, offset=offset,
+        team=team, search=search, unread=unread, unanswered=unanswered, limit=limit, offset=offset,
     )
     # The total for the same filters travels in a header so the list can say
     # how far it has paged without changing the body shape.
@@ -683,6 +694,7 @@ def portal_inbox(
     team: uuid.UUID | None = None,
     search: str | None = None,
     unread: bool = False,
+    unanswered: bool = False,
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     client: Client = Depends(_portal_client),
@@ -699,7 +711,7 @@ def portal_inbox(
     """
     items, total = _conversation_page(
         db, client, user, status=status, mode=mode, archived=archived, channel=channel, assignee=assignee,
-        team=team, search=search, unread=unread, limit=limit, offset=offset,
+        team=team, search=search, unread=unread, unanswered=unanswered, limit=limit, offset=offset,
     )
     mine: list[dict] = []
     if user:
@@ -1857,6 +1869,16 @@ def _inbox_summary(db: Session, client: Client, user: PortalUser | None) -> dict
         )
         .exists()
     )
+    # The contact wrote last: the most recent real message (activity lines are
+    # not messages) is theirs, so nobody has answered yet.
+    last_sender = (
+        select(Message.sender_type)
+        .where(Message.conversation_id == Conversation.id, Message.kind == "message")
+        .order_by(Message.created_at.desc())
+        .limit(1)
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
     live = Conversation.archived_at.is_(None)
     is_open = and_(Conversation.status == "open", live)
     is_human = Conversation.mode == "human"
@@ -1870,6 +1892,7 @@ def _inbox_summary(db: Session, client: Client, user: PortalUser | None) -> dict
             func.count().filter(is_open, is_human).label("human"),
             func.count().filter(is_open, Conversation.mode == "ai").label("ai"),
             func.count().filter(is_open, is_human, concerns_me, unread_exists).label("unread"),
+            func.count().filter(is_open, last_sender == "visitor").label("unanswered"),
             func.count().filter(is_open, is_mine).label("mine"),
             func.count().filter(is_open, is_human, Conversation.assignee_id.is_(None)).label("unassigned"),
         )
@@ -1879,7 +1902,7 @@ def _inbox_summary(db: Session, client: Client, user: PortalUser | None) -> dict
     ).one()
     return {
         "open": row.open, "resolved": row.resolved, "archived": row.archived, "human": row.human, "ai": row.ai,
-        "unread": row.unread, "mine": row.mine, "unassigned": row.unassigned,
+        "unread": row.unread, "unanswered": row.unanswered, "mine": row.mine, "unassigned": row.unassigned,
     }
 
 

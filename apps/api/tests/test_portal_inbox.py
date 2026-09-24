@@ -2,12 +2,14 @@
 
 import asyncio
 import time
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from conftest import customer_conversation
+from conftest import TestingSession, customer_conversation
 
+from app.models import Conversation, Message, now_utc
 from app.routers import portal as portal_router
 
 
@@ -99,3 +101,62 @@ def test_a_failing_read_receipt_is_logged_not_raised(authenticated_client: TestC
         time.sleep(0.02)
     assert not portal_router._read_signals
     assert "read signal for conversation" in caplog.text
+
+
+def _say(conversation_id: str, sender_type: str, seconds: int, *, kind: str = "message") -> None:
+    """A message `seconds` after the start of the scenario, in order."""
+    with TestingSession() as db:
+        db.add(
+            Message(
+                conversation_id=conversation_id,
+                role="user" if sender_type == "visitor" else "assistant",
+                kind=kind,
+                content="hello" if kind == "message" else "Resolved",
+                sender_type=sender_type,
+                created_at=now_utc() - timedelta(minutes=10) + timedelta(seconds=seconds),
+            )
+        )
+        db.commit()
+
+
+def test_unanswered_means_open_and_the_contact_spoke_last(authenticated_client: TestClient):
+    client = authenticated_client
+    slug, waiting, answered_by_ai = _portal(client)
+    agent_id = client.get("/api/agents").json()[0]["id"]
+    answered_by_person = customer_conversation(client, agent_id)["id"]
+    resolved = customer_conversation(client, agent_id)["id"]
+    with_activity = customer_conversation(client, agent_id)["id"]
+    base = f"/api/portal/{slug}"
+
+    _say(waiting, "ai", 1)
+    _say(waiting, "visitor", 2)
+    _say(answered_by_ai, "visitor", 1)
+    _say(answered_by_ai, "ai", 2)
+    _say(answered_by_person, "visitor", 1)
+    _say(answered_by_person, "human", 2)
+    _say(resolved, "visitor", 1)
+    with TestingSession() as db:
+        db.get(Conversation, resolved).status = "resolved"
+        db.commit()
+    # An activity line after the contact's message is not an answer.
+    _say(with_activity, "visitor", 1)
+    _say(with_activity, "ai", 2, kind="activity")
+
+    expected = {waiting, with_activity}
+    listed = client.get(f"{base}/conversations?unanswered=1")
+    assert {row["id"] for row in listed.json()} == expected
+    assert int(listed.headers["X-Total-Count"]) == 2
+
+    inbox = client.get(f"{base}/inbox?unanswered=1").json()
+    assert {row["id"] for row in inbox["items"]} == expected
+    assert inbox["total"] == 2
+    # The counters are not narrowed by the list filters.
+    assert inbox["summary"]["unanswered"] == 2
+    assert inbox["summary"]["open"] == 4
+    assert client.get(f"{base}/conversations/summary").json()["unanswered"] == 2
+
+    # Without the switch everything is still listed, and other filters compose.
+    assert len(client.get(f"{base}/conversations").json()) == 5
+    assert client.get(f"{base}/conversations?unanswered=1&channel=widget").json() != []
+    assert client.get(f"{base}/conversations?unanswered=1&status=resolved").json() == []
+    assert client.get(f"{base}/conversations?unanswered=1&search=nothing-matches").json() == []

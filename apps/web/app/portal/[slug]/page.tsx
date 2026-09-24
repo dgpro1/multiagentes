@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { Archive, ArchiveRestore, ArrowLeft, Ban, BarChart3, Bot, Building2, Calendar as CalendarIcon, CheckCircle2, CheckSquare, Clock, Contact as ContactIcon, FileText, Filter, GitBranch, Images, Inbox, LoaderCircle, LogOut, MessageCircle, MessageSquareText, PanelLeftClose, PanelLeftOpen, Reply, Search, Send, Settings, ShieldCheck, SmilePlus, Square, Trash2, UserRound, Users, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, Ban, BarChart3, Bot, Building2, Calendar as CalendarIcon, Check, CheckCircle2, CheckSquare, ChevronDown, Clock, Contact as ContactIcon, FileText, Filter, GitBranch, Images, Inbox, LoaderCircle, LogOut, MessageSquareText, PanelLeftClose, PanelLeftOpen, Reply, Search, Send, Settings, ShieldCheck, SmilePlus, Square, Trash2, UserRound, X } from "lucide-react";
 import { useCannedReplies } from "./canned";
 import { ContactsView } from "./contacts";
 import { ReportsView } from "./reports";
@@ -51,7 +51,7 @@ const LIMIT = 30;
 
 type Session = { client_id: string; client_name: string; portal_slug: string; agency_name: string; user_id?: string | null; user_name?: string | null; role?: "admin" | "agent" | null; permissions?: string[] };
 type Member = { id: string; name: string; email: string };
-type InboxSummary = { open: number; resolved: number; archived: number; human: number; ai: number; unread: number; mine: number; unassigned: number };
+type InboxSummary = { open: number; resolved: number; archived: number; human: number; ai: number; unread: number; unanswered: number; mine: number; unassigned: number };
 // One refresh of the inbox: the page, its total, the counters and what is mine.
 type InboxPayload = { items: Conversation[]; total: number; summary: InboxSummary; mine: { id: string; title: string }[] };
 // What a thread's response updates on its row in the list. The preview and
@@ -96,7 +96,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   const [tab, setTab] = useState<"all" | "unread" | "mine" | "ai">("all");
   const [members, setMembers] = useState<Member[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
-  const [teamFilter, setTeamFilter] = useState("");
+  const [teamFilter] = useState("");
   const [availability, setAvailability] = useState<"online" | "away">("online");
   useEffect(() => {
     if (!session.user_id) return;
@@ -178,6 +178,23 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   const [query, setQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // "Unanswered": open chats where the contact wrote last and nobody has replied.
+  const [unansweredOnly, setUnansweredOnly] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const close = (event: PointerEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key === "Escape") { setFiltersOpen(false); setSourceOpen(false); }
+        return;
+      }
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) { setFiltersOpen(false); setSourceOpen(false); }
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", close); };
+  }, [filtersOpen]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [listTotal, setListTotal] = useState<number | null>(null);
@@ -199,17 +216,31 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
     if (tab === "ai") params.set("mode", "ai");
     if (tab === "mine") params.set("assignee", "me");
     if (tab === "unread") params.set("unread", "1");
+    if (unansweredOnly) params.set("unanswered", "1");
     if (teamFilter) params.set("team", teamFilter);
     if (query) params.set("search", query);
     if (channelFilter) params.set("channel", channelFilter);
     params.set("limit", String(LIMIT));
     params.set("offset", String(offsetValue));
     return params.toString();
-  }, [tab, status, query, teamFilter, channelFilter]);
+  }, [tab, status, query, teamFilter, channelFilter, unansweredOnly]);
   // Switching inboxes reloads the list, and until the new rows arrive the
   // state still holds the previous inbox. Filter on render so a resolved
   // conversation never flashes inside Open, or the other way round.
   const visibleItems = useMemo(() => items.filter((item) => (status === "archived" ? Boolean(item.archived_at) : !item.archived_at && (status === "all" || (item.status === "resolved") === (status === "resolved"))) && (!channelFilter || item.channel === channelFilter)), [items, status, channelFilter]);
+  // The source list offers only channels this client really has: the connected
+  // lines plus any channel a conversation has come in through (the widget has
+  // no line to connect). Seen channels accumulate so picking one does not hide
+  // the others, and the picked one always stays listed.
+  const [seenChannels, setSeenChannels] = useState<string[]>([]);
+  useEffect(() => {
+    setSeenChannels((prev) => {
+      const next = new Set(prev);
+      items.forEach((item) => next.add(item.channel));
+      return next.size === prev.length ? prev : [...next];
+    });
+  }, [items]);
+  const sourceOptions = INBOX_CHANNELS.filter((value) => value !== "playground" && (channels.some((line) => line.channel === value) || seenChannels.includes(value) || channelFilter === value));
   const messagesRef = useRef<HTMLDivElement>(null);
   useEffect(() => { selectedIdRef.current = selected?.id ?? null; }, [selected]);
   const wasNearBottomRef = useRef(true);
@@ -448,13 +479,24 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   // (the stylesheet shows one or the other, never both).
   const navFoot = <div className="portal-nav-foot">{session.user_id && <button className={`availability-toggle ${availability}`} onClick={toggleAvailability} title={availability === "online" ? t("portal.availability.setAway") : t("portal.availability.setOnline")} aria-label={collapsed ? `${session.user_name ?? ""}, ${t(availability === "online" ? "portal.availability.online" : "portal.availability.away")}` : undefined} aria-pressed={availability === "online"}><i /><span className="availability-name"><strong>{session.user_name}</strong><small>{availability === "online" ? t("portal.availability.online") : t("portal.availability.away")}</small></span><span className="availability-switch" aria-hidden="true"><b /></span></button>}<button onClick={logout} aria-label={t("portal.inbox.nav.logout")}><LogOut size={17} /> {t("portal.inbox.nav.logout")}</button></div>;
   return <main className={`portal-app ${collapsed ? NAV_COLLAPSED_CLASS : ""}`} style={{ "--portal-color": portal.agency_brand_color } as React.CSSProperties}><aside id="portal-nav" className="portal-nav"><div className="portal-brand">{portal.client_logo_url || portal.agency_logo_url ? <img src={`${portal.client_logo_url || portal.agency_logo_url}`} alt="Logo" /> : <span>{portal.client_name.slice(0, 1)}</span>}<strong>{portal.client_name}</strong>{/* Folds the column into the icon rail. Hidden below 901px, where the tab bar takes over. */}<button type="button" className="portal-nav-toggle" onClick={toggle} aria-expanded={!collapsed} aria-controls="portal-nav" title={t(collapsed ? "shell.expandSidebar" : "shell.collapseSidebar")} aria-label={t(collapsed ? "shell.expandSidebar" : "shell.collapseSidebar")}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button></div><nav><a className={view === "inbox" ? "active" : ""} onClick={() => setView("inbox")} title={collapsed ? t("portal.inbox.nav.inbox") : undefined} aria-label={collapsed ? t("portal.inbox.nav.inbox") : undefined}><Inbox size={18} /> {t("portal.inbox.nav.inbox")}{summary && summary.unread > 0 && view !== "inbox" && <em className="nav-count">{summary.unread}</em>}</a><a className={view === "contacts" ? "active" : ""} onClick={() => setView("contacts")} title={collapsed ? t("portal.inbox.nav.contacts") : undefined} aria-label={collapsed ? t("portal.inbox.nav.contacts") : undefined}><ContactIcon size={18} /> {t("portal.inbox.nav.contacts")}</a><a className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")} title={collapsed ? t("clients.detail.tabCalendar") : undefined} aria-label={collapsed ? t("clients.detail.tabCalendar") : undefined}><CalendarIcon size={18} /> {t("clients.detail.tabCalendar")}</a><a className={view === "pipeline" ? "active" : ""} onClick={() => setView("pipeline")} title={collapsed ? t("clients.detail.tabPipeline") : undefined} aria-label={collapsed ? t("clients.detail.tabPipeline") : undefined}><GitBranch size={18} /> {t("clients.detail.tabPipeline")}</a>{can("reports.view") &&<a className={view === "reports" ? "active" : ""} onClick={() => setView("reports")} title={collapsed ? t("portal.inbox.nav.reports") : undefined} aria-label={collapsed ? t("portal.inbox.nav.reports") : undefined}><BarChart3 size={18} /> {t("portal.inbox.nav.reports")}</a>}<a className={view === "settings" ? "active" : ""} onClick={() => setView("settings")} title={collapsed ? t("portal.inbox.nav.settings") : undefined} aria-label={collapsed ? t("portal.inbox.nav.settings") : undefined}><Settings size={18} /> {t("portal.inbox.nav.settings")}</a></nav>{navFoot}</aside><section className={`portal-main${view === "pipeline" ? " portal-main-pipeline" : view === "inbox" ? " portal-main-inbox" : ""}`}><header><div><small>{t("portal.inbox.header.eyebrow")}</small><h1>{view === "contacts" ? t("portal.inbox.nav.contacts") : view === "settings" ? t("portal.inbox.nav.settings") : view === "reports" ? t("portal.inbox.nav.reports") : view === "calendar" ? t("clients.detail.tabCalendar") : view === "pipeline" ? t("clients.detail.tabPipeline") : portal.portal_title}</h1></div>{view === "inbox" && <span>{t("portal.inbox.header.conversationsCount", { count: items.length })}</span>}</header>{view === "settings" && <div className="portal-foot-mobile">{navFoot}</div>}{view === "settings" ? <SettingsView slug={slug} templatesSupported={templatesSupported} can={can} /> : view === "reports" && can("reports.view") ? <ReportsView slug={slug} /> : view === "calendar" ? <div className="embedded-portal-view"><CalendarView base={`/portal/${slug}`} canManage={can("calendar.manage")} /></div> : view === "pipeline" ? <div className="embedded-portal-view"><PipelineBoard base={`/portal/${slug}`} canManage={can("pipeline.manage")} /></div> : view === "contacts" ? <ContactsView slug={slug} channels={channels} openConversation={openFromContact} can={can} agentName={session.user_name || ""} /> : <div className={`portal-inbox${selected ? " has-thread" : ""}`}><aside onScroll={onListScroll}>
-      <div className="inbox-search"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("inbox.searchPlaceholder")} />{status !== "archived" && <button type="button" className={`inbox-filter-toggle${filtersOpen ? " open" : ""}${channelFilter || teamFilter || status !== "all" || tab !== "all" ? " active" : ""}`} onClick={() => setFiltersOpen((v) => !v)} title={t("inbox.filters")} aria-label={t("inbox.filters")} aria-pressed={filtersOpen}><Filter size={16} /></button>}</div>
-      {status !== "archived" && filtersOpen && <div className="inbox-filter-row">
-        <label className="inbox-mini-select" title={t("inbox.filterStatus")}><Inbox size={14} /><select aria-label={t("inbox.filterStatus")} value={status} onChange={(event) => switchStatus(event.target.value as InboxKind)}><option value="all">{t("inbox.allStatus")}</option><option value="open">{t("portal.inbox.status.open")}</option><option value="resolved">{t("portal.inbox.status.resolved")}</option><option value="archived">{t("portal.inbox.status.archived")}{summary && summary.archived > 0 ? ` (${summary.archived})` : ""}</option></select></label>
-        <label className="inbox-mini-select" title={t("inbox.filterView")}><Filter size={14} /><select aria-label={t("inbox.filterView")} value={tab} onChange={(event) => setTab(event.target.value as typeof tab)}><option value="all">{t("portal.inbox.folders.all")}</option><option value="unread">{t("portal.inbox.folders.unread")}{summary && summary.unread > 0 ? ` (${summary.unread})` : ""}</option><option value="mine">{t("portal.inbox.folders.mine")}{summary && summary.mine > 0 ? ` (${summary.mine})` : ""}</option><option value="ai">{t("portal.inbox.folders.ai")}</option></select></label>
-        <label className="inbox-mini-select" title={t("inbox.filterChannel")}><MessageCircle size={14} /><select aria-label={t("inbox.filterChannel")} value={channelFilter} onChange={(event) => { setChannelFilter(event.target.value); setSelected(null); }}><option value="">{t("inbox.allChannels")}</option>{INBOX_CHANNELS.filter((value) => value !== "playground").map((value) => <option key={value} value={value}>{channelLabel(value)}</option>)}</select></label>
-        {teams.length > 0 && <label className="inbox-mini-select" title={t("portal.inbox.nav.teams")}><Users size={14} /><select aria-label={t("portal.inbox.nav.teams")} value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}><option value="">{t("portal.teams.filterAll")}</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}{team.unassigned_count > 0 ? ` (${team.unassigned_count})` : ""}</option>)}</select></label>}
-      </div>}
+      <div className="inbox-search"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("inbox.searchPlaceholder")} />{status !== "archived" && <div className="inbox-filter-wrap" ref={filterRef}><button type="button" className={`inbox-filter-toggle${filtersOpen ? " open" : ""}${channelFilter || unansweredOnly ? " active" : ""}`} onClick={() => { setFiltersOpen((v) => !v); setSourceOpen(false); }} title={t("inbox.filters")} aria-label={t("inbox.filters")} aria-haspopup="dialog" aria-expanded={filtersOpen}><Filter size={16} /></button>{filtersOpen && <div className="inbox-filter-pop" role="dialog" aria-label={t("inbox.filterTitle")}>
+        <h4>{t("inbox.filterTitle")}</h4>
+        <span className="pop-label">{t("inbox.filterChatState")}</span>
+        <div className="pop-options">
+          <button type="button" className={!unansweredOnly ? "selected" : ""} aria-pressed={!unansweredOnly} onClick={() => { setUnansweredOnly(false); setSelected(null); }}><span>{t("inbox.allStatus")}</span>{!unansweredOnly && <Check size={16} />}</button>
+          <button type="button" className={unansweredOnly ? "selected" : ""} aria-pressed={unansweredOnly} onClick={() => { setUnansweredOnly(true); setSelected(null); }}><span>{t("inbox.unanswered")}</span>{summary && summary.unanswered > 0 && <em>{summary.unanswered}</em>}{unansweredOnly && <Check size={16} />}</button>
+        </div>
+        <span className="pop-label">{t("inbox.filterSources")}</span>
+        <div className="pop-select">
+          <button type="button" className="pop-select-trigger" aria-haspopup="listbox" aria-expanded={sourceOpen} onClick={() => setSourceOpen((v) => !v)}><span>{channelFilter ? channelLabel(channelFilter) : t("inbox.allSources")}</span><ChevronDown size={16} /></button>
+          {sourceOpen && <ul className="pop-select-list" role="listbox" aria-label={t("inbox.filterSources")}>
+            {sourceOptions.length === 0 ? <li className="pop-select-empty">{t("inbox.connectFirstChannel")}</li> : <>
+              <li><button type="button" role="option" aria-selected={!channelFilter} onClick={() => { setChannelFilter(""); setSelected(null); setSourceOpen(false); }}><span>{t("inbox.allSources")}</span>{!channelFilter && <Check size={15} />}</button></li>
+              {sourceOptions.map((value) => <li key={value}><button type="button" role="option" aria-selected={channelFilter === value} onClick={() => { setChannelFilter(value); setSelected(null); setSourceOpen(false); }}><span className={`channel-dot ${value}`}>{channelIcon(value)}</span><span>{channelLabel(value)}</span>{channelFilter === value && <Check size={15} />}</button></li>)}
+            </>}
+          </ul>}
+        </div>
+      </div>}</div>}</div>
       {status === "archived" ? <div className="archive-head">
         <button type="button" className="text-button" onClick={() => switchStatus("all")}><ArrowLeft size={14} /> {t("portal.inbox.archive.back")}</button>
         <strong><Archive size={14} /> {t("portal.inbox.status.archived")}{summary ? ` · ${summary.archived}` : ""}</strong>

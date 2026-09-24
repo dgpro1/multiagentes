@@ -934,6 +934,7 @@ class PortalInboxSummary(BaseModel):
     human: int = 0
     ai: int = 0
     unread: int = 0
+    unanswered: int = 0
     mine: int = 0
     unassigned: int = 0
 
