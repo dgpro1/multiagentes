@@ -19,7 +19,7 @@ Coolify runs the stack from `docker-compose.coolify.yml`. Its proxy terminates T
    python scripts/check-production-env.py coolify.env
    ```
    Keep `ENCRYPTION_KEY` in a password manager: it decrypts the stored AI keys and WhatsApp sessions and must never change. Delete `coolify.env` after pasting it.
-2. **Create the resource** in Coolify: *New resource → Docker Compose → your Git repository*, branch `main`, compose file `/docker-compose.coolify.yml`. (Use the repository, not "empty compose": the gateway reads `docker/Caddyfile` from it.)
+2. **Create the resource** in Coolify: *New resource → Docker Compose → your Git repository*, branch **`production`**, compose file `/docker-compose.coolify.yml`. (`production` is created and advanced by GitHub only after the tests are green; see *Updating*.) (Use the repository, not "empty compose": the gateway reads `docker/Caddyfile` from it.)
 3. **Environment variables:** open *Environment variables → Developer view* and paste the block. `FRONTEND_URL` must be the public `https` address.
 4. **Domain:** on the `proxy` service set `https://app.example.com` (port 80 inside). Coolify issues the certificate. Leave every other service without a domain.
 5. **Deploy.** Wait until every service is healthy. The API applies the database migrations on start.
@@ -38,7 +38,13 @@ The uploaded files (`backend_storage`) and the WhatsApp sessions (`evolution_*` 
 
 ## Updating
 
-Push to `main`, wait for *Publish images* to finish, then redeploy in Coolify (or add Coolify's deploy webhook to the workflow). Migrations run on start; take a snapshot before an upgrade that adds one (the changelog says so).
+Work lands on `main`, but the server never sees it directly. On every push to `main` GitHub runs *Tests*; only when they are green does *Publish images* build the images (tagged `latest` and `sha-<7 characters>`) and then advance the **`production`** branch to that commit. Coolify follows `production`, so with *Auto Deploy* on it only ever receives commits that passed the tests and have their images. A red run publishes nothing and `production` stays where it was. Check a commit with `python scripts/ci-status.py <sha>`.
+
+Migrations run on start. Before a deploy that adds one (the changelog says so), take a Hetzner snapshot or make sure last night's `db-backup` dump exists.
+
+## Rolling back
+
+If a deploy misbehaves, go back in minutes: in Coolify set `OPENLIVERY_VERSION=sha-<first 7 characters of a good commit>` (the images of every green commit stay in the registry) and redeploy. If the bad version applied a migration, restore the snapshot or dump taken before it instead. Set the variable back to `latest` (or delete it) once a fixed commit is on `production`.
 
 ## Do not change
 

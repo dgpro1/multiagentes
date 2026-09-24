@@ -21,6 +21,14 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Added
 
+- **Release gate and audit.** `Publish images` now runs only after `Tests` is green on `main` and, when both
+  images are published, advances a `production` branch that servers follow; images are tagged `latest` and
+  `sha-<7>` so a deploy can be rolled back by version. `scripts/audit.py` audits a commit in isolation (own
+  worktree and databases: full API suite, migration up/down/up, web install with npm 10, type-check, lint,
+  build, Coolify kit), `scripts/ci-status.py` reads the GitHub state of a commit, and `AUDIT.md` tells any
+  agent how to run and review an audit. `docs/en|es/deploy-coolify.md` documents `production`, rollback
+  and snapshots before migrations.
+
 - **Portal Details and Professionals.** Two new portal functions, both off by default per client:
   `details` (portal admins edit the business name, industry, time zone and logo) and `professionals`
   (the client's staff, each with a weekly working schedule, in the agency panel and the portal;

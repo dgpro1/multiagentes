@@ -29,6 +29,14 @@ Several agents and worktrees work on this repo, so `main` is the single source o
 - **No parallel edits of the same files.** Before touching a shared file (`globals.css`, `portal/[slug]/page.tsx`, `app-shell.tsx`, i18n dicts), check `git status` and `git log origin/main` for in-flight work on it.
 - **Never work directly in the root checkout.** Use a worktree per task; leave the root checkout on a clean `main`. Uncommitted changes there are not shared with anyone and get lost or duplicated.
 - **Clone must be full.** A shallow clone (`.git/shallow`) makes pushes to a fresh remote fail; run `git fetch --unshallow` if it exists.
+- **Audit before landing large changes.** For migrations, permissions and scopes, portal functions, deploy files and
+  dependency or lockfile changes, run `python scripts/audit.py <sha>` (or hand `AUDIT.md` to another agent) on the
+  branch commit and merge only when it is green; this is the one exception to "land right away". Smaller changes go
+  straight to `main`.
+- **`main` is not what runs in production.** `Publish images` builds the images, and the `production` branch
+  advances, only after `Tests` is green on a push to `main`; servers (Coolify) follow `production`. Check a commit with
+  `python scripts/ci-status.py <sha> --wait 30`. To roll back, set `OPENLIVERY_VERSION=sha-<7 chars of a good commit>`
+  on the server and redeploy.
 
 ## Commands
 

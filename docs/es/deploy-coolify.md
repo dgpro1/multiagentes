@@ -19,7 +19,7 @@ Coolify ejecuta el stack desde `docker-compose.coolify.yml`. Su proxy termina el
    python scripts/check-production-env.py coolify.env
    ```
    Guarda `ENCRYPTION_KEY` en un gestor de contraseñas: descifra las claves de IA y las sesiones de WhatsApp guardadas y no debe cambiar nunca. Borra `coolify.env` después de pegarlo.
-2. **Crea el recurso** en Coolify: *New resource → Docker Compose → tu repositorio Git*, rama `main`, archivo `/docker-compose.coolify.yml`. (Usa el repositorio y no "compose vacío": el gateway lee `docker/Caddyfile` de él.)
+2. **Crea el recurso** en Coolify: *New resource → Docker Compose → tu repositorio Git*, rama **`production`**, archivo `/docker-compose.coolify.yml`. (`production` la crea y la avanza GitHub solo cuando las pruebas están en verde; mira *Actualizar*.) (Usa el repositorio y no "compose vacío": el gateway lee `docker/Caddyfile` de él.)
 3. **Variables de entorno:** abre *Environment variables → Developer view* y pega el bloque. `FRONTEND_URL` debe ser la dirección pública con `https`.
 4. **Dominio:** en el servicio `proxy` pon `https://app.ejemplo.com` (puerto 80 por dentro). Coolify emite el certificado. Deja los demás servicios sin dominio.
 5. **Despliega.** Espera a que todos los servicios estén sanos. La API aplica las migraciones de la base de datos al arrancar.
@@ -38,7 +38,13 @@ Los archivos subidos (`backend_storage`) y las sesiones de WhatsApp (volúmenes 
 
 ## Actualizar
 
-Haz push a `main`, espera a que termine *Publish images* y vuelve a desplegar en Coolify (o agrega el webhook de despliegue de Coolify al workflow). Las migraciones corren al arrancar; toma un snapshot antes de una actualización que agregue una (el changelog lo indica).
+El trabajo aterriza en `main`, pero el servidor nunca lo ve directamente. En cada push a `main`, GitHub ejecuta *Tests*; solo si salen en verde, *Publish images* construye las imágenes (con las etiquetas `latest` y `sha-<7 caracteres>`) y después avanza la rama **`production`** a ese commit. Coolify sigue `production`, así que con *Auto Deploy* activado solo recibe commits que pasaron las pruebas y ya tienen sus imágenes. Una ejecución en rojo no publica nada y `production` se queda donde estaba. Comprueba un commit con `python scripts/ci-status.py <sha>`.
+
+Las migraciones corren al arrancar. Antes de un despliegue que agregue una (el changelog lo indica), toma un snapshot de Hetzner o confirma que existe el volcado de anoche de `db-backup`.
+
+## Volver atrás
+
+Si un despliegue falla, vuelves atrás en minutos: en Coolify pon `OPENLIVERY_VERSION=sha-<primeros 7 caracteres de un commit bueno>` (las imágenes de cada commit en verde se conservan en el registro) y vuelve a desplegar. Si la versión mala aplicó una migración, restaura el snapshot o el volcado tomado antes. Cuando haya un commit corregido en `production`, vuelve la variable a `latest` (o bórrala).
 
 ## No cambiar
 

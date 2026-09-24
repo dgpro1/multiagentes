@@ -1,10 +1,17 @@
 name: Publish images
 
-# Build the service images and push them to the GitHub Container Registry so a
-# server can run the stack with `docker compose pull` instead of building.
+# Release gate. Images are built and pushed to the GitHub Container Registry only
+# after the "Tests" workflow finished green on a push to main, so a broken commit
+# never becomes `latest`. When both images are published, the `production` branch
+# is advanced to that same commit: the server (Coolify) follows `production`, so it
+# only ever receives commits that passed the tests and have their images.
+# A `v*` tag is published directly, and the workflow can be run by hand.
 on:
-  push:
+  workflow_run:
+    workflows: ["Tests"]
+    types: [completed]
     branches: [main]
+  push:
     tags: ["v*"]
   workflow_dispatch:
 
@@ -14,6 +21,10 @@ concurrency:
 
 jobs:
   build:
+    # For workflow_run: only a green run of a push to main (not a pull request).
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,8 +36,17 @@ jobs:
             context: ./apps/api
           - service: web
             context: ./apps/web
+    env:
+      # The commit the tests ran on (github.sha is the branch head for workflow_run).
+      COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.COMMIT_SHA }}
+
+      - name: Short commit
+        id: commit
+        run: echo "short=${COMMIT_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -44,9 +64,9 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/openlivery-${{ matrix.service }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_run' || github.ref == 'refs/heads/main' }}
             type=ref,event=tag
-            type=sha,format=short
+            type=raw,value=sha-${{ steps.commit.outputs.short }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -57,3 +77,27 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  promote:
+    # Only after tests and both images are green.
+    if: github.event_name == 'workflow_run'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Advance the production branch
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          git fetch origin production 2>/dev/null || true
+          if git rev-parse --verify --quiet origin/production >/dev/null && git merge-base --is-ancestor "$SHA" origin/production; then
+            echo "production already contains $SHA"
+          else
+            git push origin "$SHA:refs/heads/production"
+          fi
