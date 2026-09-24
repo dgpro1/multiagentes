@@ -2783,3 +2783,22 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .pop-select-list button span:not(.channel-dot) { flex: 1; }
 .pop-select-list button svg:last-child { color: var(--accent-text); }
 .pop-select-empty { padding: 14px 10px; color: var(--muted); font-size: 13px; line-height: 1.4; text-align: center; }
+
+/* Slidable divider between the conversation list and the thread. Only above
+   the widths where both columns sit side by side; the phone layout shows one
+   at a time and has nothing to slide. */
+.inbox-resizer { display: none; }
+@media (min-width: 641px) {
+  .portal-inbox { grid-template-columns: var(--inbox-list-w, 360px) minmax(0, 1fr); }
+  .inbox-resizer { display: block; position: absolute; z-index: 6; top: 0; bottom: 0; left: var(--inbox-list-w, 360px); width: 12px; margin-left: -6px; cursor: col-resize; touch-action: none; }
+  .inbox-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 5px; width: 2px; border-radius: 2px; background: transparent; transition: background .12s ease; }
+  .inbox-resizer:hover::after, .inbox-resizer:focus-visible::after, .is-resizing .inbox-resizer::after { background: var(--accent); }
+  .inbox-resizer:focus-visible { outline: none; }
+  .portal-inbox.is-resizing { cursor: col-resize; user-select: none; }
+}
+.portal-inbox { position: relative; }
+
+/* The AI button in the thread header: a fixed label; only its colour says on or off. */
+.ai-toggle { height: 34px; padding: 0 14px; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); border: 1px solid var(--line); border-radius: 9px; background: var(--surface-3); font-size: 13px; font-weight: 700; }
+.ai-toggle:hover { color: var(--ink); }
+.ai-toggle.on { color: var(--green-text); border-color: var(--green); background: var(--green-soft); }

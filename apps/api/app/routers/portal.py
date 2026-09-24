@@ -96,7 +96,7 @@ from ..services.whatsapp_templates import (
     window_open_until,
 )
 from ..services.conversation_state import record_activity
-from ..services.conversation_state import ConversationClosed, assign, ensure_open, note_reply, set_archived, set_mode, set_status, set_team
+from ..services.conversation_state import assign, note_reply, set_archived, set_mode, set_status, set_team
 from ..services.routing import route_conversation
 from ..services.notifications import notify_assigned
 from ..services.attachments import attachment_response, conversation_attachment, logo_response
@@ -1307,13 +1307,6 @@ def portal_contact_conversations(
 WINDOW_CLOSED = "The 24-hour reply window is closed. Send an approved template to reach this person."
 
 
-def _require_open_conversation(conversation: Conversation) -> None:
-    try:
-        ensure_open(conversation)
-    except ConversationClosed as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
 def _require_open_window(conversation: Conversation) -> None:
     if conversation.channel in ("instagram", "messenger"):
         from ..services.social_policy import require_reply
@@ -1816,9 +1809,6 @@ async def portal_reply_template(
 ):
     """Reach a person again after the window closed."""
     conversation = _detail(db, client, conversation_id)
-    _require_open_conversation(conversation)
-    if conversation.mode != "human":
-        raise HTTPException(status_code=409, detail="Take control of the conversation before replying")
     if conversation.channel != "whatsapp_cloud" or not conversation.external_chat_id:
         raise HTTPException(status_code=409, detail="Templates only exist on the WhatsApp API line")
     if conversation.phone_pause_until is not None:
@@ -1998,10 +1988,7 @@ def portal_mode(
     db: Session = Depends(get_db),
 ):
     conversation = _detail(db, client, conversation_id)
-    try:
-        changed = set_mode(db, conversation, payload.mode, actor=sender_name, user=user)
-    except ConversationClosed as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    changed = set_mode(db, conversation, payload.mode, actor=sender_name, user=user)
     if changed:
         db.commit()
     return _present(_detail(db, client, conversation_id))
@@ -2018,10 +2005,7 @@ async def portal_set_conversation_team(
 ):
     conversation = _detail(db, client, conversation_id)
     team = get_team(db, client, payload.team_id) if payload.team_id else None
-    try:
-        changed = set_team(db, conversation, team, actor=sender_name)
-    except ConversationClosed as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    changed = set_team(db, conversation, team, actor=sender_name)
     routed = None
     if changed and team and conversation.mode == "human" and conversation.assignee_id is None:
         routed = route_conversation(db, conversation, actor=sender_name)
@@ -2053,10 +2037,7 @@ async def portal_assign(
     )
     if not assignee:
         raise HTTPException(status_code=404, detail="That person is not part of this portal")
-    try:
-        changed = assign(db, conversation, assignee, actor=sender_name, actor_user=user)
-    except ConversationClosed as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    changed = assign(db, conversation, assignee, actor=sender_name, actor_user=user)
     if changed:
         db.commit()
         if assignee and (not user or assignee.id != user.id):
@@ -2074,10 +2055,7 @@ def portal_status(
     db: Session = Depends(get_db),
 ):
     conversation = _detail(db, client, conversation_id)
-    try:
-        changed = set_status(db, conversation, payload.status, actor=sender_name)
-    except ConversationClosed as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    changed = set_status(db, conversation, payload.status, actor=sender_name)
     if changed:
         db.commit()
     return _present(_detail(db, client, conversation_id))
@@ -2127,9 +2105,6 @@ async def portal_reply_media(
     db: Session = Depends(get_db),
 ):
     conversation = _detail(db, client, conversation_id)
-    _require_open_conversation(conversation)
-    if conversation.mode != "human":
-        raise HTTPException(status_code=409, detail="Take control of the conversation before replying")
     _require_open_window(conversation)
     await store_operator_media_reply(
         db, conversation, file=file, caption=caption, sender_name=sender_name, portal_user_id=user.id if user else None
@@ -2148,9 +2123,6 @@ async def portal_reply(
     db: Session = Depends(get_db),
 ):
     conversation = _detail(db, client, conversation_id)
-    _require_open_conversation(conversation)
-    if conversation.mode != "human":
-        raise HTTPException(status_code=409, detail="Take control of the conversation before replying")
     _require_open_window(conversation)
     if conversation.channel in ("instagram", "messenger"):
         from ..services.social_delivery import queue_message
@@ -2202,9 +2174,6 @@ async def portal_react(
     db: Session = Depends(get_db),
 ):
     conversation = _detail(db, client, conversation_id)
-    _require_open_conversation(conversation)
-    if conversation.mode != "human":
-        raise HTTPException(status_code=409, detail="Take control of the conversation before reacting")
     target = db.scalar(select(Message).where(Message.id == message_id, Message.conversation_id == conversation.id))
     if not target:
         raise HTTPException(status_code=404, detail="Message not found")

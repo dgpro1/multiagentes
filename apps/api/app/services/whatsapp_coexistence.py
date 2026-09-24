@@ -42,8 +42,6 @@ def window_fields(conversation):
     reason = None
     if not channel or not channel.is_enabled or channel.status != "connected":
         reason = "channel_disconnected"
-    elif conversation.status == "resolved":
-        reason = "conversation_resolved"
     elif not until or until <= now_utc():
         reason = "reply_window_closed"
     return {"reply_window_until": until, "reply_window_open": reason is None,

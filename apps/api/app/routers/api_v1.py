@@ -72,7 +72,7 @@ from ..schemas_calendar import CalendarMemberCreate, CalendarMemberOut
 from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
 from ..services.contacts import find_contact, normalize_phone
-from ..services.conversation_state import ConversationClosed, note_reply, set_mode, set_status
+from ..services.conversation_state import note_reply, set_mode, set_status
 from ..services.idempotency import abandon, complete, owner_of, use_key
 from ..services.knowledge import build_system_prompt, embed_document_chunks, reindex_agent, reindex_document
 from ..services.report_operations import ConversationFilters, operations
@@ -446,14 +446,10 @@ async def v1_reply(
     idempotency_key: str | None = Header(default=None),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    """Answer as the operator, with the panel's own rules: the case must be
-    in human hands, and social lines queue through their durable outbox."""
+    """Answer as the operator, with the panel's own rules: the reply does not
+    change who answers, and social lines queue through their durable outbox."""
     client = _agency_client(db, user, client_id)
     conversation = _client_conversation(db, client, conversation_id)
-    if conversation.mode != "human":
-        raise HTTPException(status_code=409, detail="Take control of the conversation before replying")
-    if conversation.status != "open":
-        raise HTTPException(status_code=409, detail="This conversation is resolved")
     receipt = use_key(db, agency_id=user.agency_id, owner=owner_of(user), key=idempotency_key or "",
                       endpoint="v1:reply", body={**payload.model_dump(), "conversation_id": str(conversation_id)})
     if receipt.replay is not None:
@@ -495,10 +491,7 @@ def v1_set_mode(
     """Take the case into human hands or give it back to the AI, leaving the panel's own trace in the thread."""
     client = _agency_client(db, user, client_id)
     conversation = _client_conversation(db, client, conversation_id)
-    try:
-        changed = set_mode(db, conversation, payload.mode, actor=user.name)
-    except ConversationClosed as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    changed = set_mode(db, conversation, payload.mode, actor=user.name)
     if changed:
         db.commit()
     return _conversation_out(conversation, request)
@@ -512,10 +505,7 @@ def v1_set_status(
     """Resolve or reopen the case, with the same trace the panel leaves."""
     client = _agency_client(db, user, client_id)
     conversation = _client_conversation(db, client, conversation_id)
-    try:
-        changed = set_status(db, conversation, payload.status, actor=user.name)
-    except ConversationClosed as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    changed = set_status(db, conversation, payload.status, actor=user.name)
     if changed:
         db.commit()
     return _conversation_out(conversation, request)

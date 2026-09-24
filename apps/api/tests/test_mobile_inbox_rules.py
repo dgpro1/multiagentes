@@ -65,7 +65,7 @@ def test_legacy_unnamed_session_still_reads(authenticated_client):
     assert client.get(f"/api/portal/{customer['portal_slug']}/conversations", headers=headers).status_code == 200
 
 
-def test_resolved_case_rejects_every_outbound_action_before_delivery(authenticated_client, monkeypatch):
+def test_resolved_case_still_accepts_every_outbound_action(authenticated_client, monkeypatch):
     from app.routers import portal
 
     client = authenticated_client
@@ -79,17 +79,40 @@ def test_resolved_case_rejects_every_outbound_action_before_delivery(authenticat
     resolved = client.patch(f"{path}/status", headers=headers, json={"status": "resolved"})
     assert resolved.status_code == 200
     message_count = len(resolved.json()["messages"])
-    deliver = AsyncMock()
-    for method in ["send_channel_message", "store_operator_media_reply", "_send_template_to", "deliver_reaction"]:
-        monkeypatch.setattr(portal, method, deliver)
+    send = AsyncMock(return_value="wamid.resolved-1")
+    media = AsyncMock()
+    monkeypatch.setattr(portal, "send_channel_message", send)
+    monkeypatch.setattr(portal, "store_operator_media_reply", media)
 
-    responses = [
-        client.post(f"{path}/reply", headers=headers, json={"content": "Stale composer"}),
-        client.post(f"{path}/reply-media", headers=headers, files={"file": ("photo.png", b"image", "image/png")}),
-        client.post(f"{path}/reply-template", headers=headers, json={"name": "hello", "language": "en", "variables": []}),
-        client.post(f"{path}/messages/{uuid.uuid4()}/reaction", headers=headers, json={"emoji": "👍"}),
-    ]
-    assert [response.status_code for response in responses] == [409, 409, 409, 409]
-    assert all("resolved" in response.json()["detail"] for response in responses)
-    deliver.assert_not_called()
-    assert len(client.get(path, headers=headers).json()["messages"]) == message_count
+    # A resolved state never blocks writing: the guard is gone, so each action
+    # reaches its own handler rules instead of being refused for the state.
+    reply = client.post(f"{path}/reply", headers=headers, json={"content": "Still writable"})
+    assert reply.status_code == 200
+    assert reply.json()["messages"][-1]["content"] == "Still writable"
+    assert len(reply.json()["messages"]) == message_count + 1
+    send.assert_awaited_once()
+    upload = client.post(f"{path}/reply-media", headers=headers, files={"file": ("photo.png", b"image", "image/png")})
+    assert upload.status_code == 200
+    media.assert_awaited_once()
+    template = client.post(f"{path}/reply-template", headers=headers, json={"name": "hello", "language": "en", "variables": []})
+    assert template.status_code == 409 and "Templates only exist" in template.json()["detail"]
+    reaction = client.post(f"{path}/messages/{uuid.uuid4()}/reaction", headers=headers, json={"emoji": "👍"})
+    assert reaction.status_code == 404
+
+
+def test_portal_reply_while_the_ai_is_on_leaves_the_mode_alone(authenticated_client, monkeypatch):
+    from app.routers import portal
+
+    client = authenticated_client
+    customer, _, headers = _session(client)
+    agent = client.post("/api/agents", json={"client_id": customer["id"], "name": "Assistant"}).json()
+    conversation = customer_conversation(client, agent["id"])
+    path = f"/api/portal/{customer['portal_slug']}/conversations/{conversation['id']}"
+    assert conversation["mode"] == "ai"
+    monkeypatch.setattr(portal, "send_channel_message", AsyncMock(return_value="wamid.ai-mode-1"))
+
+    reply = client.post(f"{path}/reply", headers=headers, json={"content": "Jumping in"})
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["mode"] == "ai"
+    assert reply.json()["messages"][-1]["content"] == "Jumping in"
+    assert client.get(path, headers=headers).json()["mode"] == "ai"

@@ -730,10 +730,11 @@ def test_portal_resolves_reopens_and_narrates_the_thread(authenticated_client: T
     assert len([m for m in again["messages"] if m["kind"] == "activity"]) == 1
     assert client.patch(f"{base}/{conversation_id}/status", json={"status": "snoozed"}).status_code == 422
 
-    # A resolved case is final: no reopening, no handing around.
-    assert client.patch(f"{base}/{conversation_id}/status", json={"status": "open"}).status_code == 409
-    assert client.patch(f"{base}/{conversation_id}/mode", json={"mode": "human"}).status_code == 409
+    # Resolved does not lock the case: it can be handed around and reopened.
+    assert client.patch(f"{base}/{conversation_id}/mode", json={"mode": "human"}).status_code == 200
     assert client.get(f"{base}/{conversation_id}").json()["status"] == "resolved"
+    reopened = client.patch(f"{base}/{conversation_id}/status", json={"status": "open"})
+    assert reopened.status_code == 200 and reopened.json()["status"] == "open" and reopened.json()["resolved_at"] is None
 
     # Who answers is narrated too, and the preview never shows an activity line.
     fresh_id = customer_conversation(client, agent["id"])["id"]
@@ -830,6 +831,8 @@ def test_idle_ai_conversations_resolve_themselves_but_human_ones_wait(authentica
     assert idle["messages"][-1]["activity"] == {"event": "auto_resolved", "hours": 24}
     assert client.get(f"/api/conversations/{human_id}").json()["status"] == "open"
     assert client.get(f"/api/conversations/{fresh_id}").json()["status"] == "open"
+    # Nothing resolves on its own unless an operator turns the sweeper on.
+    assert get_settings().auto_resolve_after_hours == 0
 
 
 def test_provider_test_returns_models(authenticated_client: TestClient, monkeypatch):

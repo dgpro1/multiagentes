@@ -19,17 +19,6 @@ from ..models import Conversation, Message, PortalUser, now_utc
 
 STATUSES = ("open", "resolved")
 
-RESOLVED_IS_FINAL = "A resolved conversation stays resolved. The contact's next message opens a new one."
-
-
-class ConversationClosed(ValueError):
-    """Raised when something tries to act on a resolved conversation."""
-
-
-def ensure_open(conversation: Conversation) -> None:
-    if conversation.status == "resolved":
-        raise ConversationClosed(RESOLVED_IS_FINAL)
-
 # English fallbacks for clients that do not translate events themselves.
 _ACTIVITY_TEXT = {
     "answered_from_phone": "{actor} replied from the phone; the AI is temporarily paused",
@@ -87,10 +76,6 @@ def set_status(db: Session, conversation: Conversation, status: str, *, actor: s
         raise ValueError(f"Unknown conversation status: {status}")
     if conversation.status == status:
         return False
-    if status == "open":
-        # Cases end; they do not come back. The next message from the
-        # contact opens a fresh conversation for the same person.
-        ensure_open(conversation)
     now = now_utc()
     conversation.status = status
     conversation.status_changed_at = now
@@ -147,7 +132,6 @@ def set_mode(
     timed = conversation.phone_pause_until is not None
     if conversation.mode == mode and not timed:
         return False
-    ensure_open(conversation)
     cancel_phone_pause(conversation)
     conversation.mode = mode
     now = now_utc()
@@ -184,7 +168,6 @@ def assign(
     new_id = assignee.id if assignee else None
     if not timed and conversation.assignee_id == new_id and (assignee is None or conversation.mode == "human"):
         return False
-    ensure_open(conversation)
     previous = conversation.assignee
     now = now_utc()
     conversation.assignee_id = new_id
@@ -220,7 +203,6 @@ def set_team(
     new_id = team.id if team else None
     if conversation.team_id == new_id:
         return False
-    ensure_open(conversation)
     previous = conversation.team
     # Assign the relationship, not the id: callers keep reading
     # ``conversation.team`` in the same transaction (routing does).

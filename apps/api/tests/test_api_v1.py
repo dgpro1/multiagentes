@@ -126,15 +126,25 @@ def test_conversations_list_get_and_reply(authenticated_client: TestClient):
     one = client.get(f"/api/v1/clients/{customer['id']}/conversations/{conversation['id']}", headers=headers)
     assert one.status_code == 200 and one.json()["_links"]["self"].endswith(conversation["id"])
 
-    # The panel's own rule holds here too: take control before replying.
-    assert client.post(f"/api/v1/clients/{customer['id']}/conversations/{conversation['id']}/reply",
-                       headers=headers, json={"content": "Hi"}).status_code == 409
+    # An operator can reply while the AI is on, and replying leaves the mode alone.
+    in_ai_mode = client.post(f"/api/v1/clients/{customer['id']}/conversations/{conversation['id']}/reply",
+                             headers=headers, json={"content": "Hi"})
+    assert in_ai_mode.status_code == 200, in_ai_mode.text
+    assert in_ai_mode.json()["mode"] == "ai"
     assert client.patch(f"/api/conversations/{conversation['id']}/mode",
                         json={"mode": "human"}).status_code == 200
     replied = client.post(f"/api/v1/clients/{customer['id']}/conversations/{conversation['id']}/reply",
                           headers=headers, json={"content": "Hi, Ana"})
     assert replied.status_code == 200, replied.text
     assert replied.json()["mode"] == "human"
+
+    # A resolved conversation keeps accepting operator replies.
+    assert client.patch(f"/api/conversations/{conversation['id']}/status",
+                        json={"status": "resolved"}).status_code == 200
+    after_resolve = client.post(f"/api/v1/clients/{customer['id']}/conversations/{conversation['id']}/reply",
+                                headers=headers, json={"content": "Following up"})
+    assert after_resolve.status_code == 200, after_resolve.text
+    assert after_resolve.json()["status"] == "resolved"
 
 
 def test_pipeline_board_and_move(authenticated_client: TestClient):

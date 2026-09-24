@@ -43,6 +43,18 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Changed
 
+- **The chat is always writable, and the AI is one switch.** The portal thread header
+  has a single **AI agent** switch that only turns the AI on or off; its label never
+  changes, and the composer is open whatever the AI switch says or the chat's past
+  state. Replying no longer requires taking control first (portal, agency panel and
+  API v1), and sending a message does not change the switch.
+- **No "Resolved" state for now.** The portal has no Resolve button, badge or locked
+  composer, and chats are no longer resolved automatically (`AUTO_RESOLVE_AFTER_HOURS`
+  now defaults to `0`). The status endpoints stay in API v1, and existing rows keep
+  their value.
+- **The inbox list and the thread share a slidable divider.** Drag the line between
+  them (or use the arrow keys; double-click resets it) to resize the list; the width
+  is remembered per browser.
 - **The portal inbox filter is a panel.** The funnel opens a panel with the chat state
   (all, or **Unanswered**: open chats where the contact wrote last and nobody has
   replied) and the chat source, which lists only the channels the client has. The

@@ -90,10 +90,11 @@ class Settings(BaseSettings):
     google_redirect_uri: str = ""
     calendar_link_days: int = 7
 
-    # Conversations the AI is answering resolve themselves after this many
-    # hours without a message from either side. Conversations a person took
-    # over are never closed automatically: only that person decides. 0 disables.
-    auto_resolve_after_hours: float = 24.0
+    # Off by default: conversations no longer resolve themselves. When set,
+    # conversations the AI is answering resolve after this many hours without
+    # a message from either side; conversations a person took over are never
+    # closed automatically. 0 disables.
+    auto_resolve_after_hours: float = 0.0
 
     # Push notifications for the mobile app. "none" (the default) sends nothing
     # and needs no account with anyone; "webhook" POSTs each event to

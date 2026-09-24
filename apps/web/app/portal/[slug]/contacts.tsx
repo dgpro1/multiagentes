@@ -259,7 +259,7 @@ export function ContactsView({ slug, channels, openConversation, can, agentName 
   // A closed case opens as a read-only view right here; an open one goes to
   // the inbox, where it can be answered.
   async function openHistoryItem(conv: Conversation) {
-    if (conv.status !== "resolved" && !conv.archived_at) { openConversation(conv); return; }
+    if (!conv.archived_at) { openConversation(conv); return; }
     setPreview(conv); setPreviewLoading(true);
     try { setPreview(await api<Conversation>(`/portal/${slug}/conversations/${conv.id}`)); }
     catch (err) { setError(messageFrom(err)); setPreview(null); }
@@ -469,7 +469,7 @@ export function ContactsView({ slug, channels, openConversation, can, agentName 
                 </div>}
               </div>
               {history.length ? <div className="portal-contact-history">{history.map((conv) => <button key={conv.id} onClick={() => openHistoryItem(conv)}>
-                <span className={`mini-badge ${conv.status === "resolved" ? "resolved" : conv.mode}`}>{conv.status === "resolved" ? <><CheckCircle2 size={11} /> {t("portal.inbox.conversation.resolvedBadge")}</> : conv.mode === "human" ? t("portal.inbox.list.humanSupport") : t("portal.inbox.list.aiAgent")}</span>
+                <span className={`mini-badge ${conv.mode}`}>{conv.mode === "human" ? t("portal.inbox.list.humanSupport") : t("portal.inbox.list.aiAgent")}</span>
                 <span className="portal-contact-history-text"><strong>{formatWhen(conv.created_at, lang)}</strong><small>{conv.preview || t("portal.inbox.list.noMessages")}</small></span>
                 <Inbox size={15} />
               </button>)}</div> : <p className="muted">{historyLoading ? "" : (historySince || historyUntil) ? t("portal.contacts.noHistoryInRange") : t("portal.contacts.noHistory")}</p>}
@@ -531,7 +531,7 @@ export function ContactsView({ slug, channels, openConversation, can, agentName 
     <Modal open={preview !== null} title={preview ? t("portal.contacts.preview.titleWith", { name: preview.contact_name || preview.title }) : t("portal.contacts.preview.title")} description={preview ? `${channelLabel(preview.channel, t)} · ${formatWhen(preview.created_at, lang)}` : undefined} onClose={() => setPreview(null)} wide>
       {preview && <div className="modal-form preview">
         <dl className="preview-facts">
-          <div><dt><CheckCircle2 size={13} /> {t("portal.contacts.preview.status")}</dt><dd><strong>{preview.archived_at ? t("portal.inbox.conversation.archivedBadge") : t("portal.inbox.conversation.resolvedBadge")}</strong>{(preview.archived_at || preview.resolved_at) && <small>{formatWhen(preview.archived_at || preview.resolved_at || preview.updated_at, lang)}</small>}</dd></div>
+          <div><dt><CheckCircle2 size={13} /> {t("portal.contacts.preview.status")}</dt><dd><strong>{t("portal.inbox.conversation.archivedBadge")}</strong>{preview.archived_at && <small>{formatWhen(preview.archived_at, lang)}</small>}</dd></div>
           <div><dt><ChannelIcon channel={preview.channel} size={12} /> {t("portal.contacts.preview.channel")}</dt><dd><strong>{channelLabel(preview.channel, t)}</strong></dd></div>
           <div><dt>{previewHandlers.humans.length ? <UserRound size={13} /> : <Bot size={13} />} {t("portal.contacts.preview.handledBy")}</dt><dd><strong>{[...previewHandlers.ai.map((name) => t("portal.contacts.preview.byAi", { name })), ...previewHandlers.humans].join(" · ") || "—"}</strong></dd></div>
           <div><dt><Users size={13} /> {t("portal.contacts.preview.assigned")}</dt><dd><strong>{[preview.assignee_name, preview.team_name].filter(Boolean).join(" · ") || "—"}</strong></dd></div>

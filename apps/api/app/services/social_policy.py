@@ -29,8 +29,6 @@ def window_fields(conversation: Conversation) -> dict:
         reason = "authorization_expired"
     elif not conversation.social_thread_owned:
         reason = "another_app_controls_conversation"
-    elif conversation.status == "resolved":
-        reason = "conversation_resolved"
     allowed = reason is None
     standard_open = bool(allowed and until and now < until)
     human_open = bool(allowed and human_until and now < human_until)
@@ -51,7 +49,6 @@ def require_reply(conversation: Conversation, *, human: bool) -> bool:
             "channel_disconnected": "Reconnect this channel before replying.",
             "authorization_expired": "The channel authorization expired. Reconnect the account.",
             "another_app_controls_conversation": "Another messaging application controls this conversation.",
-            "conversation_resolved": "This conversation is resolved.",
             "reply_window_closed": "The reply window is closed. Wait for a new message from this person.",
         }
         raise HTTPException(status_code=409, detail=reasons.get(fields["reply_block_reason"], "Replies are unavailable."))

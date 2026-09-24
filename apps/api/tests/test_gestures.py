@@ -141,9 +141,11 @@ def test_operator_reaction_on_the_qr_channel(authenticated_client: TestClient, m
     visitor = detail["messages"][0]
     assistant = detail["messages"][-1]
 
-    # Reactions require taking control first, and only target visitor messages.
+    # Reactions work while the AI answers, without changing who answers, and only target visitor messages.
     endpoint = f"/api/conversations/{conversation_id}/messages/{visitor['id']}/reaction"
-    assert client.post(endpoint, json={"emoji": "👍"}).status_code == 409
+    in_ai_mode = client.post(endpoint, json={"emoji": "👍"})
+    assert in_ai_mode.status_code == 200, in_ai_mode.text
+    assert in_ai_mode.json()["mode"] == "ai"
     assert client.patch(f"/api/conversations/{conversation_id}/mode", json={"mode": "human"}).status_code == 200
     assert client.post(
         f"/api/conversations/{conversation_id}/messages/{assistant['id']}/reaction", json={"emoji": "👍"}

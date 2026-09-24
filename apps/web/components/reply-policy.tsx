@@ -21,7 +21,7 @@ export function useReplyPolicy(conversation: Conversation | null) {
   const blocked = social
     ? (!standardOpen && !humanOpen) || Boolean(conversation?.reply_block_reason && conversation.reply_block_reason !== "reply_window_closed")
     : conversation?.channel === "whatsapp_cloud" && (conversation.reply_window_open === false || !alive(conversation.reply_window_until));
-  const canReply = Boolean(conversation) && conversation?.mode === "human" && conversation.status !== "resolved" && !blocked;
+  const canReply = Boolean(conversation) && !blocked;
   const capabilities = conversation?.channel_capabilities;
   const canAttach = canReply && (!social || Boolean(capabilities?.image || capabilities?.video || capabilities?.file || capabilities?.audio));
   const canRecord = canReply && (!social || capabilities?.audio === true);
@@ -42,6 +42,6 @@ export function SocialReplyNotice({ conversation, blocked, humanOnly }: { conver
 
 export function PhonePauseNotice({ conversation, onKeepManual }: { conversation: Conversation; onKeepManual: () => void }) {
   const t = useT();
-  if (!conversation.phone_pause_until || conversation.mode !== "human" || conversation.status === "resolved") return null;
+  if (!conversation.phone_pause_until || conversation.mode !== "human") return null;
   return <div className="reply-policy-notice human" role="status"><Clock size={16} /><span>{t("portal.inbox.activity.phonePause", { time: new Date(conversation.phone_pause_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })}</span><button type="button" className="button" onClick={onKeepManual}>{t("portal.inbox.activity.keepManual")}</button></div>;
 }

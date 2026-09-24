@@ -79,7 +79,7 @@ async def store_operator_media_reply(
     sender_name: str,
     portal_user_id=None,
 ) -> None:
-    """Caller must have verified the conversation is in human mode."""
+    """Store and send an operator media reply. Sending does not change the conversation mode."""
     from .phone_handover import cancel_phone_pause
     if cancel_phone_pause(conversation):
         db.commit()

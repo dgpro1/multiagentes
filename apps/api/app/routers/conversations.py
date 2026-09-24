@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..database import get_db
 from ..api_scopes import INBOX_MANAGE, INBOX_READ, INBOX_REPLY, PIPELINE_MANAGE
 from ..deps import get_current_user, require
-from ..services.conversation_state import ConversationClosed, STATUSES, note_reply, set_mode, set_status
+from ..services.conversation_state import STATUSES, note_reply, set_mode, set_status
 from ..models import Agent, Contact, Conversation, Message, now_utc, User
 from ..schemas import (
     ConversationCreate,
@@ -386,10 +386,7 @@ def set_conversation_mode(
     user: User = Depends(get_current_user),
 ):
     conversation = _conversation(db, user, conversation_id)
-    try:
-        changed = set_mode(db, conversation, payload.mode, actor=user.name)
-    except ConversationClosed as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    changed = set_mode(db, conversation, payload.mode, actor=user.name)
     if changed:
         db.commit()
     return _conversation(db, user, conversation_id)
@@ -403,10 +400,7 @@ def set_conversation_status(
     user: User = Depends(get_current_user),
 ):
     conversation = _conversation(db, user, conversation_id)
-    try:
-        changed = set_status(db, conversation, payload.status, actor=user.name)
-    except ConversationClosed as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    changed = set_status(db, conversation, payload.status, actor=user.name)
     if changed:
         db.commit()
     return _conversation(db, user, conversation_id)
@@ -435,8 +429,6 @@ async def reply_as_human(
     user: User = Depends(get_current_user),
 ):
     conversation = _conversation(db, user, conversation_id)
-    if conversation.mode != "human":
-        raise HTTPException(status_code=409, detail="Take control of the conversation before replying")
     if conversation.channel in ("instagram", "messenger"):
         from ..services.social_delivery import queue_message
         if payload.quoted_message_id:
@@ -485,8 +477,6 @@ async def send_location(
     Evolution driver). The chat keeps a location attachment; the phone gets a
     real pin."""
     conversation = _conversation(db, user, conversation_id)
-    if conversation.mode != "human":
-        raise HTTPException(status_code=409, detail="Take control of the conversation before sending a location")
     external_message_id = await send_channel_location(
         db,
         conversation,
@@ -535,8 +525,6 @@ async def react_to_message(
     user: User = Depends(get_current_user),
 ):
     conversation = _conversation(db, user, conversation_id)
-    if conversation.mode != "human":
-        raise HTTPException(status_code=409, detail="Take control of the conversation before reacting")
     target = db.scalar(select(Message).where(Message.id == message_id, Message.conversation_id == conversation.id))
     if not target:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -558,7 +546,5 @@ async def reply_media_as_human(
     user: User = Depends(get_current_user),
 ):
     conversation = _conversation(db, user, conversation_id)
-    if conversation.mode != "human":
-        raise HTTPException(status_code=409, detail="Take control of the conversation before replying")
     await store_operator_media_reply(db, conversation, file=file, caption=caption, sender_name=user.name)
     return _conversation(db, user, conversation_id)
