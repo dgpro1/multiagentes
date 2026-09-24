@@ -101,6 +101,11 @@ class Client(Base):
     # lead). Only bumped by the before_insert hook on Conversation, with a row
     # lock, so two writers never receive the same number.
     conversation_seq: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # The business's responsible person or director: the default "responsible"
+    # of every lead until a portal member is picked on the conversation.
+    owner_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # ISO 4217 code the deal values of this client's pipeline are in.
+    currency: Mapped[str] = mapped_column(String(3), default="USD", server_default="USD")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
@@ -127,6 +132,9 @@ class Client(Base):
     )
     professionals: Mapped[list["Professional"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", order_by="Professional.created_at"
+    )
+    lead_fields: Mapped[list["LeadField"]] = relationship(
+        back_populates="client", cascade="all, delete-orphan", order_by="LeadField.position, LeadField.created_at"
     )
 
     @property
@@ -484,6 +492,7 @@ class Contact(Base):
     # Digits only, as WhatsApp reports it. None for people without a number.
     phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    company: Mapped[str | None] = mapped_column(String(160), nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="")
     # A blocked contact talks to a wall: their messages are stored but nobody
     # answers, nothing rings, and their conversations leave the inboxes.
@@ -625,6 +634,13 @@ class Conversation(Base):
         ForeignKey("pipeline_stages.id", ondelete="SET NULL"), nullable=True, index=True
     )
     deal_value: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # The lead card's "responsible": the portal member who owns the lead. Only a
+    # label; it never changes who answers (``assignee_id``) or the AI/human mode.
+    responsible_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("portal_users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Values of the client's custom lead fields, keyed by LeadField.key.
+    custom_values: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     # Set by an inbound message, cleared by the next reply: how long the
     # contact has been waiting for an answer.
     waiting_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -636,6 +652,7 @@ class Conversation(Base):
     assignee: Mapped["PortalUser | None"] = relationship(foreign_keys=[assignee_id])
     team: Mapped["Team | None"] = relationship(foreign_keys=[team_id])
     pipeline_stage: Mapped["PipelineStage | None"] = relationship(foreign_keys=[pipeline_stage_id])
+    responsible: Mapped["PortalUser | None"] = relationship(foreign_keys=[responsible_id])
 
     @property
     def team_name(self) -> str | None:
@@ -1186,6 +1203,29 @@ class Professional(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
     client: Mapped[Client] = relationship(back_populates="professionals")
+
+
+class LeadField(Base):
+    """A custom field a client adds to its lead card (a text, a number, a date,
+    a choice or a checkbox). ``key`` and ``type`` never change after creation,
+    because conversations store their values under the key in
+    ``Conversation.custom_values``; deleting a field leaves those values behind
+    as orphans that are simply no longer shown."""
+
+    __tablename__ = "lead_fields"
+    __table_args__ = (UniqueConstraint("client_id", "key", name="uq_lead_fields_client_key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(60))
+    label: Mapped[str] = mapped_column(String(80))
+    # text | number | date | select | checkbox
+    type: Mapped[str] = mapped_column(String(12))
+    options: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    client: Mapped[Client] = relationship(back_populates="lead_fields")
 
 
 class CalendarOAuthState(Base):

@@ -6,6 +6,10 @@ import { PageHead } from "@/components/ui";
 import { AttachButton, MessageAttachments, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { LocationComposer } from "@/components/location-composer";
 import { MediaPanel } from "@/components/media-panel";
+import { LeadCard } from "@/components/lead-card/lead-card";
+import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
+import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
+import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
 import { DeliveryTicks } from "@/components/delivery-ticks";
 import { RichText } from "@/components/rich-text";
 import { GrowingTextarea } from "@/components/growing-textarea";
@@ -43,6 +47,12 @@ export default function InboxPage() {
   const [locating, setLocating] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const policy = useReplyPolicy(selected);
+  // The lead card beside the thread; a lead's data is reached through its client.
+  const { open: leadPanelOpen, setOpen: setLeadOpen, overlay: leadOverlay, attachLayout: attachLead } = useLeadPanel();
+  const closeLead = useCallback(() => setLeadOpen(false), [setLeadOpen]);
+  const selectedClientId = selected?.client_id;
+  const leadScope = useMemo(() => (selectedClientId ? agencyLeadScope(selectedClientId) : null), [selectedClientId]);
+  const leadOpen = Boolean(selected) && leadPanelOpen;
 
   useEffect(() => { api<Agent[]>("/agents").then(setAgents).catch(() => {}); }, []);
   useEffect(() => { const id = setTimeout(() => setSearch(searchInput), 300); return () => clearTimeout(id); }, [searchInput]);
@@ -245,7 +255,7 @@ export default function InboxPage() {
 
     {/* On a phone the list and the thread take turns on screen (see the
         .has-thread rules); a desktop shows both side by side and ignores it. */}
-    <div className={`inbox-layout${selected ? " has-thread" : ""}`}>
+    <div ref={attachLead} className={`inbox-layout${selected ? " has-thread" : ""}${leadOpen ? " has-lead" : ""}${leadOverlay ? " lead-overlay" : ""}`}>
       <aside className="inbox-list" onScroll={onScroll}>
         <div className="inbox-search"><Search size={16} /><input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder={t("inbox.searchPlaceholder")} /></div>
         <div className="inbox-tabs">
@@ -280,6 +290,7 @@ export default function InboxPage() {
           : <>
             <header>
               <button type="button" className="icon-button inbox-back" onClick={() => { selectedIdRef.current = null; setSelected(null); }} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button>
+              <LeadAvatarButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)} />
               <div><strong>{selected.contact_name || selected.title}</strong><small>{channelLabel(selected.channel)}{selected.account_label && <> <span className="account-badge" title={selected.account_label}>{selected.account_label}</span></>}</small></div>
               <div className="thread-actions">
                 <button className="icon-button" onClick={() => setMediaOpen(true)} title={t("chat.sharedContent")} aria-label={t("chat.sharedContent")}><Images size={16} /></button>
@@ -317,6 +328,9 @@ export default function InboxPage() {
             <MediaPanel open={mediaOpen} onClose={() => setMediaOpen(false)} messages={selected.messages ?? []} urlFor={attachmentUrl} />
           </>}
       </section>
+      {leadOpen && selected && leadScope && <LeadScopeProvider scope={leadScope}>
+        <LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { loadFirst({ silent: true }); refreshSelected(); }} syncKey={selected.messages?.at(-1)?.id} />
+      </LeadScopeProvider>}
     </div>
   </div>;
 }

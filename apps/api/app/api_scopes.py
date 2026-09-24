@@ -36,6 +36,8 @@ CALENDAR_MANAGE = "calendar.manage"
 REPORTS_READ = "reports.read"
 PROFESSIONALS_READ = "professionals.read"
 PROFESSIONALS_MANAGE = "professionals.manage"
+LEAD_FIELDS_READ = "lead_fields.read"
+LEAD_FIELDS_MANAGE = "lead_fields.manage"
 INTEGRATIONS_MANAGE = "integrations.manage"
 WEBHOOKS_MANAGE = "webhooks.manage"
 
@@ -67,6 +69,8 @@ ALL: tuple[str, ...] = (
     REPORTS_READ,
     PROFESSIONALS_READ,
     PROFESSIONALS_MANAGE,
+    LEAD_FIELDS_READ,
+    LEAD_FIELDS_MANAGE,
     INTEGRATIONS_MANAGE,
     WEBHOOKS_MANAGE,
 )
@@ -100,6 +104,8 @@ DESCRIPTIONS: dict[str, str] = {
     REPORTS_READ: "See the reports.",
     PROFESSIONALS_READ: "See the professionals of a client and their weekly hours.",
     PROFESSIONALS_MANAGE: "Add, edit and delete professionals and their weekly hours.",
+    LEAD_FIELDS_READ: "See the custom fields of the lead card.",
+    LEAD_FIELDS_MANAGE: "Create, edit and delete the custom fields of the lead card.",
     INTEGRATIONS_MANAGE: "Create and revoke API credentials.",
     WEBHOOKS_MANAGE: "Create, edit and delete webhook subscriptions.",
 }
@@ -120,6 +126,7 @@ PRESETS: dict[str, frozenset[str]] = {
             CALENDAR_MANAGE,
             TEAMS_MANAGE,
             PROFESSIONALS_MANAGE,
+            LEAD_FIELDS_MANAGE,
         }
     ),
     "full": frozenset(ALL),

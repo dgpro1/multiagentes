@@ -21,6 +21,16 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Added
 
+- **Lead card in the inbox.** Click the contact's avatar in a conversation to open a side panel (agency inbox,
+  client Inbox tab and portal): lead number, tags, pipeline stage, budget, responsible user, custom fields you
+  define per client (text, number, date, list, checkbox), files, and the contact block (WhatsApp name, channel,
+  phone, email, company). New per-client **Responsible / director** and **Currency** in Details; the responsible
+  is separate from the assignee, so choosing one never pauses the AI. Portal admins manage fields with the new
+  `fields.manage` permission. New API: `/api/conversations/{id}/lead`, `/api/clients/{id}/lead-fields`,
+  `/api/clients/{id}/contacts/{contact_id}` and their `/api/portal/{slug}` counterparts; scopes
+  `lead_fields.read` and `lead_fields.manage`. Migration `0063_lead_card`. Fixed: the pipeline board used the
+  agency route inside the portal.
+
 - **Release gate and audit.** `Publish images` now runs only after `Tests` is green on `main` and, when both
   images are published, advances a `production` branch that servers follow; images are tagged `latest` and
   `sha-<7>` so a deploy can be rolled back by version. `scripts/audit.py` audits a commit in isolation (own

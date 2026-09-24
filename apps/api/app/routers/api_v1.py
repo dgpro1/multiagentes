@@ -208,6 +208,7 @@ def _contact_out(contact: Contact) -> dict:
         "name": contact.name,
         "phone": contact.phone,
         "email": contact.email,
+        "company": contact.company,
         "notes": contact.notes,
         "created_at": contact.created_at,
         "updated_at": contact.updated_at,
@@ -402,6 +403,8 @@ def v1_update_contact(
         contact.phone = phone
     if payload.email is not None:
         contact.email = payload.email or None
+    if "company" in payload.model_fields_set:
+        contact.company = (payload.company or "").strip() or None
     if payload.notes is not None:
         contact.notes = payload.notes.strip()
     db.commit()

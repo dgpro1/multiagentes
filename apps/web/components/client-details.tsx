@@ -9,6 +9,7 @@ import { AiHint } from "@/components/ai-hint";
 import { Combobox } from "@/components/combobox";
 import { useToast } from "@/components/toast";
 import { TIMEZONES } from "@/lib/timezones";
+import { CURRENCIES } from "@/lib/currencies";
 import { api, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import type { PortalClientDetails } from "@/types";
@@ -41,6 +42,7 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
   const catalogPath = props.mode === "portal" ? `/portal/${props.slug}/industries` : undefined;
   const [business, setBusiness] = useState<IndustryValue>({ industry: client.industry, businessType: client.business_type, custom: client.business_custom });
   const [timezone, setTimezone] = useState(client.timezone || "UTC");
+  const [currency, setCurrency] = useState(client.currency || "USD");
   const [busy, setBusy] = useState(false);
   const [logoVersion, setLogoVersion] = useState(0);
   const logoRef = useRef<HTMLInputElement>(null);
@@ -66,7 +68,7 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
   async function saveDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true);
     const data = new FormData(event.currentTarget);
-    const body: Record<string, unknown> = { name: data.get("name"), industry: business.industry, business_type: business.businessType, business_custom: business.custom, timezone };
+    const body: Record<string, unknown> = { name: data.get("name"), industry: business.industry, business_type: business.businessType, business_custom: business.custom, timezone, owner_name: String(data.get("owner_name") ?? "").trim() || null, currency };
     if (agency) body.is_active = data.get("is_active") === "on";
     try { onChange(await api<T>(apiBase, { method: "PATCH", body: JSON.stringify(body) })); toast.success(t("clients.detail.detailsSaved")); }
     catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
@@ -110,6 +112,8 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
           </div>
           <IndustryPicker value={business} onChange={setBusiness} catalogPath={catalogPath} />
           <label><span className="label-row">{t("clients.detail.name")} <AiHint text={t("aiContext.businessName")} /></span><input name="name" required defaultValue={client.name} /></label>
+          <label>{t("clients.detail.ownerLabel")}<input name="owner_name" maxLength={160} defaultValue={client.owner_name ?? ""} placeholder={t("clients.detail.ownerPlaceholder")} /><span className="field-help">{t("clients.detail.ownerHint")}</span></label>
+          <label>{t("clients.detail.currencyLabel")}<select name="currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>{(CURRENCIES as readonly string[]).includes(currency) ? null : <option value={currency}>{currency}</option>}{CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}</select><span className="field-help">{t("clients.detail.currencyHint")}</span></label>
           <label>{t("clients.detail.timezoneLabel")}<Combobox value={timezone} onChange={setTimezone} options={TIMEZONES} placeholder={t("clients.detail.timezoneLabel")} /><span className="field-help">{t("clients.detail.timezoneHint")}</span></label>
           {agency && <label className="switch-row"><span><strong>{t("clients.detail.activeClient")}</strong><small>{t("clients.detail.activeClientHint")}</small></span><input name="is_active" type="checkbox" defaultChecked={active} /></label>}
         </div>

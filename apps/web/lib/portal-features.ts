@@ -61,6 +61,7 @@ export const FEATURES_BY_CLIENT_TAB: Record<string, readonly PortalFeature[]> = 
 /** A role permission is only as good as the function behind it. */
 export const FEATURE_OF_PERMISSION: Record<string, PortalFeature> = {
   "contacts.manage": "contacts",
+  "fields.manage": "inbox",
   "pipeline.manage": "pipeline",
   "calendar.manage": "calendar",
   "reports.view": "reports",

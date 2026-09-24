@@ -7,6 +7,7 @@ import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
 import { ChannelIcon } from "@/lib/channels";
 import { formatWhen } from "@/lib/datetime";
+import { formatMoney } from "@/lib/currencies";
 import { tagStyle } from "@/lib/tags";
 import { api, messageFrom } from "@/lib/api";
 import { useLanguage, useT, type Lang } from "@/lib/i18n";
@@ -17,9 +18,9 @@ const UNASSIGNED = "__unassigned__";
 // Distinct on both themes, in the order new stages take them.
 const PALETTE = ["#2f6df0", "#00a67d", "#7c5cff", "#d4932f", "#c83b82", "#0891b2", "#c43d4b", "#65a30d"];
 
-function money(value: number | null | undefined): string {
+function money(value: number | null | undefined, currency: string, locale?: string): string {
   if (value === null || value === undefined) return "";
-  return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  return formatMoney(value, currency, locale);
 }
 
 /** The sales pipeline: a client's own stages as kanban columns, with every
@@ -70,6 +71,10 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
       : `/inbox?conversation=${id}`
   ), [base]);
 
+  // The portal has its own route for a lead's stage and value; the agency's is keyed by the conversation alone.
+  const pipelinePath = useCallback((id: string) => (base.startsWith("/portal") ? `${base}/conversations/${id}/pipeline` : `/conversations/${id}/pipeline`), [base]);
+  const currency = board?.currency || "USD";
+
   async function moveCard(card: PipelineCard, stageId: string | null) {
     if (card.pipeline_stage_id === stageId) return;
     // Optimistic: the board feels instant, and a failure just reloads it.
@@ -78,14 +83,14 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
       cards: current.cards.map((c) => (c.id === card.id ? { ...c, pipeline_stage_id: stageId } : c)),
     });
     try {
-      await api(`/conversations/${card.id}/pipeline`, { method: "PATCH", body: JSON.stringify({ pipeline_stage_id: stageId, deal_value: card.deal_value }) });
+      await api(pipelinePath(card.id), { method: "PATCH", body: JSON.stringify({ pipeline_stage_id: stageId, deal_value: card.deal_value }) });
     } catch { toast.error(t("pipeline.moveFailed")); load(); }
   }
 
   async function editValue(card: PipelineCard, value: number | null) {
     setBoard((current) => current && { ...current, cards: current.cards.map((c) => (c.id === card.id ? { ...c, deal_value: value } : c)) });
     try {
-      await api(`/conversations/${card.id}/pipeline`, { method: "PATCH", body: JSON.stringify({ pipeline_stage_id: card.pipeline_stage_id, deal_value: value }) });
+      await api(pipelinePath(card.id), { method: "PATCH", body: JSON.stringify({ pipeline_stage_id: card.pipeline_stage_id, deal_value: value }) });
     } catch (err) { toast.error(messageFrom(err)); load(); }
   }
 
@@ -109,7 +114,7 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
             <button type="button" className="pipeline-view-btn" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg></button>
           </div>
           <label className="pipeline-search-compact"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("pipeline.searchPlaceholder")} aria-label={t("pipeline.searchPlaceholder")} /></label>
-          <span className="pipeline-totals-compact">{money(totalValue)}</span>
+          <span className="pipeline-totals-compact">{money(totalValue, currency, lang)}</span>
           {canManage && <button type="button" className="pipeline-automate-btn" onClick={() => setManaging(true)}><Wand2 size={15} /> {t("pipeline.automate")}</button>}
         </div>}
 
@@ -130,12 +135,12 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
           }}>
           <header className="pipeline-column-head" style={{ backgroundColor: column.color }}>
             <strong>{column.name}</strong>
-            <span className="pipeline-column-count">{t("pipeline.columnDeals", { count: column.count })}{column.total != null && column.total > 0 ? ` · ${money(column.total)}` : ""}</span>
+            <span className="pipeline-column-count">{t("pipeline.columnDeals", { count: column.count })}{column.total != null && column.total > 0 ? ` · ${money(column.total, currency, lang)}` : ""}</span>
           </header>
           <div className="pipeline-cards">
             {stage && <button type="button" className="pipeline-quick-add" onClick={() => setQuickLeadStage(stage)}><Plus size={14} /> {t("pipeline.quickLead")}</button>}
             {cards.length === 0 ? <div className="pipeline-empty-column">{t("pipeline.emptyColumn")}</div>
-              : cards.map((card) => <PipelineCardView key={card.id} card={card} t={t} lang={lang}
+              : cards.map((card) => <PipelineCardView key={card.id} card={card} t={t} lang={lang} currency={currency}
                 threadUrl={threadUrl(card.id, card.number)} onDragStart={() => setDragCardId(card.id)} onValueChange={(value) => editValue(card, value)} />)}
           </div>
         </div>;
@@ -149,8 +154,8 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
   </div>;
 }
 
-function PipelineCardView({ card, t, lang, threadUrl, onDragStart, onValueChange }: {
-  card: PipelineCard; t: ReturnType<typeof useT>; lang: Lang; threadUrl: string;
+function PipelineCardView({ card, t, lang, currency, threadUrl, onDragStart, onValueChange }: {
+  card: PipelineCard; t: ReturnType<typeof useT>; lang: Lang; currency: string; threadUrl: string;
   onDragStart: () => void; onValueChange: (value: number | null) => void;
 }) {
   const [editingValue, setEditingValue] = useState(false);
@@ -179,7 +184,7 @@ function PipelineCardView({ card, t, lang, threadUrl, onDragStart, onValueChange
           onChange={(e) => setDraft(e.target.value)} onBlur={commit}
           onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setDraft(card.deal_value != null ? String(card.deal_value) : ""); setEditingValue(false); } }} />
       : <button type="button" className="pipeline-value" onClick={() => setEditingValue(true)} title={t("pipeline.editValue")}>
-          {card.deal_value != null ? money(card.deal_value) : <span className="pipeline-value-empty">{t("pipeline.noValue")}</span>}
+          {card.deal_value != null ? money(card.deal_value, currency, lang) : <span className="pipeline-value-empty">{t("pipeline.noValue")}</span>}
         </button>}
   </article>;
 }

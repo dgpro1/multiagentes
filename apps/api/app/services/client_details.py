@@ -15,6 +15,14 @@ from ..models import Client
 MAX_LOGO_BYTES = 2 * 1024 * 1024
 ALLOWED_LOGO_TYPES = {"image/png", "image/jpeg", "image/webp", "image/svg+xml"}
 
+# The currencies a client's deal values and lead card amounts can be shown in.
+# The web app mirrors this list in apps/web/lib/currencies.ts; a test keeps the
+# two identical.
+CURRENCIES = ("USD", "EUR", "MXN", "COP", "CLP", "ARS", "PEN", "BRL", "UYU", "BOB", "PYG", "DOP", "CRC", "GTQ", "PAB")
+
+# Columns that may be cleared with an explicit null; every other one must hold a value.
+NULLABLE_DETAILS = frozenset({"owner_name"})
+
 
 def check_industry(industry: str, business_type: str) -> None:
     error = industries.validate(industry, business_type)
@@ -26,9 +34,10 @@ def apply_details(db: Session, client: Client, values: dict) -> None:
     """Write ``values`` (only the keys the caller sent) to ``client`` and commit.
 
     Changing the industry drops a business type that no longer belongs to it.
-    An explicit null is ignored: every one of these columns must hold a value.
+    An explicit null is ignored, except for the columns that may be empty
+    (``NULLABLE_DETAILS``): every other one must hold a value.
     """
-    values = {key: value for key, value in values.items() if value is not None}
+    values = {key: value for key, value in values.items() if value is not None or key in NULLABLE_DETAILS}
     industry = values.get("industry", client.industry)
     business_type = values.get("business_type", client.business_type)
     if "industry" in values and "business_type" not in values and industries.get_type(industry, business_type) is None:

@@ -293,6 +293,13 @@ GATED = [
     ("PATCH", "/conversations/{id}/team", ["inbox", "teams"]),
     ("POST", "/conversations/{id}/assignment", ["inbox"]),
     ("PATCH", "/conversations/{id}/status", ["inbox"]),
+    # The lead card of the inbox and its custom fields (tests/test_lead_card.py).
+    ("GET", "/conversations/{id}/lead", ["inbox"]),
+    ("PATCH", "/conversations/{id}/lead", ["inbox"]),
+    ("GET", "/lead-fields", ["inbox"]),
+    ("POST", "/lead-fields", ["inbox"]),
+    ("PATCH", "/lead-fields/{id}", ["inbox"]),
+    ("DELETE", "/lead-fields/{id}", ["inbox"]),
     ("POST", "/conversations/{id}/reply", ["inbox"]),
     ("POST", "/conversations/{id}/reply-media", ["inbox"]),
     ("POST", "/conversations/{id}/reply-template", ["inbox", "templates"]),

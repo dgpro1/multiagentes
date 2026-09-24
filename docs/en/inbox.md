@@ -34,3 +34,13 @@ This is the same `mode` concept used for [WhatsApp](whatsapp.md) conversations, 
 ## Who can take over
 
 Both agency operators (from this Inbox) and client users can take over conversations. Client users do it from the [client portal](client-portal.md), which exposes the same take-control and reply-as-human actions scoped to their client.
+
+## Lead card
+
+Next to a conversation, the lead card shows it as a sales lead (a lead is a conversation): the lead number, the contact block (name, WhatsApp name, phone, e-mail, company, tags, blocked), the pipeline stage, the budget in the client's currency, the responsible person and the client's custom fields. The stage and the budget are changed from the pipeline board (see the [client portal](client-portal.md)); the card only shows them.
+
+- **Responsible** is a label, not an assignment: choosing someone never changes who answers or the AI/human mode. When nobody is chosen it shows the client's **Responsible / director**, set in the client's Details (agency client page or the portal's Details screen). A chosen person who is deactivated falls back to that default.
+- **Currency** is also set in Details (USD, EUR, MXN, COP, CLP, ARS, PEN, BRL, UYU, BOB, PYG, DOP, CRC, GTQ or PAB) and applies to every budget of the client.
+- **Custom fields** are defined per client (up to 30) as text, number, date, select or checkbox. A field's key and type are fixed once created; deleting a field hides its values without erasing them.
+
+Anyone with the inbox can choose the responsible and fill the fields on a lead. Only portal admins (permission `fields.manage`) and the agency can create, rename, reorder or delete the fields. Agency operators use the same card and the same routes under `/api/conversations/{id}/lead` and `/api/clients/{id}/lead-fields`.

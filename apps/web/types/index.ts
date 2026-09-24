@@ -30,6 +30,10 @@ export type Client = {
   portal_domain: string | null;
   portal_domain_verified: boolean;
   logo_url: string | null;
+  /** The person in charge on the client's side (shown as the default responsible user of a lead). */
+  owner_name: string | null;
+  /** ISO 4217 code the client's deal values are written in. */
+  currency: string;
   agents: AgentSummary[];
   created_at: string;
   updated_at: string;
@@ -199,6 +203,8 @@ export type PipelineCard = {
 };
 
 export type PipelineBoard = {
+  /** ISO 4217 code deal values are written in; USD when absent. */
+  currency?: string;
   stages: PipelineStage[];
   unassigned_count: number;
   cards: PipelineCard[];
@@ -674,6 +680,8 @@ export type PortalClientDetails = {
   business_custom: string;
   timezone: string;
   logo_url: string | null;
+  owner_name: string | null;
+  currency: string;
 };
 
 export type WeekDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -694,4 +702,43 @@ export type Professional = {
   weekly_hours: WeeklyHours;
   created_at: string;
   updated_at: string;
+};
+
+/** The custom fields a client defines for its leads (the "Configure" screen of the lead card). */
+export type LeadFieldType = "text" | "number" | "date" | "select" | "checkbox";
+export type LeadField = {
+  id: string;
+  /** Stable key the value is stored under; set once when the field is created. */
+  key: string;
+  label: string;
+  type: LeadFieldType;
+  options: string[];
+  position: number;
+};
+export type LeadStage = { id: string; name: string; color: string };
+export type LeadValue = string | number | boolean | null;
+export type LeadContact = {
+  id: string | null;
+  name: string | null;
+  whatsapp_name: string | null;
+  phone: string | null;
+  email: string | null;
+  company: string | null;
+  blocked: boolean;
+  tags: { id: string; name: string; color: string }[];
+};
+/** Everything the lead side panel shows and edits about one conversation. */
+export type LeadCard = {
+  conversation_id: string;
+  number: number;
+  channel: string;
+  account_label: string | null;
+  stage: LeadStage | null;
+  deal_value: number | null;
+  currency: string;
+  responsible: { id: string | null; name: string | null; is_default: boolean };
+  owner_name: string | null;
+  custom_values: Record<string, LeadValue>;
+  fields: LeadField[];
+  contact: LeadContact;
 };

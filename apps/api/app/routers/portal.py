@@ -14,9 +14,9 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import get_settings
 from ..database import get_db, new_session
 from ..industries import catalog as industry_catalog
-from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTag, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
+from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
 from ..portal_features import enabled_keys, ensure_enabled
-from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
+from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, FIELDS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
 from ..ratelimit import login_rate_limit, public_asset_rate_limit
 from ..schemas import (
     ClientDetailsOut,
@@ -76,6 +76,7 @@ from ..schemas import (
     TeamUpsert,
 )
 from ..security import create_portal_token, decode_portal_token, verify_password
+from ..schemas_lead_card import LeadCardOut, LeadFieldCreate, LeadFieldOut, LeadFieldUpdate, LeadUpdate
 from ..schemas_professionals import ProfessionalCreate, ProfessionalOut, ProfessionalUpdate
 from ..schemas_calendar import CalendarEventsOut, CalendarMemberCreate, CalendarMemberOut, CalendarMemberUpdate, CalendarOverviewOut
 from ..services import calendar as calendar_service
@@ -83,8 +84,19 @@ from ..services import pipeline as pipeline_service
 from ..services import professionals as professionals_service
 from ..services.client_details import apply_details, clear_logo, store_logo
 from ..services import channel_accounts
+from ..services import lead_card as lead_card_service
+from ..services import lead_fields as lead_fields_service
 from ..services.text_search import folded_like
-from ..services.contacts import display_name, merge_contacts, normalize_phone, rename_conversations
+from ..services.contact_edit import (
+    assert_phone_free as _assert_phone_free,
+    contact_out as _contact_out,
+    contact_stats as _contact_stats,
+    contact_view,
+    get_contact as _portal_contact,
+    set_contact_tags,
+    update_contact,
+)
+from ..services.contacts import display_name, merge_contacts, normalize_phone
 from ..services.tags import create_tag, delete_tag, get_tag, list_tags, rename_tag, tag_count, tag_out
 from ..services.teams import TEAM_CHANNELS, create_team, delete_team, get_team, list_teams, members_out, team_out, update_team
 from ..services.whatsapp_templates import (
@@ -434,6 +446,8 @@ def _details_out(slug: str, client: Client) -> dict:
         "business_type": client.business_type,
         "business_custom": client.business_custom,
         "timezone": client.timezone,
+        "owner_name": client.owner_name,
+        "currency": client.currency or "USD",
         "logo_url": f"/api/portal/{slug}/client-logo?v={int(client.updated_at.timestamp())}" if client.logo_mime else None,
     }
 
@@ -512,6 +526,43 @@ def portal_delete_professional(
     slug: str, professional_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
     professionals_service.delete_professional(db, client, professional_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{slug}/lead-fields", response_model=list[LeadFieldOut], dependencies=[Depends(require_feature("inbox"))])
+def portal_lead_fields(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return [lead_fields_service.field_out(row) for row in lead_fields_service.list_fields(db, client)]
+
+
+@router.post(
+    "/{slug}/lead-fields", response_model=LeadFieldOut, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_feature("inbox")), Depends(require_permission(FIELDS_MANAGE))],
+)
+def portal_create_lead_field(
+    slug: str, payload: LeadFieldCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    return lead_fields_service.field_out(lead_fields_service.create_field(db, client, payload))
+
+
+@router.patch(
+    "/{slug}/lead-fields/{field_id}", response_model=LeadFieldOut,
+    dependencies=[Depends(require_feature("inbox")), Depends(require_permission(FIELDS_MANAGE))],
+)
+def portal_update_lead_field(
+    slug: str, field_id: uuid.UUID, payload: LeadFieldUpdate,
+    client: Client = Depends(_portal_client), db: Session = Depends(get_db),
+):
+    return lead_fields_service.field_out(lead_fields_service.update_field(db, client, field_id, payload))
+
+
+@router.delete(
+    "/{slug}/lead-fields/{field_id}", status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_feature("inbox")), Depends(require_permission(FIELDS_MANAGE))],
+)
+def portal_delete_lead_field(
+    slug: str, field_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    lead_fields_service.delete_field(db, client, field_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -916,55 +967,6 @@ async def flush_read_signals() -> None:
         await asyncio.gather(*list(_read_signals), return_exceptions=True)
 
 
-def _contact_stats():
-    per_contact = (
-        select(
-            Conversation.contact_id.label("cid"),
-            func.count(Conversation.id).label("total"),
-            func.count(Conversation.id).filter(Conversation.status == "open").label("open"),
-            func.max(Conversation.updated_at).label("last_activity_at"),
-        )
-        .where(Conversation.contact_id.is_not(None))
-        .group_by(Conversation.contact_id)
-        .subquery()
-    )
-    return per_contact
-
-
-def _contact_out(contact: Contact, stats) -> ContactOut:
-    # Built by hand: the ORM object's ``conversations`` is the relationship,
-    # not the count the portal wants.
-    return ContactOut(
-        id=contact.id,
-        name=contact.name,
-        phone=contact.phone,
-        email=contact.email,
-        notes=contact.notes,
-        created_at=contact.created_at,
-        updated_at=contact.updated_at,
-        conversation_count=int((stats.total if stats is not None else None) or 0),
-        open_count=int((stats.open if stats is not None else None) or 0),
-        last_activity_at=stats.last_activity_at if stats is not None else None,
-        blocked_at=contact.blocked_at,
-        tags=[ContactTagOut(id=tag.id, name=tag.name, color=tag.color) for tag in contact.tags],
-    )
-
-
-def _portal_contact(db: Session, client: Client, contact_id: uuid.UUID) -> Contact:
-    contact = db.scalar(select(Contact).where(Contact.id == contact_id, Contact.client_id == client.id))
-    if not contact:
-        raise HTTPException(status_code=404, detail="Contact not found")
-    return contact
-
-
-def _assert_phone_free(db: Session, client: Client, phone: str, *, except_id: uuid.UUID | None = None) -> None:
-    query = select(Contact.id).where(Contact.client_id == client.id, Contact.phone == phone)
-    if except_id:
-        query = query.where(Contact.id != except_id)
-    if db.scalar(query):
-        raise HTTPException(status_code=409, detail="A contact with this phone number already exists")
-
-
 @router.get("/{slug}/contacts", response_model=list[ContactOut], dependencies=[Depends(require_feature("contacts"))])
 def portal_contacts(
     slug: str,
@@ -1255,23 +1257,12 @@ def portal_set_contact_tags(
 ):
     """Replace the contact's tags with the given set. Unknown ids are ignored
     rather than failing the whole change."""
-    contact = _portal_contact(db, client, contact_id)
-    wanted = set(payload.tag_ids)
-    tags = list(db.scalars(select(ContactTag).where(ContactTag.client_id == client.id, ContactTag.id.in_(wanted)))) if wanted else []
-    contact.tags = tags
-    db.commit()
-    db.refresh(contact)
-    stats = _contact_stats()
-    row = db.execute(select(stats).where(stats.c.cid == contact.id)).first()
-    return _contact_out(contact, row)
+    return set_contact_tags(db, client, contact_id, payload.tag_ids)
 
 
 @router.get("/{slug}/contacts/{contact_id}", response_model=ContactOut, dependencies=[Depends(require_feature("contacts"))])
 def portal_contact(slug: str, contact_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
-    contact = _portal_contact(db, client, contact_id)
-    stats = _contact_stats()
-    row = db.execute(select(stats).where(stats.c.cid == contact.id)).first()
-    return _contact_out(contact, row)
+    return contact_view(db, _portal_contact(db, client, contact_id))
 
 
 @router.patch("/{slug}/contacts/{contact_id}", response_model=ContactOut, dependencies=[Depends(require_feature("contacts"))])
@@ -1282,26 +1273,7 @@ def portal_update_contact(
     client: Client = Depends(_portal_client),
     db: Session = Depends(get_db),
 ):
-    contact = _portal_contact(db, client, contact_id)
-    if payload.phone is not None:
-        phone = normalize_phone(payload.phone)
-        if not phone:
-            raise HTTPException(status_code=422, detail="Enter a phone number with its country code")
-        _assert_phone_free(db, client, phone, except_id=contact.id)
-        contact.phone = phone
-    if payload.name is not None:
-        contact.name = payload.name.strip()
-    if "email" in payload.model_fields_set:
-        contact.email = payload.email or None
-    if payload.notes is not None:
-        contact.notes = payload.notes.strip()
-    contact.updated_at = now_utc()
-    rename_conversations(db, contact)
-    db.commit()
-    db.refresh(contact)
-    stats = _contact_stats()
-    row = db.execute(select(stats).where(stats.c.cid == contact.id)).first()
-    return _contact_out(contact, row)
+    return update_contact(db, client, contact_id, payload)
 
 
 @router.post("/{slug}/contacts/{contact_id}/merge", dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))], response_model=ContactOut)
@@ -2172,6 +2144,23 @@ async def portal_assign(
         if assignee and (not user or assignee.id != user.id):
             await notify_assigned(db, conversation, assignee, sender_name)
     return _present(_detail(db, client, conversation_id))
+
+
+@router.get("/{slug}/conversations/{conversation_id}/lead", response_model=LeadCardOut, dependencies=[Depends(require_feature("inbox"))])
+def portal_lead(slug: str, conversation_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, conversation_id))
+
+
+@router.patch("/{slug}/conversations/{conversation_id}/lead", response_model=LeadCardOut, dependencies=[Depends(require_feature("inbox"))])
+def portal_update_lead(
+    slug: str, conversation_id: uuid.UUID, payload: LeadUpdate,
+    client: Client = Depends(_portal_client), db: Session = Depends(get_db),
+):
+    """Choose the lead's responsible and fill its custom fields. Free for
+    anyone with the inbox, like assigning; it never changes who answers."""
+    conversation = lead_card_service.get_lead(db, client, conversation_id)
+    lead_card_service.update_lead(db, client, conversation, payload)
+    return lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, conversation_id))
 
 
 @router.patch("/{slug}/conversations/{conversation_id}/status", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])

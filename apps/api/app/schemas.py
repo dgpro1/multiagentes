@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, field_v
 
 from .portal_features import normalize as normalize_features
 
+from .services.client_details import CURRENCIES
 from .services.model_catalog import DEFAULT_AUDIO_MODEL, DEFAULT_EMBEDDING_MODEL
 
 # OpenRouter slug: "vendor/model", optionally with a ":variant" suffix.
@@ -64,6 +65,19 @@ def check_timezone(value: str) -> str:
     return name
 
 
+def check_currency(value: str | None) -> str:
+    """One of the currencies the pipeline and the lead card can show amounts in."""
+    code = (value or "").strip().upper()
+    if code not in CURRENCIES:
+        raise ValueError(f"Unknown currency; use one of: {', '.join(CURRENCIES)}")
+    return code
+
+
+def clean_owner_name(value: str | None) -> str | None:
+    """The business's responsible person, trimmed; blank means none."""
+    return (value or "").strip() or None
+
+
 class ClientBase(BaseModel):
     name: str = Field(min_length=1, max_length=180)
     industry: str = Field(default="", max_length=160)
@@ -90,11 +104,24 @@ class ClientUpdate(BaseModel):
     business_custom: str | None = Field(default=None, max_length=120)
     timezone: str | None = Field(default=None, max_length=64)
     is_active: bool | None = None
+    # The business's responsible person or director; null or blank clears it.
+    owner_name: str | None = Field(default=None, max_length=120)
+    currency: str | None = Field(default=None, max_length=3)
 
     @field_validator("timezone")
     @classmethod
     def _known_timezone(cls, value: str | None) -> str | None:
         return None if value is None else check_timezone(value)
+
+    @field_validator("owner_name")
+    @classmethod
+    def _clean_owner_name(cls, value: str | None) -> str | None:
+        return clean_owner_name(value)
+
+    @field_validator("currency")
+    @classmethod
+    def _known_currency(cls, value: str | None) -> str:
+        return check_currency(value)
 
 
 class ClientDetailsUpdate(BaseModel):
@@ -107,11 +134,23 @@ class ClientDetailsUpdate(BaseModel):
     business_type: str | None = Field(default=None, max_length=80)
     business_custom: str | None = Field(default=None, max_length=120)
     timezone: str | None = Field(default=None, max_length=64)
+    owner_name: str | None = Field(default=None, max_length=120)
+    currency: str | None = Field(default=None, max_length=3)
 
     @field_validator("timezone")
     @classmethod
     def _known_timezone(cls, value: str | None) -> str | None:
         return None if value is None else check_timezone(value)
+
+    @field_validator("owner_name")
+    @classmethod
+    def _clean_owner_name(cls, value: str | None) -> str | None:
+        return clean_owner_name(value)
+
+    @field_validator("currency")
+    @classmethod
+    def _known_currency(cls, value: str | None) -> str:
+        return check_currency(value)
 
 
 class ClientDetailsOut(BaseModel):
@@ -120,6 +159,8 @@ class ClientDetailsOut(BaseModel):
     business_type: str
     business_custom: str
     timezone: str
+    owner_name: str | None = None
+    currency: str = "USD"
     logo_url: str | None = None
 
 
@@ -145,6 +186,8 @@ class ClientOut(ORMModel):
     business_type: str
     business_custom: str
     timezone: str
+    owner_name: str | None = None
+    currency: str = "USD"
     is_active: bool
     portal_slug: str
     portal_enabled: bool
@@ -641,6 +684,8 @@ class PipelineCardOut(BaseModel):
 
 
 class PipelineBoardOut(BaseModel):
+    # The client's currency: every deal_value on the board is an amount in it.
+    currency: str = "USD"
     stages: list[PipelineStageOut]
     unassigned_count: int = 0
     cards: list[PipelineCardOut]
@@ -885,6 +930,7 @@ class ContactUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=180)
     phone: str | None = Field(default=None, min_length=7, max_length=40)
     email: EmailStr | None = None
+    company: str | None = Field(default=None, max_length=160)
     notes: str | None = Field(default=None, max_length=5000)
 
 
@@ -922,6 +968,7 @@ class ContactOut(BaseModel):
     name: str
     phone: str | None = None
     email: str | None = None
+    company: str | None = None
     notes: str = ""
     tags: list[ContactTagOut] = Field(default_factory=list)
     created_at: datetime

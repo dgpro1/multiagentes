@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Bot, Calendar as CalendarIcon, Copy, ExternalLink, FileText, GitBranch, Globe2, Inbox, KeyRound, LoaderCircle, Pencil, Radio, Save, Settings2, ShieldAlert, ShieldCheck, Stethoscope, Tag, Trash2, UserCheck, UserRound, Users, UserX } from "lucide-react";
 import { Alert, EmptyState, Modal, StatusBadge } from "@/components/ui";
@@ -12,6 +12,10 @@ import { PipelineBoard } from "@/components/pipeline-board";
 import { ClientDetails } from "@/components/client-details";
 import { ProfessionalsView } from "@/components/professionals-view";
 import { GrowingTextarea } from "@/components/growing-textarea";
+import { LeadCard } from "@/components/lead-card/lead-card";
+import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
+import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
+import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
 import { RichText } from "@/components/rich-text";
 import { TeamsView } from "@/app/portal/[slug]/teams";
 import { TagsView } from "@/app/portal/[slug]/tags";
@@ -21,11 +25,11 @@ import { useToast } from "@/components/toast";
 import { PasswordInput } from "@/components/password-input";
 import { channelLabel } from "@/lib/channels";
 import { SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
-import { api, messageFrom } from "@/lib/api";
+import { api, apiUrl, messageFrom } from "@/lib/api";
 import { CLIENT_TABS, clientPath, tabFromSegments, type ClientTab } from "@/lib/routes";
 import { useLanguage, useT } from "@/lib/i18n";
 import { businessLabel, useIndustries } from "@/lib/industries";
-import type { Client, ClientDomain, Conversation, PortalRole, PortalUser } from "@/types";
+import type { Attachment, Client, ClientDomain, Conversation, PortalRole, PortalUser } from "@/types";
 import { ChannelsOverviewView } from "@/components/channels/channels-overview";
 import { PortalFeatureToggle } from "@/components/portal-feature-toggle";
 import { FEATURES_BY_CLIENT_TAB } from "@/lib/portal-features";
@@ -277,6 +281,13 @@ function ClientInbox({ clientId, urlNumber }: { clientId: string; urlNumber?: nu
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [busy, setBusy] = useState(false);
   const policy = useReplyPolicy(selected);
+  // The lead card beside the thread.
+  const { open: leadPanelOpen, setOpen: setLeadOpen, overlay: leadOverlay, attachLayout: attachLead } = useLeadPanel();
+  const closeLead = useCallback(() => setLeadOpen(false), [setLeadOpen]);
+  const leadScope = useMemo(() => agencyLeadScope(clientId), [clientId]);
+  const selectedId = selected?.id;
+  const attachmentUrl = useCallback((attachment: Attachment) => apiUrl(`/conversations/${selectedId}/attachments/${attachment.id}`), [selectedId]);
+  const leadOpen = Boolean(selected) && leadPanelOpen;
   const load = async () => { setItems(await api<Conversation[]>(`/conversations?client_id=${clientId}`)); };
   const [loadedInbox, setLoadedInbox] = useState(false);
   useEffect(() => { load().catch(() => {}).finally(() => setLoadedInbox(true)); }, [clientId]);
@@ -301,5 +312,5 @@ function ClientInbox({ clientId, urlNumber }: { clientId: string; urlNumber?: nu
   async function reply(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!selected || !policy.canReply || busy) return; const form = event.currentTarget; const data = new FormData(form); setBusy(true); try { setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: data.get("content") }) })); form.reset(); await load(); } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); } }
   if (!loadedInbox) return <ListRowsSkeleton rows={5} />;
   if (!items.length) return <EmptyState icon={<Inbox />} title={t("clients.detail.inboxEmptyTitle")} description={t("clients.detail.inboxEmptyDescription")} />;
-  return <div className="inbox-layout"><aside className="inbox-list"><header><strong>{t("clients.detail.conversations")}</strong><span>{items.length}</span></header>{items.map((item) => <button key={item.id} className={selected?.id === item.id ? "active" : ""} onClick={() => choose(item)}><span className="entity-avatar tiny"><UserRound size={15} /></span><span><strong>{item.title}</strong><small>#{item.number} · {channelLabel(item.channel, t)} · {item.mode === "human" ? t("clients.detail.modeHuman") : t("clients.detail.modeAi")}</small></span></button>)}</aside><section className="inbox-thread">{selected && <><header><div><strong>{selected.title}</strong><small>#{selected.number} · {channelLabel(selected.channel, t)}</small></div><button className={`mode-toggle ${selected.mode}`} onClick={() => mode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("clients.detail.takeControl") : t("clients.detail.returnToAi")}</button></header><div className="inbox-messages">{selected.messages?.map((message) => <div key={message.id} className={`inbox-message ${message.role}`}><small>{message.sender_name || (message.role === "assistant" ? t("clients.detail.senderAgent") : t("clients.detail.senderVisitor"))}</small><p><RichText text={message.content} /></p></div>)}</div><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} /><form className="inbox-composer" onSubmit={reply}><GrowingTextarea name="content" placeholder={selected.mode === "human" ? t("clients.detail.composerHuman") : t("clients.detail.composerLocked")} disabled={!policy.canReply || busy} required /><button disabled={!policy.canReply || busy}>{t("clients.detail.send")}</button></form></>}{!selected && <div className="inline-empty"><Inbox size={22} /><div><strong>{t("clients.detail.selectConversation")}</strong></div></div>}</section></div>;
+  return <div ref={attachLead} className={`inbox-layout${leadOpen ? " has-lead" : ""}${leadOverlay ? " lead-overlay" : ""}`}><aside className="inbox-list"><header><strong>{t("clients.detail.conversations")}</strong><span>{items.length}</span></header>{items.map((item) => <button key={item.id} className={selected?.id === item.id ? "active" : ""} onClick={() => choose(item)}><span className="entity-avatar tiny"><UserRound size={15} /></span><span><strong>{item.title}</strong><small>#{item.number} · {channelLabel(item.channel, t)} · {item.mode === "human" ? t("clients.detail.modeHuman") : t("clients.detail.modeAi")}</small></span></button>)}</aside><section className="inbox-thread">{selected && <><header><LeadAvatarButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)} /><div><strong>{selected.title}</strong><small>#{selected.number} · {channelLabel(selected.channel, t)}</small></div><button className={`mode-toggle ${selected.mode}`} onClick={() => mode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("clients.detail.takeControl") : t("clients.detail.returnToAi")}</button></header><div className="inbox-messages">{selected.messages?.map((message) => <div key={message.id} className={`inbox-message ${message.role}`}><small>{message.sender_name || (message.role === "assistant" ? t("clients.detail.senderAgent") : t("clients.detail.senderVisitor"))}</small><p><RichText text={message.content} /></p></div>)}</div><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} /><form className="inbox-composer" onSubmit={reply}><GrowingTextarea name="content" placeholder={selected.mode === "human" ? t("clients.detail.composerHuman") : t("clients.detail.composerLocked")} disabled={!policy.canReply || busy} required /><button disabled={!policy.canReply || busy}>{t("clients.detail.send")}</button></form></>}{!selected && <div className="inline-empty"><Inbox size={22} /><div><strong>{t("clients.detail.selectConversation")}</strong></div></div>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { load().catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}</div>;
 }

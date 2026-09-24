@@ -34,3 +34,13 @@ Es el mismo concepto de `mode` usado en las conversaciones de [WhatsApp](whatsap
 ## Quién puede tomar el control
 
 Tanto los operadores de la agencia (desde esta bandeja de entrada) como los usuarios del cliente pueden tomar el control de las conversaciones. Los usuarios del cliente lo hacen desde el [portal del cliente](client-portal.md), que expone las mismas acciones de tomar el control y responder como humano, acotadas a su cliente.
+
+## Ficha del lead
+
+Junto a una conversación, la ficha del lead la muestra como una oportunidad de venta (un lead es una conversación): el número del lead, el bloque del contacto (nombre, nombre de WhatsApp, teléfono, correo, empresa, etiquetas, bloqueado), la etapa del pipeline, el presupuesto en la moneda del cliente, el responsable y los campos personalizados del cliente. La etapa y el presupuesto se cambian desde el tablero del pipeline (ver el [portal del cliente](client-portal.md)); la ficha solo los muestra.
+
+- **Responsable** es una etiqueta, no una asignación: elegir a alguien nunca cambia quién responde ni el modo IA/humano. Si nadie está elegido, muestra el **Responsable / director** del cliente, que se define en los Detalles del cliente (página del cliente en la agencia o pantalla Detalles del portal). Si una persona elegida se desactiva, vuelve a mostrarse ese valor por defecto.
+- **Moneda** también se define en los Detalles (USD, EUR, MXN, COP, CLP, ARS, PEN, BRL, UYU, BOB, PYG, DOP, CRC, GTQ o PAB) y aplica a todos los presupuestos del cliente.
+- Los **campos personalizados** se definen por cliente (hasta 30) como texto, número, fecha, selección o casilla. La clave y el tipo de un campo no cambian una vez creado; al eliminar un campo sus valores se ocultan sin borrarse.
+
+Cualquiera con la bandeja puede elegir el responsable y llenar los campos de un lead. Solo los administradores del portal (permiso `fields.manage`) y la agencia pueden crear, renombrar, reordenar o eliminar los campos. Los operadores de la agencia usan la misma ficha y las mismas rutas en `/api/conversations/{id}/lead` y `/api/clients/{id}/lead-fields`.

@@ -112,6 +112,7 @@ def board(db: Session, client: Client) -> dict:
     ).all()
     unassigned_count = sum(1 for c in cards if c.pipeline_stage_id is None)
     return {
+        "currency": client.currency or "USD",
         "stages": [stage_out(db, stage) for stage in stages],
         "unassigned_count": unassigned_count,
         "cards": [_card_dict(card) for card in cards],

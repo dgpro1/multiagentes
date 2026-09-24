@@ -32,6 +32,8 @@ from .api_scopes import (
     INBOX_MANAGE,
     INBOX_READ,
     INBOX_REPLY,
+    LEAD_FIELDS_MANAGE,
+    LEAD_FIELDS_READ,
     PIPELINE_MANAGE,
     PIPELINE_READ,
     PRESETS,
@@ -80,6 +82,8 @@ SCOPE_FEATURES: dict[str, tuple[str, ...]] = {
     REPORTS_READ: ("reports",),
     PROFESSIONALS_READ: ("professionals",),
     PROFESSIONALS_MANAGE: ("professionals",),
+    LEAD_FIELDS_READ: ("inbox",),
+    LEAD_FIELDS_MANAGE: ("inbox",),
     # The agent's configuration is the agency's work unless it opened that screen.
     AGENTS_READ: ("agents",),
     CHANNELS_READ: CHANNEL_FEATURES,

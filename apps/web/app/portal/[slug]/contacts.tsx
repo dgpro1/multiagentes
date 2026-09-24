@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BadgeCheck, Ban, Bot, CalendarRange, Check, CheckCircle2, ChevronDown, Clock, Download, FileSpreadsheet, Inbox, LoaderCircle, Merge, MessageCircle, MessageSquarePlus, MessageSquareText, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, UserRound, Users, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Ban, Bot, CalendarRange, CheckCircle2, ChevronDown, Clock, Download, FileSpreadsheet, Inbox, LoaderCircle, Merge, MessageCircle, MessageSquarePlus, MessageSquareText, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, UserRound, Users, X } from "lucide-react";
 import { TemplatePicker } from "./templates";
 import { Alert, EmptyState, Modal } from "@/components/ui";
 import { MessageAttachments, type GalleryImage } from "@/components/attachments";
@@ -18,9 +18,10 @@ import { api, ApiError, apiUrl, apiWithHeaders, messageFrom } from "@/lib/api";
 import { formatTime, formatWhen } from "@/lib/datetime";
 import { useLanguage, useT, type I18nKey } from "@/lib/i18n";
 import { tagStyle } from "@/lib/tags";
+import { TagEditor } from "@/components/tag-editor";
 import type { Attachment, Contact, ContactImportResult, ContactTag, Conversation, PortalChannel, TemplateSend } from "@/types";
 import type { ContactValues } from "@/lib/contact-variables";
-import { fold, foldIncludes } from "@/lib/text";
+import { foldIncludes } from "@/lib/text";
 
 const LIMIT = 50;
 const HISTORY_LIMIT = 20;
@@ -75,8 +76,6 @@ export function ContactsView({ slug, channels, openConversation, can, agentName,
   const [listMenu, setListMenu] = useState(false);
   const [tags, setTags] = useState<ContactTag[]>([]);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [tagPicker, setTagPicker] = useState(false);
-  const [tagQuery, setTagQuery] = useState("");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importResult, setImportResult] = useState<ContactImportResult | null>(null);
   const [importError, setImportError] = useState("");
@@ -121,7 +120,7 @@ export function ContactsView({ slug, channels, openConversation, can, agentName,
       await loadTags();
     } catch (err) { setError(messageFrom(err)); } finally { setBusy(false); }
   }
-  function toggleTag(tag: ContactTag) {
+  function toggleTag(tag: { id: string }) {
     if (!selected) return;
     const current = (selected.tags ?? []).map((item) => item.id);
     const next = current.includes(tag.id) ? current.filter((id) => id !== tag.id) : [...current, tag.id];
@@ -133,14 +132,10 @@ export function ContactsView({ slug, channels, openConversation, can, agentName,
     setBusy(true); setError("");
     try {
       const created = await api<ContactTag>(`/portal/${slug}/tags`, { method: "POST", body: JSON.stringify({ name: trimmed }) });
-      setTagQuery("");
       await loadTags();
       if (assignTo) await applyContactTags(assignTo, [...(assignTo.tags ?? []).map((item) => item.id), created.id]);
     } catch (err) { setError(messageFrom(err)); } finally { setBusy(false); }
   }
-  const tagQueryTrimmed = tagQuery.trim();
-  const pickerTags = tags.filter((tag) => !tagQueryTrimmed || foldIncludes(tag.name, tagQueryTrimmed));
-  const pickerExact = tags.some((tag) => fold(tag.name) === fold(tagQueryTrimmed));
 
   function openImport() { setImportFile(null); setImportResult(null); setImportError(""); setImporting(true); }
   async function runImport(event: FormEvent<HTMLFormElement>) {
@@ -439,21 +434,7 @@ export function ContactsView({ slug, channels, openConversation, can, agentName,
           <div className="portal-contact-body">
             <section className="portal-contact-tags">
               <h3>{t("portal.contacts.tags.heading")}</h3>
-              <div className="tag-chips large">
-                {(selected.tags ?? []).map((tag) => <span key={tag.id} className="tag-chip" style={tagStyle(tag.color)}>{tag.name}<button type="button" onClick={() => toggleTag(tag)} disabled={busy} title={t("portal.contacts.tags.remove")} aria-label={t("portal.contacts.tags.remove")}><X size={11} /></button></span>)}
-                <div className="start-line-wrap">
-                  <button type="button" className="tag-add" onClick={() => { setTagQuery(""); setTagPicker((v) => !v); }} aria-haspopup="menu" aria-expanded={tagPicker}><Plus size={13} /> {t("portal.contacts.tags.add")}</button>
-                  {tagPicker && <>
-                    <div className="menu-backdrop" onClick={() => setTagPicker(false)} />
-                    <div className="start-line-menu tag-picker" role="menu">
-                      <input value={tagQuery} onChange={(e) => setTagQuery(e.target.value)} placeholder={canManageTags ? t("portal.contacts.tags.searchOrCreate") : t("portal.contacts.tags.search")} autoFocus onKeyDown={(e) => { if (e.key === "Enter" && canManageTags && tagQueryTrimmed && !pickerExact) { e.preventDefault(); createTag(tagQueryTrimmed, selected); } if (e.key === "Escape") setTagPicker(false); }} />
-                      {pickerTags.map((tag) => { const has = (selected.tags ?? []).some((item) => item.id === tag.id); return <button type="button" key={tag.id} role="menuitemcheckbox" aria-checked={has} onClick={() => toggleTag(tag)} disabled={busy}><i className="tag-dot" style={tagStyle(tag.color)} /><span><strong>{tag.name}</strong>{(tag.route_assignee_name || tag.route_team_name) && <small>{t("portal.contacts.tags.routedTo", { team: tag.route_assignee_name ?? tag.route_team_name ?? "" })}</small>}</span>{has && <Check size={14} />}</button>; })}
-                      {canManageTags && tagQueryTrimmed && !pickerExact && <button type="button" role="menuitem" className="tag-create" onClick={() => createTag(tagQueryTrimmed, selected)} disabled={busy}><Plus size={14} /><span><strong>{t("portal.contacts.tags.create", { name: tagQueryTrimmed })}</strong></span></button>}
-                      {!tags.length && !tagQueryTrimmed && <small>{t("portal.contacts.tags.emptyHint")}</small>}
-                    </div>
-                  </>}
-                </div>
-              </div>
+              <TagEditor tags={tags} value={selected.tags ?? []} onToggle={toggleTag} onCreate={(name) => createTag(name, selected)} canCreate={canManageTags} busy={busy} />
             </section>
             <section className="portal-contact-notes">
               <h3>{t("portal.contacts.notes")}</h3>
