@@ -96,7 +96,6 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
     { id: null, name: t("pipeline.unassignedColumn"), color: "#8996a3", count: board.unassigned_count, total: null },
     ...board.stages.map((s) => ({ id: s.id, name: s.name, color: s.color, count: s.conversation_count, total: s.deal_value_total })),
   ];
-  const totalDeals = board.cards.length;
   const totalValue = board.cards.reduce((sum, card) => sum + (card.deal_value ?? 0), 0);
 
   return <div className="pipeline-view">

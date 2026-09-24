@@ -18,7 +18,6 @@ from ..services.attachments import (
     attachment_response,
     conversation_attachment,
     ensure_uploadable,
-    llm_text,
     logo_response,
     store_attachment,
 )

@@ -505,10 +505,3 @@ async def ensure_webhook(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=409, detail="Set MESSAGING_PROVIDER_WEBHOOK_SECRET first")
     webhook = await provider.ensure_webhook("OpenLivery inbox", provider.webhook_url(), secret, provider.INBOX_EVENTS)
     return {"url": webhook.get("url"), "events": webhook.get("events"), "active": webhook.get("isActive", True)}
-
-
-# The names these had before they were public. Kept for one release.
-_parse_inbound = parse_inbound
-_stamp_receipt = stamp_receipt
-_apply_whatsapp_reaction = apply_whatsapp_reaction
-_handle_whatsapp_message = handle_whatsapp_message

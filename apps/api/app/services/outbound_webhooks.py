@@ -20,7 +20,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, aliased
 
 from ..models import ApiIntegration, WebhookDelivery, WebhookSubscription, now_utc
-from ..security import decrypt_secret, encrypt_secret
+from ..security import decrypt_secret
 from .tools.http_exec import _blocked_reason
 
 logger = logging.getLogger(__name__)

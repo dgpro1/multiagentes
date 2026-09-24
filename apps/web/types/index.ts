@@ -557,7 +557,6 @@ export type SocialChannel = {
   created_at: string;
   updated_at: string;
 };
-export type SocialPending = { setup_id: string; accounts: { id: string; name: string; username?: string | null }[] };
 
 export type SocialHistoryJob = {
   id: string;

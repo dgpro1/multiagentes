@@ -36,20 +36,6 @@ const en = {
     ownerPlaceholder: "Choose a client to configure its widget",
     configure: "Configure",
     selectClient: "Select a client",
-    needsAgent: "Create an agent first",
-  },
-  future: {
-    comingSoon: "Coming soon",
-    ownerPlaceholder: "Configurable inside each client",
-    connect: "Connect channel",
-    instagram: {
-      name: "Instagram",
-      description: "Reply to direct messages with the knowledge of your agents.",
-    },
-    facebook: {
-      name: "Facebook Messenger",
-      description: "Connect your pages and keep consistent support.",
-    },
   },
 };
 
@@ -90,20 +76,6 @@ const es: typeof en = {
     ownerPlaceholder: "Elige un cliente para configurar su widget",
     configure: "Configurar",
     selectClient: "Selecciona un cliente",
-    needsAgent: "Crea un agente primero",
-  },
-  future: {
-    comingSoon: "Próximamente",
-    ownerPlaceholder: "Configurable dentro de cada cliente",
-    connect: "Conectar canal",
-    instagram: {
-      name: "Instagram",
-      description: "Responde mensajes directos con el conocimiento de tus agentes.",
-    },
-    facebook: {
-      name: "Facebook Messenger",
-      description: "Conecta tus páginas y mantén una atención uniforme.",
-    },
   },
 };
 

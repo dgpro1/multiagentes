@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 PROVIDERS = {"instagram", "messenger"}
 
 # Provider platform value per channel provider.
-PLATFORM = {"instagram": "instagram", "messenger": "facebook"}
 
 
 def provider_name(provider: str) -> str:

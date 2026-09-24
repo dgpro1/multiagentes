@@ -14,7 +14,6 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import WhatsAppChannel, now_utc
@@ -359,15 +358,6 @@ async def send_location(
         payload["address"] = address.strip()
     result = await request("POST", f"/message/sendLocation/{instance_name(channel)}", json=payload)
     return ((result.get("key") or {}).get("id")) if isinstance(result, dict) else None
-
-
-async def owner_jid(channel: WhatsAppChannel) -> str | None:
-    """The phone's own JID, used to detect replies to the bot inside groups."""
-    instance = await fetch_instance(channel)
-    if not instance:
-        return None
-    owner = str(instance.get("ownerJid") or "")
-    return owner or None
 
 
 async def group_info(channel: WhatsAppChannel, group_jid: str) -> dict:

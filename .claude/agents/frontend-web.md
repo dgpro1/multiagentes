@@ -1,6 +1,6 @@
 ---
 name: frontend-web
-description: Use for any work confined to apps/web — Next.js 16 (App Router), React 19, TypeScript, Tailwind, the i18n system, and the single API fetch wrapper. Not for apps/api or apps/whatsapp changes with no frontend counterpart.
+description: Use for any work confined to apps/web — Next.js 16 (App Router), React 19, TypeScript, Tailwind, the i18n system, and the single API fetch wrapper. Not for apps/api changes with no frontend counterpart.
 ---
 
 You work exclusively in `apps/web/` of the OpenLivery repo (Next.js 16, App

@@ -15,7 +15,6 @@ SHARED_ENV_FILE = os.environ.get("OPENLIVERY_ENV_FILE", "")
 
 
 class Settings(BaseSettings):
-    app_name: str = "OpenLivery API"
     database_url: str = "postgresql+psycopg://openlivery:openlivery@localhost:5432/openlivery"
     secret_key: str = "dev-local-change-this-key-please"
     encryption_key: str = "dev-local-change-this-key-too"
@@ -69,18 +68,10 @@ class Settings(BaseSettings):
     # Empty falls back to social_public_url, then frontend_url.
     messaging_provider_public_url: str = ""
     # Official messaging APIs. App credentials remain on the server.
-    social_graph_version: str = "v25.0"
     social_worker_enabled: bool = True
     social_worker_interval_seconds: float = 2.0
-    instagram_app_id: str = ""
-    instagram_app_secret: str = ""
-    instagram_webhook_verify_token: str = ""
     instagram_human_agent_enabled: bool = False
-    messenger_app_id: str = ""
-    messenger_app_secret: str = ""
-    messenger_webhook_verify_token: str = ""
     messenger_human_agent_enabled: bool = False
-    messenger_login_config_id: str = ""
     # Public HTTPS origin; defaults to frontend_url when left empty.
     social_public_url: str = ""
     social_oauth_state_minutes: int = 10
@@ -106,7 +97,7 @@ class Settings(BaseSettings):
     # and needs no account with anyone; "webhook" POSTs each event to
     # push_webhook_url so you can route it through whatever you already use.
     # Deployments may register further providers at startup — see
-    # app/services/notifications.py and docs/push-notifications.md.
+    # app/services/notifications.py and docs/en/push-notifications.md.
     push_provider: str = "none"
     push_webhook_url: str = ""
     push_webhook_secret: str = ""

@@ -53,11 +53,6 @@ def request_import(db, user, client_id, provider_name):
     return job
 
 
-def _sender_of(item: dict) -> str:
-    sender = item.get("sender") if isinstance(item.get("sender"), dict) else {}
-    return str(item.get("senderId") or sender.get("id") or "")
-
-
 def normalize_message(channel, thread: dict, item: dict, cutoff) -> dict | None:
     """Only import one-to-one messages addressing this receiving account."""
     if not isinstance(item, dict):

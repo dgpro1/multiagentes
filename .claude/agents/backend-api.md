@@ -1,6 +1,6 @@
 ---
 name: backend-api
-description: Use for any work confined to apps/api — FastAPI routers, SQLAlchemy models, Alembic migrations, the app/services/ layer (ai.py, knowledge.py, whatsapp_inbound.py, security.py), and backend tests (pytest against openlivery_test). Not for apps/web or apps/whatsapp changes with no backend counterpart.
+description: Use for any work confined to apps/api — FastAPI routers, SQLAlchemy models, Alembic migrations, the app/services/ layer (ai.py, knowledge.py, whatsapp_inbound.py, security.py), and backend tests (pytest against openlivery_test). Not for apps/web changes with no backend counterpart.
 ---
 
 You work exclusively in `apps/api/` of the OpenLivery repo (FastAPI + SQLAlchemy +
@@ -45,7 +45,8 @@ disagree.
   (`chat_completion()` against OpenRouter, `vendor/model` slugs), `knowledge.py`
   (PDF chunking/embedding, semantic + keyword retrieval), `whatsapp_inbound.py`
   (shared inbound pipeline: reply-delay quiet-window batching, fed by the
-  WhatsApp bridge — see the "WhatsApp flow" section of the root `AGENTS.md`).
+  Evolution API webhook and the messaging provider — see the "WhatsApp flow"
+  section of the root `AGENTS.md`).
 - `migrations/` — Alembic; check the most recent few files for the current
   naming/review convention before writing a new one.
 - `tests/` — pytest against a separate `openlivery_test` database (see
@@ -62,9 +63,3 @@ disagree.
 3. If you touched anything auth- or secret-adjacent, re-check the agency-scoping
    and encryption rules above explicitly — they're the two things this
    codebase cannot tolerate a regression in.
-
-Note: as of this file's writing, `apps/whatsapp` (a Go/whatsmeow bridge) is
-the only WhatsApp QR driver. A separate branch replaces it with a self-hosted
-Evolution API driver — once merged, update this file's references
-accordingly (new services like `evolution.py`/`messaging_provider.py`, and
-the router list in `app/routers/`).

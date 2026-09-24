@@ -41,14 +41,6 @@ def fallback_label(channel) -> str | None:
     return None
 
 
-def account_name(channel) -> str | None:
-    """The label, else the fallback: the name to show wherever the account is
-    listed on its own (channel pages, the line picker)."""
-    if channel is None:
-        return None
-    return (channel.label or "").strip() or fallback_label(channel)
-
-
 def _family_filter(model, conversation_channel: str):
     if model is SocialChannel:
         return (SocialChannel.provider == conversation_channel,)

@@ -8,7 +8,6 @@ from pypdf import PdfReader
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, joinedload
 
-from ..config import get_settings
 from ..database import get_db
 from ..api_scopes import AGENTS_KNOWLEDGE, AGENTS_READ, AGENTS_WRITE
 from ..deps import confined_client_id, get_current_user, require

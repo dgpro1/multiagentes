@@ -87,10 +87,6 @@ export const IMAGE_MODELS = [
 ] as const;
 export const DEFAULT_IMAGE_MODEL = "openai/gpt-4.1";
 
-export function providerLabel(id: string): string {
-  return PROVIDERS.find((p) => p.id === id)?.label ?? id;
-}
-
 // What the API's catalog says about every model OpenRouter serves, loaded by
 // useAvailableModels. The static lists above are the seed: they keep the
 // curated labels, tiers and the recommended default for the models we know,

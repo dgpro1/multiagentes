@@ -24,7 +24,6 @@ LONG_LIVED = "long_lived"
 AUTH_CODE = "auth_code"
 ACCESS = "access"
 REFRESH = "refresh"
-MIN_DAYS = 1
 MAX_DAYS = 365 * 5
 # Authorization codes are single-use and short: just long enough for the
 # redirect round-trip.

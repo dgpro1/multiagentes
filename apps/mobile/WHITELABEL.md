@@ -101,7 +101,7 @@ signing capabilities and matching APNs delivery credentials for the bundle ID.
 Native APNs/FCM delivery is separate from the optional Expo Push Service.
 
 See [Expo notification configuration](https://docs.expo.dev/versions/latest/sdk/notifications/)
-and the repository's [push provider documentation](../../docs/push-notifications.md).
+and the repository's [push provider documentation](../../docs/en/push-notifications.md).
 Do not commit signing keys or service credentials. If notifications are disabled
 on the server, the application asks for no push permission.
 

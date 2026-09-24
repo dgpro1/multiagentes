@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..deps import confine, confined_client_id
 from ..models import Agent, Client, SocialChannel, SocialOAuthState, User, new_public_id, now_utc
-from ..security import decrypt_secret, encrypt_secret
+from ..security import decrypt_secret
 from . import messaging_provider as provider
 from . import messaging_profiles as profiles
 from . import portal_return
@@ -69,11 +69,6 @@ def register_connection_hook(hook: Callable) -> None:
 def register_oauth_state_hook(hook: Callable) -> None:
     if hook not in _state_hooks:
         _state_hooks.append(hook)
-
-
-def _https_origin(value: str) -> bool:
-    parsed = urlsplit(value)
-    return parsed.scheme == "https" and bool(parsed.hostname) and not parsed.username and not parsed.password
 
 
 def get_app_config(provider_name: str) -> SocialAppConfig:

@@ -27,8 +27,6 @@ from . import messaging_provider as provider
 
 
 REPLY_WINDOW_HOURS = 24
-TEMPLATE_CATEGORIES = ("UTILITY", "MARKETING")
-HEADER_FORMATS = ("TEXT", "IMAGE", "VIDEO", "DOCUMENT", "LOCATION")
 MEDIA_HEADER_FORMATS = ("IMAGE", "VIDEO", "DOCUMENT")
 BUTTON_TYPES = ("QUICK_REPLY", "URL", "PHONE_NUMBER", "COPY_CODE")
 # What WhatsApp accepts as a header sample, and the mime it expects for each.
@@ -114,10 +112,6 @@ def parameters(text: str) -> list[str]:
         if name not in seen:
             seen.append(name)
     return seen
-
-
-def variable_count(body: str) -> int:
-    return len(parameters(body))
 
 
 def parameter_format(names: list[str]) -> str:

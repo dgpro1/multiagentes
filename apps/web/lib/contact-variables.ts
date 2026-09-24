@@ -6,13 +6,6 @@ export const CONTACT_VARIABLES = ["contact_name", "contact_phone", "contact_emai
 export type ContactVariable = (typeof CONTACT_VARIABLES)[number];
 export type ContactValues = Record<ContactVariable, string>;
 
-export const EMPTY_CONTACT_VALUES: ContactValues = {
-  contact_name: "",
-  contact_phone: "",
-  contact_email: "",
-  agent_name: "",
-};
-
 // Stand-ins shown in previews and sent to Meta as a template's review sample.
 export const CONTACT_EXAMPLES: ContactValues = {
   contact_name: "María",

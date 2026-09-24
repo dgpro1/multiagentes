@@ -5,7 +5,6 @@ from fastapi import HTTPException
 
 from ..models import Conversation, now_utc
 
-SOCIAL_PROVIDERS = {"instagram", "messenger"}
 CAPABILITIES = {"text": True, "image": True, "audio": True, "video": True, "file": True,
                 "reactions": False, "quotes": False, "templates": False}
 

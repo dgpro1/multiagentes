@@ -8,7 +8,6 @@ instead and need no hosting.
 """
 
 import secrets
-from pathlib import Path
 
 from fastapi import HTTPException
 
@@ -17,10 +16,6 @@ from .attachments import ensure_uploadable
 
 SAMPLE_DIR = "messaging_samples"
 SAMPLE_MAX_BYTES = 16 * 1024 * 1024
-
-
-def sample_path(handle: str) -> Path:
-    return get_settings().storage_dir / SAMPLE_DIR / f"{handle}.bin"
 
 
 def store_sample(data: bytes, mime: str, filename: str) -> str:

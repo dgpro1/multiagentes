@@ -109,5 +109,3 @@ export function readableBrand(hex: string, isDark: boolean): string {
   }
   return `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
 }
-
-export const DEFAULT_BRAND = "#2f3a4a";

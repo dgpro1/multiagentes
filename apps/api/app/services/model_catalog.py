@@ -266,16 +266,6 @@ def get_embedding_model(model_id: str) -> EmbeddingModelInfo | None:
     return None
 
 
-def estimate_tokens(text: str) -> int:
-    """Quick token estimate (~4 characters per token)."""
-    return (len(text) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
-
-
-def image_models() -> list[str]:
-    """Chat models that accept images: the image-understanding capability."""
-    return [model.id for model in _snapshot().models if model.supports_vision]
-
-
 def audio_models() -> list[str]:
     """Speech-to-text models, for the audio capability."""
     return [model.id for model in _snapshot().audio]

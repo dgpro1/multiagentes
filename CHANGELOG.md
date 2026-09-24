@@ -160,6 +160,11 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Removed
 
+- Cleanup of unused code: dead helpers and imports in the API, the ten legacy direct-Meta
+  Instagram/Messenger settings that nothing read (the two `*_HUMAN_AGENT_ENABLED` flags stay),
+  111 unused UI strings, about 190 lines of unused styles, two unused language/theme switcher
+  components, `apps/api/requirements-local.txt` and the upstream-only pull-request assignment
+  workflow. No behaviour changes.
 - The local Go/whatsmeow WhatsApp bridge (`apps/whatsapp`). WhatsApp QR lines run only through the self-hosted Evolution API driver now; installations that relied on the bridge need Evolution configured (`EVOLUTION_API_URL`/`EVOLUTION_API_KEY`) before upgrading, or WhatsApp QR lines stop working.
 
 ### Added

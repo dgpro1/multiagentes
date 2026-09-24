@@ -34,8 +34,6 @@ const en = {
   welcome: {
     title: "Test {name}",
     description: "Ask a question to check its instructions, tone and knowledge.",
-    noModelAlert:
-      "This agent does not have a model configured yet. Assign a connection in its details before sending messages.",
   },
   notReady: {
     keyPrefix: "This agent can't reply yet because it is missing your API key. Add it in ",
@@ -51,7 +49,6 @@ const en = {
     placeholder: "Write a message…",
     placeholderNoAgent: "Select an agent",
     send: "Send",
-    attachImage: "Attach an image",
     disclaimer: "Responses come from the configured provider and may contain errors.",
   },
 };
@@ -91,8 +88,6 @@ const es: typeof en = {
   welcome: {
     title: "Prueba a {name}",
     description: "Haz una pregunta para comprobar sus instrucciones, tono y conocimiento.",
-    noModelAlert:
-      "Este agente todavía no tiene un modelo configurado. Asígnale una conexión en sus detalles antes de enviar mensajes.",
   },
   notReady: {
     keyPrefix: "Este agente todavía no puede responder porque le falta tu API key. Agrégala en ",
@@ -108,7 +103,6 @@ const es: typeof en = {
     placeholder: "Escribe un mensaje…",
     placeholderNoAgent: "Selecciona un agente",
     send: "Enviar",
-    attachImage: "Adjuntar una imagen",
     disclaimer: "Las respuestas provienen del proveedor configurado y pueden contener errores.",
   },
 };

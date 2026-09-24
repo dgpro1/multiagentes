@@ -2,7 +2,7 @@
 #
 # Enable it with a docker-compose.override.yml that mounts this file at
 # /etc/caddy/Caddyfile, sets PRIMARY_DOMAIN, and publishes ports 80 and 443.
-# See docs/self-hosting.md ("Custom domains for client portals").
+# See docs/en/self-hosting.md ("Custom domains for client portals").
 #
 # Caddy obtains a certificate on demand for any client domain, but only after
 # asking the API whether that domain is a verified portal domain — so it never

@@ -11,7 +11,7 @@ never replay each other.
 
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import delete, select

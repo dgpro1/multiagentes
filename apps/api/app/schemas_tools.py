@@ -3,7 +3,6 @@
 Kept out of schemas.py to respect the per-file size limit.
 """
 
-import re
 import uuid
 from datetime import datetime
 from typing import Annotated, Literal
@@ -14,7 +13,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # snake_case, no consecutive underscores: "__" is reserved as the separator
 # between an MCP server name and its tool names when exposed to the LLM.
 TOOL_NAME_PATTERN = r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
-TOOL_NAME_RE = re.compile(TOOL_NAME_PATTERN)
 
 
 def _validate_url(value: str) -> str:

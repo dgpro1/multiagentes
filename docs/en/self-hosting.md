@@ -109,7 +109,7 @@ Tagged images are published to the GitHub Container Registry on every push to
 make pull        # docker compose pull + up -d
 ```
 
-This pulls `ghcr.io/sarrazola/openlivery-{api,web,whatsapp}:latest`. Pin a release
+This pulls `ghcr.io/sarrazola/openlivery-{api,web}:latest`. Pin a release
 with `OPENLIVERY_VERSION=v1.2.3 make pull`, or point at your own registry with
 `OPENLIVERY_IMAGE_PREFIX`. The prebuilt `web` image calls the API through the
 gateway with relative `/api`; to target an API on a separate origin you must

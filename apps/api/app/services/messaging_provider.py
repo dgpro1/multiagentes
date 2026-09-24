@@ -225,11 +225,6 @@ async def require_account(account_id: str, profile_id: str | None = None) -> dic
     return account
 
 
-async def account_health(account_id: str) -> dict:
-    body = await _request("GET", f"/accounts/{account_id}/health")
-    return body if isinstance(body, dict) else {}
-
-
 # Inbox: conversations and messages.
 
 async def list_conversations(
@@ -402,21 +397,6 @@ async def remove_reaction(account_id: str, conversation_id: str, platform_messag
         raise HTTPException(status_code=502, detail=f"The reaction was not removed: {_safe_error(body, status)}")
 
 
-async def resolve_attachment(account_id: str, conversation_id: str, platform_message_id: str, index: int) -> tuple[bytes, str]:
-    """Download an attachment through the resolve endpoint (re-mints expiring links)."""
-    require_config()
-    url = _url(f"/inbox/conversations/{conversation_id}/messages/{platform_message_id}/attachments/{index}")
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
-            response = await client.get(url, headers=_headers(), params={"accountId": account_id})
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="Could not download the attachment.") from exc
-    if response.status_code >= 400 or not response.content:
-        raise HTTPException(status_code=502, detail="The attachment is unavailable or expired.")
-    mime = (response.headers.get("content-type") or "application/octet-stream").split(";")[0].strip().lower()
-    return response.content, mime
-
-
 async def fetch_media(url: str) -> tuple[bytes, str]:
     """Download an inbound media file. Provider-hosted links need the key;
     platform CDN links ignore the extra header."""
@@ -457,30 +437,12 @@ async def list_templates(account_id: str, *, name: str | None = None,
     return templates if isinstance(templates, list) else []
 
 
-async def get_template(account_id: str, name: str, language: str | None = None) -> dict:
-    params: dict = {"accountId": account_id}
-    if language:
-        params["language"] = language
-    body = await _request("GET", f"/whatsapp/templates/{name}", params=params)
-    template = body.get("template")
-    if not isinstance(template, dict):
-        raise HTTPException(status_code=502, detail="The messaging provider did not return the template.")
-    return template
-
-
 async def create_template(account_id: str, payload: dict) -> dict:
     body = await _request("POST", "/whatsapp/templates", json={"accountId": account_id, **payload})
     template = body.get("template")
     if not isinstance(template, dict):
         raise HTTPException(status_code=502, detail="The messaging provider did not return the template.")
     return template
-
-
-async def update_template(account_id: str, name: str, payload: dict, *, language: str | None = None) -> dict:
-    params = {"language": language} if language else None
-    body = await _request("PATCH", f"/whatsapp/templates/{name}",
-                          params=params, json={"accountId": account_id, **payload})
-    return body.get("template") if isinstance(body.get("template"), dict) else {}
 
 
 async def delete_template(account_id: str, name: str, *, language: str | None = None) -> None:

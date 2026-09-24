@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Contact, ContactTag, Conversation, PortalUser, Team, TeamMember, now_utc
+from ..models import Contact, Conversation, PortalUser, Team, TeamMember, now_utc
 from .conversation_state import assign, record_activity, set_team
 
 _NEVER = datetime.min.replace(tzinfo=timezone.utc)

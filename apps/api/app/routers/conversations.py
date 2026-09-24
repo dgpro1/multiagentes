@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..database import get_db
 from ..api_scopes import INBOX_MANAGE, INBOX_READ, INBOX_REPLY, PIPELINE_MANAGE
 from ..deps import confined_client_id, get_current_user, require
-from ..services.conversation_state import STATUSES, note_reply, set_mode, set_status
+from ..services.conversation_state import note_reply, set_mode, set_status
 from ..models import Agent, Contact, Conversation, Message, now_utc, User
 from ..schemas import (
     ConversationCreate,
@@ -27,7 +27,6 @@ from ..services.attachments import (
     attachment_kind,
     attachment_response,
     conversation_attachment,
-    llm_text,
     store_attachment,
 )
 from ..services.tools import run_completion

@@ -1,7 +1,6 @@
 // UI strings for the "settings" area. Fill `en` and mirror it in `es`.
 const en = {
   index: {
-    loading: "Loading settings…",
     eyebrow: "White label",
     title: "Settings",
     description: "Customize the agency and manage your OpenRouter key.",
@@ -40,7 +39,6 @@ const en = {
     configured: "{label} API key is configured.",
     reveal: "Show key",
     hide: "Hide key",
-    savedNotVerified: "Saved, but the key could not be verified:",
   },
   integrations: {
     title: "API integrations",
@@ -72,7 +70,6 @@ const en = {
     create: "Create integration",
     created: "Integration created.",
     saved: "Integration saved.",
-    edit: "Edit scopes",
     delete: "Delete integration",
     deleteTitle: "Delete this integration?",
     deleteCopy: "Its tokens stop working at once. This cannot be undone.",
@@ -100,7 +97,6 @@ const en = {
     webhookTitle: "Outbound webhooks",
     webhookCopy: "Forward inbox and pipeline events to your own URL. Each delivery carries an HMAC-SHA256 signature in X-Signature.",
     webhookUrl: "Target URL",
-    webhookEvents: "Events",
     webhookEventReceived: "Message received",
     webhookEventResolved: "Conversation resolved",
     webhookEventDeal: "Deal moved",
@@ -121,7 +117,6 @@ const en = {
 
 const es: typeof en = {
   index: {
-    loading: "Cargando configuración…",
     eyebrow: "Marca blanca",
     title: "Configuración",
     description: "Personaliza la agencia y administra tu clave de OpenRouter.",
@@ -160,7 +155,6 @@ const es: typeof en = {
     configured: "La clave de API de {label} está configurada.",
     reveal: "Mostrar clave",
     hide: "Ocultar clave",
-    savedNotVerified: "Guardada, pero no se pudo verificar la clave:",
   },
   integrations: {
     title: "Integraciones API",
@@ -192,7 +186,6 @@ const es: typeof en = {
     create: "Crear integración",
     created: "Integración creada.",
     saved: "Integración guardada.",
-    edit: "Editar scopes",
     delete: "Eliminar integración",
     deleteTitle: "¿Eliminar esta integración?",
     deleteCopy: "Sus tokens dejan de funcionar de inmediato. No se puede deshacer.",
@@ -220,7 +213,6 @@ const es: typeof en = {
     webhookTitle: "Webhooks salientes",
     webhookCopy: "Reenvía eventos del inbox y del pipeline a tu propia URL. Cada entrega lleva firma HMAC-SHA256 en X-Signature.",
     webhookUrl: "URL de destino",
-    webhookEvents: "Eventos",
     webhookEventReceived: "Mensaje recibido",
     webhookEventResolved: "Conversación resuelta",
     webhookEventDeal: "Trato movido",

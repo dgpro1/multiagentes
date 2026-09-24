@@ -423,12 +423,6 @@ class ConversationOut(ORMModel):
     last_inbound_at: datetime | None = None
 
 
-class SourceOut(BaseModel):
-    id: str
-    filename: str
-    excerpt: str = ""
-
-
 class AttachmentOut(ORMModel):
     id: uuid.UUID
     kind: str

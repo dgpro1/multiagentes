@@ -16,26 +16,6 @@ def user_id(message: dict, direction: str = "from") -> str | None:
     return None
 
 
-def peer_id(message: dict, direction: str = "from") -> str | None:
-    return message.get(direction) or user_id(message, direction)
-
-
-def recipient_fields(recipient: str) -> dict:
-    # A hidden phone number travels as `recipient`, a visible one as `to`.
-    return {"recipient" if is_user_id(recipient) else "to": recipient}
-
-
-def contact_names(contacts: list[dict]) -> dict[str, str]:
-    names = {}
-    for contact in contacts:
-        profile = contact.get("profile") or {}
-        name = profile.get("name") or profile.get("username") or contact.get("username")
-        for key in ("wa_id", "user_id", "parent_user_id"):
-            if contact.get(key) and name:
-                names[contact[key]] = name
-    return names
-
-
 def resolve_peer_contact(db, channel, peer: str, *, name=None, sender_user_id=None):
     from .contacts import find_contact, phone_from_chat_id, resolve_contact
 

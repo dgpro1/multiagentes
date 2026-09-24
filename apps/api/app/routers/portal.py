@@ -51,7 +51,6 @@ from ..schemas import (
     ConversationModeUpdate,
     ConversationStatusUpdate,
     ConversationOut,
-    PortalInboxMine,
     PortalInboxOut,
     PortalInboxSummary,
     PortalLoginRequest,

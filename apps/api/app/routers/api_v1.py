@@ -68,7 +68,7 @@ from ..models import (
     WidgetChannel,
     now_utc,
 )
-from ..schemas import AgentCreate, AgentOut, AgentUpdate, ClientCreate, ClientOut, ClientUpdate, ContactCreate, ContactTagCreate, ContactTagOut, ContactTagUpdate, ContactUpdate, ConversationModeUpdate, ConversationPipelineUpdate, ConversationStatusUpdate, MessageOut, PipelineStageCreate, PipelineStageOut, PipelineStageReorder, PipelineStageUpdate, QAPairCreate, QAPairOut, QuickLeadCreate, check_reply_delay
+from ..schemas import AgentCreate, AgentOut, AgentUpdate, ClientCreate, ClientOut, ClientUpdate, ContactCreate, ContactTagCreate, ContactTagUpdate, ContactUpdate, ConversationModeUpdate, ConversationPipelineUpdate, ConversationStatusUpdate, MessageOut, PipelineStageCreate, PipelineStageReorder, PipelineStageUpdate, QAPairCreate, QAPairOut, QuickLeadCreate, check_reply_delay
 from ..schemas_calendar import CalendarMemberCreate, CalendarMemberOut
 from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
@@ -76,7 +76,7 @@ from ..services.contacts import find_contact, normalize_phone
 from ..services.text_search import folded_like
 from ..services.conversation_state import note_reply, set_mode, set_status
 from ..services.idempotency import abandon, complete, owner_of, use_key
-from ..services.knowledge import build_system_prompt, embed_document_chunks, reindex_agent, reindex_document
+from ..services.knowledge import build_system_prompt, embed_document_chunks, reindex_agent
 from ..services.report_operations import ConversationFilters, operations
 from ..services import tags as tags_service
 from ..services.whatsapp import send_channel_message
