@@ -1028,6 +1028,8 @@ textarea { line-height: 1.55; }
 @media (max-width: 760px) { .template-detail { grid-template-columns: 1fr; } .template-button-row { grid-template-columns: 1fr; } }
 .activity-line { align-self: center; max-width: 90%; display: inline-flex; align-items: baseline; gap: 6px; padding: 2px 12px; background: none; color: var(--muted); font-size: 11px; }
 .activity-line time { color: var(--subtle); font-size: 10px; }
+/* Consecutive log lines read as one list: close up the thread's 15px gap. */
+.portal-messages .activity-line + .activity-line { margin-top: -12px; }
 .portal-inbox > aside button.unread .portal-inbox-preview { color: var(--ink); }
 .portal-inbox > aside button > span:last-child { min-width: 0; display: flex; flex-direction: column; }
 .portal-inbox > aside strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
