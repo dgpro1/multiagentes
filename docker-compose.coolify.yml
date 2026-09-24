@@ -1,0 +1,215 @@
+# OpenLivery for Coolify (or any Docker host that already has a TLS reverse proxy).
+#
+# Differences from docker-compose.yml, on purpose:
+#   - No env_file, no container_name, no published host ports: Coolify injects the
+#     variables you set in its UI and its own proxy (Traefik/Caddy) terminates TLS
+#     and reaches the "proxy" service below over the internal network.
+#   - Required secrets use ${VAR:?message}, so a deploy with a missing one stops
+#     immediately instead of starting a half-configured app.
+#   - The images are prebuilt (GitHub Actions publishes them), so the server never
+#     compiles anything: faster deploys, no out-of-memory builds.
+#   - Memory limits, log rotation and a daily database backup keep a small server
+#     healthy.
+#
+# Guide: docs/en/deploy-coolify.md
+
+name: openlivery
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-openlivery}
+      POSTGRES_USER: ${POSTGRES_USER:-openlivery}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD (letters and numbers only)}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    mem_limit: ${DB_MEMORY:-768m}
+    logging: *logging
+    restart: unless-stopped
+
+  api:
+    image: ${OPENLIVERY_IMAGE_PREFIX:-ghcr.io/dgpro1/openlivery}-api:${OPENLIVERY_VERSION:-latest}
+    pull_policy: always
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-openlivery}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-openlivery}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY (64 random hex characters)}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY once and never change it}
+      WHATSAPP_BRIDGE_TOKEN: ${WHATSAPP_BRIDGE_TOKEN:?Set WHATSAPP_BRIDGE_TOKEN}
+      # The public https address of the app. Also the base of every callback and webhook.
+      FRONTEND_URL: ${FRONTEND_URL:?Set FRONTEND_URL to the public https address}
+      BACKEND_URL: http://api:8000
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-10080}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      STORAGE_DIR: /app/backend/storage
+      EVOLUTION_API_URL: http://evolution:8080
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:?Set EVOLUTION_API_KEY}
+      EVOLUTION_WEBHOOK_SECRET: ${EVOLUTION_WEBHOOK_SECRET:?Set EVOLUTION_WEBHOOK_SECRET}
+      EVOLUTION_WEBHOOK_URL: http://api:8000/api/public/whatsapp/evolution/webhook
+      MESSAGING_PROVIDER_API_KEY: ${MESSAGING_PROVIDER_API_KEY:-}
+      MESSAGING_PROVIDER_WEBHOOK_SECRET: ${MESSAGING_PROVIDER_WEBHOOK_SECRET:?Set MESSAGING_PROVIDER_WEBHOOK_SECRET}
+      MESSAGING_PROVIDER_PUBLIC_URL: ${MESSAGING_PROVIDER_PUBLIC_URL:-}
+      # Google Calendar (optional). Register ${FRONTEND_URL}/api/calendar/oauth/callback
+      # as an authorized redirect URI in the Google Cloud OAuth client.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+    volumes:
+      - backend_storage:/app/backend/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      evolution:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    mem_limit: ${API_MEMORY:-1g}
+    logging: *logging
+    restart: unless-stopped
+
+  web:
+    image: ${OPENLIVERY_IMAGE_PREFIX:-ghcr.io/dgpro1/openlivery}-web:${OPENLIVERY_VERSION:-latest}
+    pull_policy: always
+    environment:
+      # Used server-side by proxy.ts to resolve custom portal domains.
+      BACKEND_INTERNAL_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    mem_limit: ${WEB_MEMORY:-512m}
+    logging: *logging
+    restart: unless-stopped
+
+  # WhatsApp QR driver (Evolution API). Internal only: no ports, its own Postgres
+  # and Redis.
+  evolution-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: evolution
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD:?Set EVOLUTION_DB_PASSWORD (letters and numbers only)}
+    volumes:
+      - evolution_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    mem_limit: ${EVOLUTION_DB_MEMORY:-384m}
+    logging: *logging
+    restart: unless-stopped
+
+  evolution-redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy noeviction
+    volumes:
+      - evolution_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 192m
+    logging: *logging
+    restart: unless-stopped
+
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    environment:
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_DB_PASSWORD}@evolution-db:5432/evolution
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://evolution-redis:6379
+      CACHE_REDIS_PREFIX_KEY: evolution
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      DEL_INSTANCE: "false"
+      # Instances must survive container replacements.
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_DATA_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      evolution-db:
+        condition: service_healthy
+      evolution-redis:
+        condition: service_healthy
+    mem_limit: ${EVOLUTION_MEMORY:-768m}
+    logging: *logging
+    restart: unless-stopped
+
+  # Daily dump of the main database into the backups volume (7 daily, 4 weekly,
+  # 6 monthly). Copy that volume off the server (Hetzner snapshot, rclone, ...).
+  db-backup:
+    image: prodrigestivill/postgres-backup-local:17
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-openlivery}
+      POSTGRES_USER: ${POSTGRES_USER:-openlivery}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SCHEDULE: ${BACKUP_SCHEDULE:-@daily}
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+    volumes:
+      - db_backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 128m
+    logging: *logging
+    restart: unless-stopped
+
+  # Single-origin gateway: "/api/*" goes to the backend, everything else to the
+  # frontend. In Coolify, give THIS service the domain (port 80); Coolify's proxy
+  # adds the certificate.
+  proxy:
+    image: caddy:2-alpine
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+    expose:
+      - "80"
+    depends_on:
+      - web
+      - api
+    mem_limit: 128m
+    logging: *logging
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  backend_storage:
+  evolution_postgres_data:
+  evolution_redis_data:
+  evolution_instances:
+  db_backups:

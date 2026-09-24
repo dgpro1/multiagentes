@@ -47,6 +47,7 @@ Everything you need to build, brand and operate AI agents for your clients.
 **Self-hosting**
 
 - [Self-hosting](en/self-hosting.md) — Deploy to a server, back up data, upgrade and troubleshoot.
+- [Deploy with Coolify](en/deploy-coolify.md) — Coolify on a Hetzner server: environment, domain, backups and updates.
 - [Contributing](en/contributing.md) — Run the project locally, the test suites and the conventions.
 
 ## Español
@@ -90,4 +91,5 @@ Todo lo que necesitas para construir, marcar y operar agentes de IA para tus cli
 **Autoalojamiento**
 
 - [Autoalojamiento](es/self-hosting.md) — Despliega en un servidor, respalda datos, actualiza y resuelve problemas.
+- [Despliegue con Coolify](es/deploy-coolify.md) — Coolify en un servidor Hetzner: entorno, dominio, copias y actualizaciones.
 - [Contribuir](es/contributing.md) — Ejecuta el proyecto en local, las suites de pruebas y las convenciones.
