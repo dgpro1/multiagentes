@@ -21,6 +21,15 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Added
 
+- **Lead merge.** A lead can absorb another (menu `...` on the lead card, "Merge with another lead..."):
+  search by name, phone, email or `#number`, preview Primary vs Secondary (the older lead is the primary,
+  roles can be swapped) and confirm. The primary keeps its budget (unless it is 0), its custom fields are
+  completed with the secondary's, tags and contacts are merged, and the secondary's conversations become
+  linked threads: messages never move, the inbox shows one unified thread and one list entry with every
+  channel, replies can go through any linked channel, and an audit card is added to the thread. New messages
+  on a linked channel reopen and update the primary. The secondary lead number stays as an alias.
+  Migration `0064_linked_threads`. Irreversible.
+
 - **Lead card in the inbox.** Click the contact's avatar in a conversation to open a side panel (agency inbox,
   client Inbox tab and portal): lead number, tags, pipeline stage, budget, responsible user, custom fields you
   define per client (text, number, date, list, checkbox), files, and the contact block (WhatsApp name, channel,
