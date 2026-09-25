@@ -114,14 +114,14 @@ LEFT JOIN agents ag ON ag.id = c.agent_id
 LEFT JOIN contacts ct ON ct.id = c.contact_id
 LEFT JOIN LATERAL (
     SELECT MIN(m.created_at) AS first_human_at FROM messages m
-    WHERE m.conversation_id = c.id AND m.sender_type = 'human' AND m.created_at >= c.taken_over_at
+    WHERE m.conversation_id = c.id AND m.sender_type = 'human' AND m.kind = 'message' AND m.created_at >= c.taken_over_at
 ) hr ON c.taken_over_at IS NOT NULL
 """
 
 _MSG_METRICS = """
-    COUNT(*) FILTER (WHERE m.sender_type = 'visitor') AS inbound,
-    COUNT(*) FILTER (WHERE m.sender_type = 'ai') AS ai_replies,
-    COUNT(*) FILTER (WHERE m.sender_type = 'human') AS human_replies,
+    COUNT(*) FILTER (WHERE m.sender_type = 'visitor' AND m.kind = 'message') AS inbound,
+    COUNT(*) FILTER (WHERE m.sender_type = 'ai' AND m.kind = 'message') AS ai_replies,
+    COUNT(*) FILTER (WHERE m.sender_type = 'human' AND m.kind = 'message') AS human_replies,
     COUNT(*) FILTER (WHERE m.delivery_status = 'failed') AS delivery_failures,
     COALESCE(SUM((
         SELECT COUNT(*) FROM jsonb_array_elements(

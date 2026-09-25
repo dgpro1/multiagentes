@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, ArrowLeft, Ban, BarChart3, Bot, Building2, Calendar as CalendarIcon, Check, CheckSquare, ChevronDown, Clock, Contact as ContactIcon, FileText, Filter, GitBranch, Images, Inbox, KeyRound, Link2, LoaderCircle, LogOut, MessageSquareText, PanelLeftClose, PanelLeftOpen, Navigation, Paperclip, Plus, Radio, Reply, Search, Smile, Settings, ShieldCheck, SmilePlus, Square, Stethoscope, Trash2, UserRound, X, Zap } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, Ban, BarChart3, Bot, Building2, Calendar as CalendarIcon, Check, CheckSquare, ChevronDown, Clock, Contact as ContactIcon, FileText, Filter, GitBranch, Images, Inbox, KeyRound, Link2, LoaderCircle, Lock, LogOut, MessageSquareText, PanelLeftClose, PanelLeftOpen, Navigation, Paperclip, Plus, Radio, Reply, Search, Smile, Settings, ShieldCheck, SmilePlus, Square, Stethoscope, Trash2, UserRound, X } from "lucide-react";
 import { useCannedReplies } from "../canned";
 import { ContactsView } from "../contacts";
 import { ReportsView } from "../reports";
@@ -26,6 +26,8 @@ import { MediaPanel } from "@/components/media-panel";
 import { LeadCard } from "@/components/lead-card/lead-card";
 import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
 import { ReplyChannelPicker } from "@/components/reply-channel-picker";
+import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
+import { VariablesPopover } from "@/components/variables-popover";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, portalLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
@@ -36,7 +38,7 @@ import { QuotedSnippet, ReactionBadge, ReactionPicker } from "@/components/messa
 import { DeliveryTicks } from "@/components/delivery-ticks";
 import { useToast } from "@/components/toast";
 import { Alert, EmptyState, Modal } from "@/components/ui";
-import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels, MessageChannelMark, threadName } from "@/lib/channels";
+import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels, MessageChannelMark } from "@/lib/channels";
 import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
 import { PhonePauseNotice, SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
 import { api, ApiError, apiUrl, apiWithHeaders, messageFrom } from "@/lib/api";
@@ -363,6 +365,9 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   };
   // The composer card: what is typed (drives the Send colour and Cancel), and its small menus.
   const [draft, setDraft] = useState("");
+  const [composerMode, setComposerMode] = useState<ComposerMode>("chat");
+  const [variablesOpen, setVariablesOpen] = useState(false);
+  const [variablesQuery, setVariablesQuery] = useState("");
   const [composerMenu, setComposerMenu] = useState<null | "action" | "channel" | "plus" | "emoji">(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
@@ -377,16 +382,45 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
     return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", close); };
   }, [composerMenu]);
   const EMOJIS = ["😀", "😂", "😊", "😍", "😉", "🙂", "😅", "🤝", "🙏", "👍", "👏", "🎉", "❤️", "🔥", "✨", "😢", "😮", "🤔", "👌", "💪", "✅", "📅", "📍", "📞", "💬", "⭐", "🙌", "😎", "🥳", "😴", "👋", "💡"];
-  function insertEmoji(emoji: string) {
+  function insertTextAtCursor(text: string, replaceTriggerChar?: string) {
     const field = replyInputRef.current;
     if (!field) return;
     const start = field.selectionStart ?? field.value.length;
     const end = field.selectionEnd ?? start;
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    setter?.call(field, field.value.slice(0, start) + emoji + field.value.slice(end));
+    const full = field.value;
+    const before = full.slice(0, start);
+    const after = full.slice(end);
+
+    let newBefore = before;
+    const lastBracket = before.lastIndexOf("[");
+    if (lastBracket !== -1) {
+      const textBetween = before.slice(lastBracket + 1);
+      if (!textBetween.includes("]") && !textBetween.includes("\n")) {
+        newBefore = before.slice(0, lastBracket);
+      }
+    } else if (replaceTriggerChar && before.endsWith(replaceTriggerChar)) {
+      newBefore = before.slice(0, before.length - replaceTriggerChar.length);
+    }
+
+    const nextVal = newBefore + text + after;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+    if (setter) {
+      setter.call(field, nextVal);
+    } else {
+      field.value = nextVal;
+    }
     field.dispatchEvent(new Event("input", { bubbles: true }));
-    field.setSelectionRange(start + emoji.length, start + emoji.length);
-    field.focus();
+    setDraft(nextVal);
+    setVariablesQuery("");
+    setVariablesOpen(false);
+    const newPos = newBefore.length + text.length;
+    setTimeout(() => {
+      field.focus();
+      field.setSelectionRange(newPos, newPos);
+    }, 0);
+  }
+  function insertEmoji(emoji: string) {
+    insertTextAtCursor(emoji);
   }
   const sourceOptions = INBOX_CHANNELS.filter((value) => value !== "playground" && (channels.some((line) => line.channel === value) || seenChannels.includes(value) || channelFilter === value));
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -613,7 +647,41 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   const windowClosed = Boolean(selected) && replyChannel === "whatsapp_cloud" && policy.blocked;
   const canReply = policy.canReply;
   const activityText = (message: Message) => activityLine(t, message);
-  async function reply(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!selected || !canReply || busy) return; if (pendingFile) { const file = pendingFile; setPendingFile(null); await sendAttachment(file); return; } const form = event.currentTarget; const data = new FormData(form); setBusy(true); setError(""); try { applyThread(await api<Conversation>(`/portal/${slug}/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: data.get("content"), quoted_message_id: quoting?.id ?? null, ...replyVia.payload }) })); form.reset(); canned.reset(); setQuoting(null); } catch (err) { setError(messageFrom(err)); } finally { setBusy(false); } }
+
+  async function sendNote(content: string) {
+    if (!selected || busy || !content.trim()) return;
+    setBusy(true); setError("");
+    try {
+      applyThread(await api<Conversation>(`/portal/${slug}/conversations/${selected.id}/notes`, {
+        method: "POST",
+        body: JSON.stringify({ content: content.trim() }),
+      }));
+      if (replyInputRef.current) replyInputRef.current.value = "";
+      setDraft("");
+      setComposerMode("chat");
+    } catch (err) { setError(messageFrom(err)); } finally { setBusy(false); }
+  }
+  async function reply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected || busy) return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const content = (data.get("content") as string) || draft;
+    if (composerMode === "note") {
+      await sendNote(content);
+      return;
+    }
+    if (!canReply) return;
+    if (pendingFile) { const file = pendingFile; setPendingFile(null); await sendAttachment(file); return; }
+    setBusy(true); setError("");
+    try {
+      applyThread(await api<Conversation>(`/portal/${slug}/conversations/${selected.id}/reply`, {
+        method: "POST",
+        body: JSON.stringify({ content: content.trim(), quoted_message_id: quoting?.id ?? null, ...replyVia.payload })
+      }));
+      form.reset(); canned.reset(); setQuoting(null);
+    } catch (err) { setError(messageFrom(err)); } finally { setBusy(false); }
+  }
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
   // The contact and agent values a saved reply or a template fills itself with.
   const contactValues: ContactValues = {
@@ -706,6 +774,20 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
               if (message.kind === "activity") {
                 return <div key={message.id} className="activity-line"><span>{activityText(message)}</span><time>{formatTime(message.created_at, lang)}</time></div>;
               }
+              if (message.kind === "note") {
+                return (
+                  <div key={message.id} className="internal-note-card">
+                    <div className="internal-note-header">
+                      <Lock size={12} />
+                      <span>{message.sender_name || t("portal.inbox.conversation.agent")} · {t("inbox.internalNoteBadge")}</span>
+                      <time>{formatTime(message.created_at, lang)}</time>
+                    </div>
+                    <div className="internal-note-content">
+                      <RichText text={message.content} />
+                    </div>
+                  </div>
+                );
+              }
               const prev = index > 0 ? selected.messages![index - 1] : null;
               const grouped = Boolean(prev && prev.kind !== "activity" && prev.role === message.role && prev.sender_name === message.sender_name);
               const stamp = formatTime(message.created_at, lang);
@@ -724,33 +806,100 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
                 {!message.content && !hasAudio && message.attachments?.length ? <time className="msg-time bare">{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{stamp}</time> : null}
                 {reactingTo === message.id && <ReactionPicker current={message.reaction} removeLabel={t("portal.inbox.conversation.removeReaction")} onPick={(emoji) => sendReaction(message, emoji)} />}
               </article>;
-            })}</div><PhonePauseNotice conversation={selected} onKeepManual={() => setMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />{error && <Alert>{error}</Alert>}{pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}{quoting && <div className="composer-quote"><Reply size={14} /><span><strong>{t("portal.inbox.conversation.replyingTo", { name: quoting.sender_name || (quoting.role === "assistant" ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor")) })}</strong><small>{(quoting.content || "").slice(0, 140)}</small></span><button type="button" onClick={() => setQuoting(null)} aria-label={t("portal.inbox.conversation.cancelReply")} title={t("portal.inbox.conversation.cancelReply")}><X size={14} /></button></div>}{replyVia.multi && windowClosed && !selected.archived_at && <ReplyChannelPicker threads={replyVia.threads} value={replyVia.via} onChange={replyVia.setVia} />}{selected.archived_at ? <div className="portal-composer window-closed archive-bar"><div><strong>{t("portal.inbox.conversation.archivedLocked")}</strong></div></div> : windowClosed ? <div className="portal-composer window-closed"><div><strong>{selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}</strong><small>{t("portal.inbox.window.closedHint")}</small></div><button type="button" className="button primary" onClick={() => setTemplateOpen(true)} disabled={!templatesSupported}><FileText size={16} /> {t("portal.inbox.window.sendTemplate")}</button></div> : <form ref={composerRef} onSubmit={reply} onReset={() => setDraft("")} className="portal-composer composer-card">{canned.popup}<div className="composer-box">
-      <div className="composer-top">
-        <div className="composer-menu"><button type="button" className="composer-pill action" aria-haspopup="menu" aria-expanded={composerMenu === "action"} onClick={() => setComposerMenu(composerMenu === "action" ? null : "action")}>{t("portal.inbox.composer.chat")} <ChevronDown size={14} /></button>{composerMenu === "action" && <div className="composer-menu-list" role="menu"><button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><span>{t("portal.inbox.composer.chat")}</span><Check size={15} /></button></div>}</div>
-        <span className="composer-via">{t("portal.inbox.composer.via")}</span>
-        <div className="composer-menu"><button type="button" className="composer-pill channel" title={t("portal.inbox.composer.sendThrough")} aria-haspopup="menu" aria-expanded={composerMenu === "channel"} onClick={() => setComposerMenu(composerMenu === "channel" ? null : "channel")}><span className={`channel-dot ${replyChannel}`}>{channelIcon(replyChannel)}</span>{replyVia.multi && replyVia.thread ? threadName(replyVia.thread, t) : channelLabel(replyChannel)} <ChevronDown size={14} /></button>{composerMenu === "channel" && <div className="composer-menu-list" role="menu">{replyVia.multi ? replyVia.threads.map((thread) => <button key={thread.conversation_id} type="button" role="menuitem" onClick={() => { replyVia.setVia(thread.conversation_id); setComposerMenu(null); }}><span className={`channel-dot ${thread.channel}`}>{channelIcon(thread.channel)}</span><span>{threadName(thread, t)}</span>{thread.conversation_id === replyVia.via && <Check size={15} />}</button>) : <button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><span className={`channel-dot ${replyChannel}`}>{channelIcon(replyChannel)}</span><span>{channelLabel(replyChannel)}</span><Check size={15} /></button>}</div>}</div>
-        <button type="button" className="composer-icon bolt" title={t("portal.inbox.composer.quick")} aria-label={t("portal.inbox.composer.quick")}><Zap size={16} /></button>
-      </div>
-      <GrowingTextarea ref={replyInputRef} name="content" autoComplete="off" onChange={(e) => { setDraft(e.target.value); canned.onChange(e.target.value); }} onKeyDown={canned.onKeyDown} required={!pendingFile} disabled={!canReply || busy} placeholder={t("portal.inbox.conversation.replyPlaceholder")} />
+            })}</div><PhonePauseNotice conversation={selected} onKeepManual={() => setMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />{error && <Alert>{error}</Alert>}{pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}{quoting && <div className="composer-quote"><Reply size={14} /><span><strong>{t("portal.inbox.conversation.replyingTo", { name: quoting.sender_name || (quoting.role === "assistant" ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor")) })}</strong><small>{(quoting.content || "").slice(0, 140)}</small></span><button type="button" onClick={() => setQuoting(null)} aria-label={t("portal.inbox.conversation.cancelReply")} title={t("portal.inbox.conversation.cancelReply")}><X size={14} /></button></div>}{replyVia.multi && windowClosed && !selected.archived_at && <ReplyChannelPicker threads={replyVia.threads} value={replyVia.via} onChange={replyVia.setVia} />}{selected.archived_at ? <div className="portal-composer window-closed archive-bar"><div><strong>{t("portal.inbox.conversation.archivedLocked")}</strong></div></div> : windowClosed ? <div className="portal-composer window-closed"><div><strong>{selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}</strong><small>{t("portal.inbox.window.closedHint")}</small></div><button type="button" className="button primary" onClick={() => setTemplateOpen(true)} disabled={!templatesSupported}><FileText size={16} /> {t("portal.inbox.window.sendTemplate")}</button></div> : <form ref={composerRef} onSubmit={reply} onReset={() => { setDraft(""); setComposerMode("chat"); }} className="portal-composer composer-card">{canned.popup}<div className={`composer-box${composerMode === "note" ? " note-mode" : ""}`} style={{ position: "relative" }}>
+      <UnifiedComposerTop
+        mode={composerMode}
+        onModeChange={setComposerMode}
+        threads={replyVia.threads}
+        channel={replyChannel}
+        via={replyVia.via}
+        onViaChange={replyVia.setVia}
+        onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
+      />
+      <VariablesPopover
+        open={variablesOpen}
+        onClose={() => { setVariablesOpen(false); setVariablesQuery(""); }}
+        onSelect={(val) => insertTextAtCursor(val)}
+        query={variablesQuery}
+        contactValues={contactValues}
+        leadNumber={selected.number}
+        dealValue={selected.deal_value}
+        channel={selected.channel}
+      />
+      <GrowingTextarea
+        ref={replyInputRef}
+        name="content"
+        autoComplete="off"
+        onChange={(e) => {
+          const val = e.target.value;
+          setDraft(val);
+          canned.onChange(val);
+          const cursor = e.target.selectionStart ?? val.length;
+          const before = val.slice(0, cursor);
+          const lastBracket = before.lastIndexOf("[");
+          if (lastBracket !== -1) {
+            const textBetween = before.slice(lastBracket + 1);
+            if (!textBetween.includes("]") && !textBetween.includes("\n") && textBetween.length <= 30) {
+              setVariablesQuery(textBetween);
+              setVariablesOpen(true);
+              return;
+            }
+          }
+          if (variablesQuery) {
+            setVariablesQuery("");
+            setVariablesOpen(false);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "[" || e.code === "BracketLeft") {
+            setVariablesOpen(true);
+            setVariablesQuery("");
+          }
+          if (variablesOpen && e.key === "Escape") {
+            setVariablesOpen(false);
+            setVariablesQuery("");
+          }
+          canned.onKeyDown(e);
+        }}
+        required={composerMode === "note" ? true : !pendingFile}
+        disabled={composerMode === "note" ? busy : (!canReply || busy)}
+        placeholder={composerMode === "note" ? (t("inbox.composerNotePlaceholder") || "Escribe una nota interna para el equipo...") : t("portal.inbox.conversation.replyPlaceholder")}
+      />
       <div className="composer-bottom">
         <div className="composer-left">
-          <button type="submit" className={`composer-send${draft.trim() || pendingFile ? " ready" : ""}`} disabled={!canReply || busy || (!draft.trim() && !pendingFile)}>{busy ? <LoaderCircle className="spin" size={16} /> : t("portal.inbox.composer.send")}</button>
-          <RecordButton onRecorded={sendAttachment} onError={() => setError(t("chat.micDenied"))} disabled={!policy.canRecord || busy} title={t("chat.recordAudio")} titleStop={t("chat.stopRecording")} />
-          {(draft.length > 0 || pendingFile || quoting) && <button type="button" className="composer-cancel" onClick={(event) => { event.currentTarget.form?.reset(); setPendingFile(null); setQuoting(null); canned.reset(); }}>{t("portal.inbox.composer.cancel")}</button>}
+          <button
+            type="submit"
+            className={`composer-send${composerMode === "note" ? (draft.trim() ? " note-ready" : "") : (draft.trim() || pendingFile ? " ready" : "")}`}
+            disabled={composerMode === "note" ? (busy || !draft.trim()) : (!canReply || busy || (!draft.trim() && !pendingFile))}
+          >
+            {busy ? <LoaderCircle className="spin" size={16} /> : (composerMode === "note" ? (t("inbox.composerSaveNote") || "Guardar nota") : t("portal.inbox.composer.send"))}
+          </button>
+          {composerMode !== "note" && (
+            <RecordButton onRecorded={sendAttachment} onError={() => setError(t("chat.micDenied"))} disabled={!policy.canRecord || busy} title={t("chat.recordAudio")} titleStop={t("chat.stopRecording")} />
+          )}
+          {(draft.length > 0 || pendingFile || quoting || composerMode === "note") && (
+            <button type="button" className="composer-cancel" onClick={(event) => { event.currentTarget.form?.reset(); setPendingFile(null); setQuoting(null); canned.reset(); setComposerMode("chat"); }}>
+              {t("portal.inbox.composer.cancel")}
+            </button>
+          )}
         </div>
         <div className="composer-right">
-          <button type="button" role="switch" aria-checked={selected.mode === "ai"} className={`ai-toggle${selected.mode === "ai" ? " on" : ""}`} title={t("portal.inbox.list.aiAgent")} onClick={() => setMode(selected.mode === "ai" ? "human" : "ai")}><Bot size={15} /> <span>{t("portal.inbox.folders.ai")}</span></button>
-          <div className="composer-menu">
-            <button type="button" className={`composer-icon plus${composerMenu === "plus" || composerMenu === "emoji" ? " open" : ""}`} title={t("portal.inbox.composer.more")} aria-label={t("portal.inbox.composer.more")} aria-haspopup="menu" aria-expanded={composerMenu === "plus" || composerMenu === "emoji"} onClick={() => setComposerMenu(composerMenu === "plus" || composerMenu === "emoji" ? null : "plus")}><Plus size={20} /></button>
-            {composerMenu === "plus" && <div className="composer-menu-list up" role="menu">
-              <button type="button" role="menuitem" disabled={!canReply || busy} onClick={() => setComposerMenu("emoji")}><Smile size={18} /><span>{t("portal.inbox.composer.emoji")}</span></button>
-              <button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><CalendarIcon size={18} /><span>{t("portal.inbox.composer.schedule")}</span></button>
-              <button type="button" role="menuitem" disabled={!policy.canAttach || busy} onClick={() => { setComposerMenu(null); fileInputRef.current?.click(); }}><Paperclip size={18} /><span>{t("chat.attachFile")}</span></button>
-              <button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><Navigation size={18} /><span>{t("portal.inbox.composer.navigate")}</span></button>
-            </div>}
-            {composerMenu === "emoji" && <div className="composer-emoji" role="menu">{EMOJIS.map((emoji) => <button type="button" key={emoji} role="menuitem" onClick={() => { insertEmoji(emoji); setComposerMenu(null); }}>{emoji}</button>)}</div>}
-            <input ref={fileInputRef} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) setPendingFile(file); event.currentTarget.value = ""; }} />
-          </div>
+          {composerMode !== "note" && (
+            <>
+              <button type="button" role="switch" aria-checked={selected.mode === "ai"} className={`ai-toggle${selected.mode === "ai" ? " on" : ""}`} title={t("portal.inbox.list.aiAgent")} onClick={() => setMode(selected.mode === "ai" ? "human" : "ai")}><Bot size={15} /> <span>{t("portal.inbox.folders.ai")}</span></button>
+              <div className="composer-menu">
+                <button type="button" className={`composer-icon plus${composerMenu === "plus" || composerMenu === "emoji" ? " open" : ""}`} title={t("portal.inbox.composer.more")} aria-label={t("portal.inbox.composer.more")} aria-haspopup="menu" aria-expanded={composerMenu === "plus" || composerMenu === "emoji"} onClick={() => setComposerMenu(composerMenu === "plus" || composerMenu === "emoji" ? null : "plus")}><Plus size={20} /></button>
+                {composerMenu === "plus" && <div className="composer-menu-list up" role="menu">
+                  <button type="button" role="menuitem" disabled={!canReply || busy} onClick={() => setComposerMenu("emoji")}><Smile size={18} /><span>{t("portal.inbox.composer.emoji")}</span></button>
+                  <button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><CalendarIcon size={18} /><span>{t("portal.inbox.composer.schedule")}</span></button>
+                  <button type="button" role="menuitem" disabled={!policy.canAttach || busy} onClick={() => { setComposerMenu(null); fileInputRef.current?.click(); }}><Paperclip size={18} /><span>{t("chat.attachFile")}</span></button>
+                  <button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><Navigation size={18} /><span>{t("portal.inbox.composer.navigate")}</span></button>
+                </div>}
+                {composerMenu === "emoji" && <div className="composer-emoji" role="menu">{EMOJIS.map((emoji) => <button type="button" key={emoji} role="menuitem" onClick={() => { insertEmoji(emoji); setComposerMenu(null); }}>{emoji}</button>)}</div>}
+                <input ref={fileInputRef} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) setPendingFile(file); event.currentTarget.value = ""; }} />
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div></form>}<MediaPanel open={mediaOpen} onClose={() => setMediaOpen(false)} messages={selected.messages ?? []} urlFor={attachmentUrl} /><TemplatePicker base={base} open={templateOpen} title={t("portal.inbox.window.sendTemplate")} contactValues={contactValues} onClose={() => setTemplateOpen(false)} onSend={replyWithTemplate} /></>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { refresh().catch(() => {}); }} onMerged={(primary) => { void api<Conversation>(`/portal/${slug}/conversations/number/${primary.number}`).then((detail) => { selectedIdRef.current = detail.id; setSelected(detail); if (detail.number !== urlNumber) goTo("inbox", detail.number); refresh().catch(() => {}); }).catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}</div>}</section>

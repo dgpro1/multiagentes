@@ -18,6 +18,7 @@ from ..schemas import (
     ConversationPipelineUpdate,
     ConversationStatusUpdate,
     ConversationOut,
+    CreateNoteRequest,
     LocationSend,
     ReactionRequest,
     SendMessageRequest,
@@ -553,6 +554,33 @@ async def reply_as_human(
     cancel_phone_pause(conversation)
     note_reply(conversation)
     conversation.updated_at = now_utc()
+    db.commit()
+    return _respond(db, user, conversation_id)
+
+
+@router.post("/{conversation_id}/notes", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
+async def add_note(
+    conversation_id: uuid.UUID,
+    payload: CreateNoteRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Add an internal note to the lead. Notes are visible only to agency/client staff,
+    never sent to visitors, excluded from AI context, public API, and metrics."""
+    lead = _conversation(db, user, conversation_id, act=True)
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="Note content cannot be empty.")
+    message = Message(
+        conversation_id=lead.id,
+        role="assistant",
+        kind="note",
+        content=content,
+        sender_type="human",
+        sender_name=user.name,
+    )
+    db.add(message)
+    lead.updated_at = now_utc()
     db.commit()
     return _respond(db, user, conversation_id)
 

@@ -42,9 +42,15 @@ CLOSED_ROUTES = (
 
 
 def _routes():
-    for route in app.routes:
-        path = getattr(route, "path", "")
-        methods = set(getattr(route, "methods", set()) or set())
+    def _walk(app_or_router, prefix=""):
+        for r in app_or_router.routes:
+            if type(r).__name__ == "_IncludedRouter":
+                p = prefix + (getattr(r.include_context, "prefix", "") or "")
+                yield from _walk(r.original_router, p)
+            elif hasattr(r, "path"):
+                yield r, prefix + r.path, set(getattr(r, "methods", set()) or set())
+
+    for route, path, methods in _walk(app):
         if not path.startswith("/api") or methods <= {"HEAD", "OPTIONS"}:
             continue
         yield route, path, methods

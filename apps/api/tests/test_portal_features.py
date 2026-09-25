@@ -304,6 +304,7 @@ GATED = [
     ("PATCH", "/lead-fields/{id}", ["inbox"]),
     ("DELETE", "/lead-fields/{id}", ["inbox"]),
     ("POST", "/conversations/{id}/reply", ["inbox"]),
+    ("POST", "/conversations/{id}/notes", ["inbox"]),
     ("POST", "/conversations/{id}/reply-media", ["inbox"]),
     ("POST", "/conversations/{id}/reply-template", ["inbox", "templates"]),
     ("POST", "/conversations/{id}/messages/{id}/reaction", ["inbox"]),
@@ -480,11 +481,19 @@ def test_every_portal_route_has_a_feature_decision():
     """The matrix is only worth something if it names real routes and leaves none out."""
     from app.main import app
 
+    def _walk(app_or_router, prefix=""):
+        for r in app_or_router.routes:
+            if type(r).__name__ == "_IncludedRouter":
+                p = prefix + (getattr(r.include_context, "prefix", "") or "")
+                yield from _walk(r.original_router, p)
+            elif hasattr(r, "path"):
+                yield prefix + r.path, r
+
     prefix = "/api/portal/{slug}"
     actual = {
-        (method, _shape(route.path[len(prefix):]))
-        for route in app.routes
-        if getattr(route, "path", "").startswith(prefix)
+        (method, _shape(path[len(prefix):]))
+        for path, route in _walk(app)
+        if path.startswith(prefix)
         for method in route.methods
         if method != "HEAD"
     }

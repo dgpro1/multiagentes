@@ -964,7 +964,7 @@ def v1_list_messages(
     # A merged lead's thread is the messages of all its threads, oldest first.
     threads = lead_group.group_of(db, conversation)
     channel_of = {row.id: row.channel for row in threads}
-    base = select(Message).where(Message.conversation_id.in_(list(channel_of)))
+    base = select(Message).where(Message.conversation_id.in_(list(channel_of)), Message.kind != "note")
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
     rows = db.scalars(base.order_by(Message.created_at.asc()).offset((page - 1) * limit).limit(limit)).all()
     data = [{**MessageOut.model_validate(row).model_copy(update={"channel": channel_of[row.conversation_id]}).model_dump(mode="json"),

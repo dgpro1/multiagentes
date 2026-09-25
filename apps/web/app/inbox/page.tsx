@@ -1,14 +1,15 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, MapPin, Search, UserRound } from "lucide-react";
+import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, Lock, MapPin, Search, UserRound } from "lucide-react";
 import { PageHead } from "@/components/ui";
 import { AttachButton, MessageAttachments, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { LocationComposer } from "@/components/location-composer";
 import { MediaPanel } from "@/components/media-panel";
 import { LeadCard } from "@/components/lead-card/lead-card";
 import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
-import { ReplyChannelPicker } from "@/components/reply-channel-picker";
+import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
+import { VariablesPopover } from "@/components/variables-popover";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
@@ -200,6 +201,64 @@ export default function InboxPage() {
   }
 
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [composerMode, setComposerMode] = useState<ComposerMode>("chat");
+  const [variablesOpen, setVariablesOpen] = useState(false);
+  const [variablesQuery, setVariablesQuery] = useState("");
+  const [draft, setDraft] = useState("");
+
+  function insertTextAtCursor(text: string, replaceTriggerChar?: string) {
+    const field = composerRef.current;
+    if (!field) return;
+    const start = field.selectionStart ?? field.value.length;
+    const end = field.selectionEnd ?? start;
+    const full = field.value;
+    const before = full.slice(0, start);
+    const after = full.slice(end);
+
+    let newBefore = before;
+    const lastBracket = before.lastIndexOf("[");
+    if (lastBracket !== -1) {
+      const textBetween = before.slice(lastBracket + 1);
+      if (!textBetween.includes("]") && !textBetween.includes("\n")) {
+        newBefore = before.slice(0, lastBracket);
+      }
+    } else if (replaceTriggerChar && before.endsWith(replaceTriggerChar)) {
+      newBefore = before.slice(0, before.length - replaceTriggerChar.length);
+    }
+
+    const nextVal = newBefore + text + after;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+    if (setter) {
+      setter.call(field, nextVal);
+    } else {
+      field.value = nextVal;
+    }
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    setDraft(nextVal);
+    setVariablesQuery("");
+    setVariablesOpen(false);
+    const newPos = newBefore.length + text.length;
+    setTimeout(() => {
+      field.focus();
+      field.setSelectionRange(newPos, newPos);
+    }, 0);
+  }
+
+  async function sendNote(content: string) {
+    if (!selected || busy || !content.trim()) return;
+    setBusy(true);
+    try {
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/notes`, {
+        method: "POST",
+        body: JSON.stringify({ content: content.trim() }),
+      }));
+      if (composerRef.current) composerRef.current.value = "";
+      setDraft("");
+      setComposerMode("chat");
+      loadFirst({ silent: true });
+    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); composerRef.current?.focus(); }
+  }
+
   async function sendLocation(place: { latitude: number; longitude: number; name: string; address: string }) {
     if (!selected) return;
     setBusy(true);
@@ -211,19 +270,26 @@ export default function InboxPage() {
   }
   async function reply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected || !policy.canReply || busy) return;
+    if (!selected || busy) return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const content = (data.get("content") as string) || draft;
+    if (composerMode === "note") {
+      await sendNote(content);
+      return;
+    }
+    if (!policy.canReply) return;
     if (pendingFile) {
       const file = pendingFile;
       setPendingFile(null);
       await sendAttachment(file);
       return;
     }
-    const form = event.currentTarget;
-    const data = new FormData(form);
     setBusy(true);
     try {
-      setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: data.get("content"), ...replyVia.payload }) }));
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: content.trim(), ...replyVia.payload }) }));
       form.reset();
+      setDraft("");
       loadFirst({ silent: true });
     } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); composerRef.current?.focus(); }
   }
@@ -311,9 +377,23 @@ export default function InboxPage() {
             <div className="inbox-messages" ref={messagesRef}>
               {selected.messages?.map((message, index) => {
                 if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
+                const stamp = formatTime(message.created_at, lang);
+                if (message.kind === "note") {
+                  return (
+                    <div key={message.id} className="internal-note-card">
+                      <div className="internal-note-header">
+                        <Lock size={12} />
+                        <span>{message.sender_name || t("inbox.senderAgent")} · {t("inbox.internalNoteBadge")}</span>
+                        <time>{stamp}</time>
+                      </div>
+                      <div className="internal-note-content">
+                        <RichText text={message.content} />
+                      </div>
+                    </div>
+                  );
+                }
                 const prev = index > 0 ? selected.messages![index - 1] : null;
                 const grouped = Boolean(prev && prev.role === message.role && prev.sender_name === message.sender_name);
-                const stamp = formatTime(message.created_at, lang);
                 const hasAudio = message.attachments?.some((a) => a.kind === "audio");
                 return (
                   <div key={message.id} className={`inbox-message ${message.role}${grouped ? " grouped" : ""}`}>
@@ -330,14 +410,85 @@ export default function InboxPage() {
             <PhonePauseNotice conversation={selected} onKeepManual={() => toggleMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
             {pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}
             {locating && <LocationComposer busy={busy} disabled={!policy.canReply} onCancel={() => setLocating(false)} onSend={sendLocation} />}
-            {replyVia.multi && <ReplyChannelPicker threads={replyVia.threads} value={replyVia.via} onChange={replyVia.setVia} />}
-            <form className="inbox-composer" onSubmit={reply}>
-              {(replyVia.thread?.channel ?? selected.channel) === "whatsapp" && <button type="button" className="icon-button" title={t("inbox.locationSend")} aria-label={t("inbox.locationSend")} disabled={!policy.canReply || busy} onClick={() => setLocating((open) => !open)}><MapPin size={17} /></button>}
-              <AttachButton onFile={setPendingFile} disabled={!policy.canAttach || busy} title={t("chat.attachFile")} />
-              <RecordButton onRecorded={sendAttachment} onError={() => toast.error(t("chat.micDenied"))} disabled={!policy.canRecord || busy} title={t("chat.recordAudio")} titleStop={t("chat.stopRecording")} />
-              <GrowingTextarea ref={composerRef} name="content" placeholder={selected.mode === "human" ? t("inbox.composerHuman") : t("inbox.composerLocked")} disabled={!policy.canReply || busy} required={!pendingFile} />
-              <button disabled={!policy.canReply || busy}>{t("inbox.send")}</button>
-            </form>
+            <div className={`composer-box${composerMode === "note" ? " note-mode" : ""}`} style={{ position: "relative", margin: "10px 16px 14px" }}>
+              <UnifiedComposerTop
+                mode={composerMode}
+                onModeChange={setComposerMode}
+                threads={replyVia.threads}
+                channel={replyVia.thread?.channel ?? selected.channel}
+                via={replyVia.via}
+                onViaChange={replyVia.setVia}
+                onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
+              />
+              <VariablesPopover
+                open={variablesOpen}
+                onClose={() => { setVariablesOpen(false); setVariablesQuery(""); }}
+                onSelect={(val) => insertTextAtCursor(val)}
+                query={variablesQuery}
+                contactValues={{
+                  contact_name: selected.contact_name || selected.title,
+                  contact_phone: selected.contact_phone || (isSocialChannel(selected.channel) ? "" : (selected.external_chat_id || "").split("@")[0]),
+                  contact_email: selected.contact_email,
+                }}
+                leadNumber={selected.number}
+                dealValue={selected.deal_value}
+                channel={selected.channel}
+              />
+              <form className="inbox-composer" style={{ border: "none", padding: "8px 12px 10px", margin: 0 }} onSubmit={reply}>
+                {(replyVia.thread?.channel ?? selected.channel) === "whatsapp" && composerMode !== "note" && <button type="button" className="icon-button" title={t("inbox.locationSend")} aria-label={t("inbox.locationSend")} disabled={!policy.canReply || busy} onClick={() => setLocating((open) => !open)}><MapPin size={17} /></button>}
+                {composerMode !== "note" && <AttachButton onFile={setPendingFile} disabled={!policy.canAttach || busy} title={t("chat.attachFile")} />}
+                {composerMode !== "note" && <RecordButton onRecorded={sendAttachment} onError={() => toast.error(t("chat.micDenied"))} disabled={!policy.canRecord || busy} title={t("chat.recordAudio")} titleStop={t("chat.stopRecording")} />}
+                <GrowingTextarea
+                  ref={composerRef}
+                  name="content"
+                  placeholder={
+                    composerMode === "note"
+                      ? (t("inbox.composerNotePlaceholder") || "Escribe una nota interna para el equipo...")
+                      : selected.mode === "human"
+                      ? t("inbox.composerHuman")
+                      : t("inbox.composerLocked")
+                  }
+                  disabled={composerMode === "note" ? busy : (!policy.canReply || busy)}
+                  required={composerMode === "note" ? true : !pendingFile}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDraft(val);
+                    const cursor = e.target.selectionStart ?? val.length;
+                    const before = val.slice(0, cursor);
+                    const lastBracket = before.lastIndexOf("[");
+                    if (lastBracket !== -1) {
+                      const textBetween = before.slice(lastBracket + 1);
+                      if (!textBetween.includes("]") && !textBetween.includes("\n") && textBetween.length <= 30) {
+                        setVariablesQuery(textBetween);
+                        setVariablesOpen(true);
+                        return;
+                      }
+                    }
+                    if (variablesQuery) {
+                      setVariablesQuery("");
+                      setVariablesOpen(false);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "[" || e.code === "BracketLeft") {
+                      setVariablesOpen(true);
+                      setVariablesQuery("");
+                    }
+                    if (variablesOpen && e.key === "Escape") {
+                      setVariablesOpen(false);
+                      setVariablesQuery("");
+                    }
+                  }}
+                />
+                <button
+                  className={composerMode === "note" ? (draft.trim() ? "button primary small" : "button small") : ""}
+                  style={composerMode === "note" ? { backgroundColor: draft.trim() ? "#f59e0b" : undefined, borderColor: draft.trim() ? "#f59e0b" : undefined, color: draft.trim() ? "#fff" : undefined } : undefined}
+                  disabled={composerMode === "note" ? (busy || !draft.trim()) : (!policy.canReply || busy)}
+                >
+                  {composerMode === "note" ? (t("inbox.composerSaveNote") || "Guardar nota") : t("inbox.send")}
+                </button>
+              </form>
+            </div>
             <MediaPanel open={mediaOpen} onClose={() => setMediaOpen(false)} messages={selected.messages ?? []} urlFor={attachmentUrl} />
           </>}
       </section>

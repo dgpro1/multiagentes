@@ -2658,6 +2658,249 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .portal-composer.composer-card .composer-menu-list.up button:disabled { opacity: .45; }
 .portal-composer.composer-card .composer-menu-list.up button svg { flex: 0 0 auto; color: var(--muted); }
 
+/* Variables popover (Kommo style) */
+.variables-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  width: 440px;
+  max-width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #141a23;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+:root[data-theme="light"] .variables-popover {
+  background: var(--surface);
+  border-color: var(--line);
+  box-shadow: 0 12px 36px rgba(var(--shadow-rgb), calc(0.2 * var(--shadow-k)));
+}
+
+.variables-header {
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #718096;
+}
+:root[data-theme="light"] .variables-header {
+  border-bottom-color: var(--line-soft);
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.variables-title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.variables-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.25;
+  font-size: 10px;
+  color: #718096;
+}
+:root[data-theme="light"] .variables-hint {
+  color: var(--subtle);
+}
+
+.variables-list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.variable-item,
+.portal-composer button.variable-item,
+.portal-composer.composer-card button.variable-item,
+.portal-composer .variables-popover button.variable-item {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 38px !important;
+  padding: 8px 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  color: inherit !important;
+  box-shadow: none !important;
+  flex: none !important;
+  transition: background 0.12s ease;
+}
+
+.variable-item:hover,
+.variable-item.selected,
+.portal-composer button.variable-item:hover,
+.portal-composer button.variable-item.selected,
+.portal-composer .variables-popover button.variable-item:hover,
+.portal-composer .variables-popover button.variable-item.selected {
+  background: #1c2738 !important;
+}
+:root[data-theme="light"] .variable-item:hover,
+:root[data-theme="light"] .variable-item.selected,
+:root[data-theme="light"] .portal-composer button.variable-item:hover,
+:root[data-theme="light"] .portal-composer button.variable-item.selected,
+:root[data-theme="light"] .portal-composer .variables-popover button.variable-item:hover,
+:root[data-theme="light"] .portal-composer .variables-popover button.variable-item.selected {
+  background: var(--surface-3) !important;
+}
+
+.variable-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.variable-token-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #38bdf8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+}
+:root[data-theme="light"] .variable-token-name {
+  color: #0284c7;
+}
+
+.variable-category-pill {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  white-space: nowrap;
+}
+:root[data-theme="light"] .variable-category-pill {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+.variable-item-right {
+  margin-left: 16px;
+  font-size: 13px;
+  color: #cbd5e1;
+  max-width: 150px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root[data-theme="light"] .variable-item-right {
+  color: var(--ink-2);
+}
+
+.variable-empty-val {
+  color: #64748b;
+  font-size: 12px;
+  font-style: italic;
+}
+:root[data-theme="light"] .variable-empty-val {
+  color: var(--subtle);
+}
+
+.variables-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* Internal notes in feed and composer */
+.internal-note-card {
+  align-self: center;
+  width: 100%;
+  max-width: 520px;
+  margin: 8px auto;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  background: rgba(254, 243, 199, 0.5);
+  color: #78350f;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+:root[data-theme="dark"] .internal-note-card {
+  background: rgba(69, 46, 12, 0.4);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #fef3c7;
+}
+.internal-note-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #b45309;
+  margin-bottom: 5px;
+}
+:root[data-theme="dark"] .internal-note-header {
+  color: #fcd34d;
+}
+.internal-note-header time {
+  margin-left: auto;
+  font-size: 10.5px;
+  opacity: 0.8;
+}
+.internal-note-content {
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.composer-box.note-mode {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.04);
+}
+.composer-box.note-mode:focus-within {
+  border-color: #d97706;
+  box-shadow: 0 0 0 1px #d97706;
+}
+.portal-composer.composer-card .composer-send.note-ready {
+  background: #f59e0b;
+  color: #fff;
+  border-color: transparent;
+}
+.portal-composer.composer-card .composer-pill.action.note {
+  color: #d97706;
+}
+.composer-note-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+:root[data-theme="dark"] .composer-note-badge {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.2);
+}
+
+
+
 /* The lead's short number, shown beside its name and in the list. */
 .lead-number { margin-left: 8px; color: var(--subtle); font-size: 12px; font-weight: 600; }
 .inbox-row-meta .lead-number { margin: 0 8px 0 0; }

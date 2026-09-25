@@ -147,7 +147,7 @@ export type Attachment = { id: string; kind: "image" | "audio" | "video" | "file
 export type MergeSide = { number: number; name?: string | null; price?: number | null; currency?: string | null; created_at?: string | null; channels?: string[]; custom_fields?: Record<string, unknown> };
 /** One channel thread of a lead that absorbed others: the primary's own or a linked one. */
 export type LinkedThread = { conversation_id: string; channel: string; label: string | null; account_label: string | null; is_primary: boolean; mode: "ai" | "human"; last_inbound_at: string | null };
-export type Message = { id: string; role: "user" | "assistant" | "system"; kind?: "message" | "activity"; delivery_status?: "pending" | "sent" | "delivered" | "read" | "failed" | "unknown" | null; delivery_error?: string | null; activity?: { event: string; hours?: number | string; assignee?: string; from?: string; team?: string; target?: string; reason?: string; tag?: string; primary_number?: number; secondary_number?: number; primary?: MergeSide; secondary?: MergeSide } | null; conversation_id?: string; channel?: string; content: string; sources: Source[]; tool_calls?: ToolCallMeta[] | null; sender_type: "visitor" | "ai" | "human"; sender_name: string | null; reaction?: string | null; incoming_reaction?: string | null; quoted_message_id?: string | null; created_at: string; attachments?: Attachment[] };
+export type Message = { id: string; role: "user" | "assistant" | "system"; kind?: "message" | "activity" | "note"; delivery_status?: "pending" | "sent" | "delivered" | "read" | "failed" | "unknown" | null; delivery_error?: string | null; activity?: { event: string; hours?: number | string; assignee?: string; from?: string; team?: string; target?: string; reason?: string; tag?: string; primary_number?: number; secondary_number?: number; primary?: MergeSide; secondary?: MergeSide } | null; conversation_id?: string; channel?: string; content: string; sources: Source[]; tool_calls?: ToolCallMeta[] | null; sender_type: "visitor" | "ai" | "human"; sender_name: string | null; reaction?: string | null; incoming_reaction?: string | null; quoted_message_id?: string | null; created_at: string; attachments?: Attachment[] };
 
 export type ConversationInbox = {
   id: string;
@@ -252,6 +252,7 @@ export type Conversation = {
   external_chat_id: string | null;
   contact_name: string | null;
   contact_email?: string | null;
+  contact_phone?: string | null;
   contact_id?: string | null;
   created_at: string;
   updated_at: string;

@@ -600,6 +600,10 @@ class SendMessageRequest(BaseModel):
     via_conversation_id: uuid.UUID | None = None
 
 
+class CreateNoteRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=50000)
+
+
 class ReactionRequest(BaseModel):
     # Empty string removes the reaction.
     emoji: str = Field(default="", max_length=16)

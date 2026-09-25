@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Bot, Calendar as CalendarIcon, Copy, ExternalLink, FileText, GitBranch, Globe2, Inbox, KeyRound, LoaderCircle, Pencil, Radio, Save, Settings2, ShieldAlert, ShieldCheck, Stethoscope, Tag, Trash2, UserCheck, UserRound, Users, UserX } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, Calendar as CalendarIcon, Copy, ExternalLink, FileText, GitBranch, Globe2, Inbox, KeyRound, LoaderCircle, Lock, Pencil, Radio, Save, Settings2, ShieldAlert, ShieldCheck, Stethoscope, Tag, Trash2, UserCheck, UserRound, Users, UserX } from "lucide-react";
 import { Alert, EmptyState, Modal, StatusBadge } from "@/components/ui";
 import { SectionTabs } from "@/components/section-tabs";
 import { ApiIntegrations } from "@/components/api-integrations";
@@ -14,7 +14,9 @@ import { ProfessionalsView } from "@/components/professionals-view";
 import { GrowingTextarea } from "@/components/growing-textarea";
 import { LeadCard } from "@/components/lead-card/lead-card";
 import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
-import { ReplyChannelPicker } from "@/components/reply-channel-picker";
+import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
+import { VariablesPopover } from "@/components/variables-popover";
+import { formatTime } from "@/lib/datetime";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
@@ -25,7 +27,7 @@ import { TemplatesView } from "@/app/portal/[slug]/templates";
 import { FormSkeleton, ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
 import { PasswordInput } from "@/components/password-input";
-import { ChannelDots, channelLabel, leadChannels, MessageChannelMark } from "@/lib/channels";
+import { ChannelDots, channelLabel, isSocialChannel, leadChannels, MessageChannelMark } from "@/lib/channels";
 import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
 import { SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
 import { api, apiUrl, messageFrom } from "@/lib/api";
@@ -277,7 +279,7 @@ function PortalDomain({ clientId, domain, onChange }: { clientId: string; domain
 }
 
 function ClientInbox({ clientId, urlNumber }: { clientId: string; urlNumber?: number }) {
-  const t = useT();
+  const { t, lang } = useLanguage();
   const toast = useToast();
   const router = useRouter();
   const [items, setItems] = useState<Conversation[]>([]);
@@ -320,8 +322,184 @@ function ClientInbox({ clientId, urlNumber }: { clientId: string; urlNumber?: nu
     if (detail.number !== urlNumber) router.push(clientPath(clientId, "inbox", detail.number));
   }
   async function mode(next: "ai" | "human") { if (!selected) return; setSelected(await api<Conversation>(`/conversations/${selected.id}/mode`, { method: "PATCH", body: JSON.stringify({ mode: next }) })); await load(); }
-  async function reply(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!selected || !policy.canReply || busy) return; const form = event.currentTarget; const data = new FormData(form); setBusy(true); try { setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: data.get("content"), ...replyVia.payload }) })); form.reset(); await load(); } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); } }
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [composerMode, setComposerMode] = useState<ComposerMode>("chat");
+  const [variablesOpen, setVariablesOpen] = useState(false);
+  const [variablesQuery, setVariablesQuery] = useState("");
+  const [draft, setDraft] = useState("");
+
+  function insertTextAtCursor(text: string, replaceTriggerChar?: string) {
+    const field = composerRef.current;
+    if (!field) return;
+    const start = field.selectionStart ?? field.value.length;
+    const end = field.selectionEnd ?? start;
+    const full = field.value;
+    const before = full.slice(0, start);
+    const after = full.slice(end);
+
+    let newBefore = before;
+    const lastBracket = before.lastIndexOf("[");
+    if (lastBracket !== -1) {
+      const textBetween = before.slice(lastBracket + 1);
+      if (!textBetween.includes("]") && !textBetween.includes("\n")) {
+        newBefore = before.slice(0, lastBracket);
+      }
+    } else if (replaceTriggerChar && before.endsWith(replaceTriggerChar)) {
+      newBefore = before.slice(0, before.length - replaceTriggerChar.length);
+    }
+
+    const nextVal = newBefore + text + after;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+    if (setter) {
+      setter.call(field, nextVal);
+    } else {
+      field.value = nextVal;
+    }
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    setDraft(nextVal);
+    setVariablesQuery("");
+    setVariablesOpen(false);
+    const newPos = newBefore.length + text.length;
+    setTimeout(() => {
+      field.focus();
+      field.setSelectionRange(newPos, newPos);
+    }, 0);
+  }
+
+  async function sendNote(content: string) {
+    if (!selected || busy || !content.trim()) return;
+    setBusy(true);
+    try {
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/notes`, {
+        method: "POST",
+        body: JSON.stringify({ content: content.trim() }),
+      }));
+      if (composerRef.current) composerRef.current.value = "";
+      setDraft("");
+      setComposerMode("chat");
+      await load();
+    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); composerRef.current?.focus(); }
+  }
+
+  async function reply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected || busy) return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const content = (data.get("content") as string) || draft;
+    if (composerMode === "note") {
+      await sendNote(content);
+      return;
+    }
+    if (!policy.canReply) return;
+    setBusy(true);
+    try {
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: content.trim(), ...replyVia.payload }) }));
+      form.reset();
+      setDraft("");
+      await load();
+    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
+  }
   if (!loadedInbox) return <ListRowsSkeleton rows={5} />;
   if (!items.length) return <EmptyState icon={<Inbox />} title={t("clients.detail.inboxEmptyTitle")} description={t("clients.detail.inboxEmptyDescription")} />;
-  return <div ref={attachLead} className={`inbox-layout${leadOpen ? " has-lead" : ""}${leadOverlay ? " lead-overlay" : ""}`}><aside className="inbox-list"><header><strong>{t("clients.detail.conversations")}</strong><span>{items.length}</span></header>{items.map((item) => <button key={item.id} className={selected?.id === item.id ? "active" : ""} onClick={() => choose(item)}><span className="entity-avatar tiny"><UserRound size={15} /></span><span><strong>{item.title}</strong><small>#{item.number} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel, t)} · {item.mode === "human" ? t("clients.detail.modeHuman") : t("clients.detail.modeAi")}</small></span></button>)}</aside><section className="inbox-thread">{selected && <><header><LeadAvatarButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)} /><div><strong>{selected.title}</strong><small>#{selected.number} · {channelLabel(selected.channel, t)}</small></div><button className={`mode-toggle ${selected.mode}`} onClick={() => mode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("clients.detail.takeControl") : t("clients.detail.returnToAi")}</button></header><div className="inbox-messages">{selected.messages?.map((message) => isMergeActivity(message) ? <MergeAuditCard key={message.id} message={message} /> : <div key={message.id} className={`inbox-message ${message.role}`}><small>{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{message.sender_name || (message.role === "assistant" ? t("clients.detail.senderAgent") : t("clients.detail.senderVisitor"))}</small><p><RichText text={message.content} /></p></div>)}</div><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />{replyVia.multi && <ReplyChannelPicker threads={replyVia.threads} value={replyVia.via} onChange={replyVia.setVia} />}<form className="inbox-composer" onSubmit={reply}><GrowingTextarea name="content" placeholder={selected.mode === "human" ? t("clients.detail.composerHuman") : t("clients.detail.composerLocked")} disabled={!policy.canReply || busy} required /><button disabled={!policy.canReply || busy}>{t("clients.detail.send")}</button></form></>}{!selected && <div className="inline-empty"><Inbox size={22} /><div><strong>{t("clients.detail.selectConversation")}</strong></div></div>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { load().catch(() => {}); }} onMerged={(primary) => { void choose({ id: primary.conversation_id }).catch(() => {}); load().catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}</div>;
+  return <div ref={attachLead} className={`inbox-layout${leadOpen ? " has-lead" : ""}${leadOverlay ? " lead-overlay" : ""}`}><aside className="inbox-list"><header><strong>{t("clients.detail.conversations")}</strong><span>{items.length}</span></header>{items.map((item) => <button key={item.id} className={selected?.id === item.id ? "active" : ""} onClick={() => choose(item)}><span className="entity-avatar tiny"><UserRound size={15} /></span><span><strong>{item.title}</strong><small>#{item.number} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel, t)} · {item.mode === "human" ? t("clients.detail.modeHuman") : t("clients.detail.modeAi")}</small></span></button>)}</aside><section className="inbox-thread">{selected && <><header><LeadAvatarButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)} /><div><strong>{selected.title}</strong><small>#{selected.number} · {channelLabel(selected.channel, t)}</small></div><button className={`mode-toggle ${selected.mode}`} onClick={() => mode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("clients.detail.takeControl") : t("clients.detail.returnToAi")}</button></header><div className="inbox-messages">{selected.messages?.map((message) => {
+    if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
+    const stamp = formatTime(message.created_at, lang);
+    if (message.kind === "note") {
+      return (
+        <div key={message.id} className="internal-note-card">
+          <div className="internal-note-header">
+            <Lock size={12} />
+            <span>{message.sender_name || t("clients.detail.senderAgent")} · {t("inbox.internalNoteBadge")}</span>
+            <time>{stamp}</time>
+          </div>
+          <div className="internal-note-content">
+            <RichText text={message.content} />
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div key={message.id} className={`inbox-message ${message.role}`}>
+        <small>{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{message.sender_name || (message.role === "assistant" ? t("clients.detail.senderAgent") : t("clients.detail.senderVisitor"))}</small>
+        <p><RichText text={message.content} /></p>
+      </div>
+    );
+  })}</div><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
+  <div className={`composer-box${composerMode === "note" ? " note-mode" : ""}`} style={{ position: "relative", margin: "10px 16px 14px" }}>
+    <UnifiedComposerTop
+      mode={composerMode}
+      onModeChange={setComposerMode}
+      threads={replyVia.threads}
+      channel={replyVia.thread?.channel ?? selected.channel}
+      via={replyVia.via}
+      onViaChange={replyVia.setVia}
+      onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
+    />
+    <VariablesPopover
+      open={variablesOpen}
+      onClose={() => { setVariablesOpen(false); setVariablesQuery(""); }}
+      onSelect={(val) => insertTextAtCursor(val)}
+      query={variablesQuery}
+      contactValues={{
+        contact_name: selected.contact_name || selected.title,
+        contact_phone: selected.contact_phone || (isSocialChannel(selected.channel) ? "" : (selected.external_chat_id || "").split("@")[0]),
+        contact_email: selected.contact_email,
+      }}
+      leadNumber={selected.number}
+      dealValue={selected.deal_value}
+      channel={selected.channel}
+    />
+    <form className="inbox-composer" style={{ border: "none", padding: "8px 12px 10px", margin: 0 }} onSubmit={reply}>
+      <GrowingTextarea
+        ref={composerRef}
+        name="content"
+        placeholder={
+          composerMode === "note"
+            ? (t("inbox.composerNotePlaceholder") || "Escribe una nota interna para el equipo...")
+            : selected.mode === "human"
+            ? t("clients.detail.composerHuman")
+            : t("clients.detail.composerLocked")
+        }
+        disabled={composerMode === "note" ? busy : (!policy.canReply || busy)}
+        required={composerMode === "note" ? true : true}
+        onChange={(e) => {
+          const val = e.target.value;
+          setDraft(val);
+          const cursor = e.target.selectionStart ?? val.length;
+          const before = val.slice(0, cursor);
+          const lastBracket = before.lastIndexOf("[");
+          if (lastBracket !== -1) {
+            const textBetween = before.slice(lastBracket + 1);
+            if (!textBetween.includes("]") && !textBetween.includes("\n") && textBetween.length <= 30) {
+              setVariablesQuery(textBetween);
+              setVariablesOpen(true);
+              return;
+            }
+          }
+          if (variablesQuery) {
+            setVariablesQuery("");
+            setVariablesOpen(false);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "[" || e.code === "BracketLeft") {
+            setVariablesOpen(true);
+            setVariablesQuery("");
+          }
+          if (variablesOpen && e.key === "Escape") {
+            setVariablesOpen(false);
+            setVariablesQuery("");
+          }
+        }}
+      />
+      <button
+        className={composerMode === "note" ? (draft.trim() ? "button primary small" : "button small") : ""}
+        style={composerMode === "note" ? { backgroundColor: draft.trim() ? "#f59e0b" : undefined, borderColor: draft.trim() ? "#f59e0b" : undefined, color: draft.trim() ? "#fff" : undefined } : undefined}
+        disabled={composerMode === "note" ? (busy || !draft.trim()) : (!policy.canReply || busy)}
+      >
+        {composerMode === "note" ? (t("inbox.composerSaveNote") || "Guardar nota") : t("clients.detail.send")}
+      </button>
+    </form>
+  </div></>}{!selected && <div className="inline-empty"><Inbox size={22} /><div><strong>{t("clients.detail.selectConversation")}</strong></div></div>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { load().catch(() => {}); }} onMerged={(primary) => { void choose({ id: primary.conversation_id }).catch(() => {}); load().catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}</div>;
 }

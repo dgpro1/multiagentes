@@ -62,6 +62,7 @@ from ..schemas import (
     PortalSessionOut,
     PortalAvailabilityUpdate,
     ReactionRequest,
+    CreateNoteRequest,
     SendMessageRequest,
     ConversationTeamUpdate,
     ConversationPipelineUpdate,
@@ -2391,6 +2392,37 @@ async def portal_reply(
     cancel_phone_pause(conversation)
     note_reply(conversation)
     conversation.updated_at = now_utc()
+    db.commit()
+    return _present(_detail(db, client, conversation_id))
+
+
+@router.post("/{slug}/conversations/{conversation_id}/notes", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
+async def portal_add_note(
+    slug: str,
+    conversation_id: uuid.UUID,
+    payload: CreateNoteRequest,
+    client: Client = Depends(_portal_client),
+    user: PortalUser | None = Depends(_portal_user),
+    sender_name: str = Depends(_sender_name),
+    db: Session = Depends(get_db),
+):
+    """Add an internal note to the lead from the portal. Notes are visible only to
+    client and agency staff, never sent to visitors, and excluded from AI context and metrics."""
+    lead = _detail(db, client, conversation_id, act=True)
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="Note content cannot be empty.")
+    message = Message(
+        conversation_id=lead.id,
+        role="assistant",
+        kind="note",
+        content=content,
+        sender_type="human",
+        sender_name=sender_name,
+        portal_user_id=user.id if user else None,
+    )
+    db.add(message)
+    lead.updated_at = now_utc()
     db.commit()
     return _present(_detail(db, client, conversation_id))
 

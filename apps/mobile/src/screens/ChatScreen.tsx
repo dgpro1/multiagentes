@@ -275,7 +275,16 @@ export function ChatScreen({ server, session, conversation, onBack, onConversati
         const delivery = deliveryPresentation(item.delivery_status);
         return <View>
           {newDay ? <View style={styles.dayRow}><Text style={[styles.day, { color: colors.muted, backgroundColor: colors.surface }]}>{dayLabel(item.created_at, s)}</Text></View> : null}
-          {item.kind === "activity" ? <View style={styles.activity}><Text style={{ color: colors.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>{activityLabel(item, c)} · {timeLabel(item.created_at)}</Text></View> : <View style={[styles.bubbleRow, { justifyContent: outgoing ? "flex-end" : "flex-start" }]}>
+          {item.kind === "activity" ? <View style={styles.activity}><Text style={{ color: colors.muted, fontSize: 12, lineHeight: 18, textAlign: "center" }}>{activityLabel(item, c)} · {timeLabel(item.created_at)}</Text></View> : item.kind === "note" ? <View style={{ alignItems: "center", marginVertical: 6, paddingHorizontal: 16 }}>
+            <View style={{ backgroundColor: isDark ? "#2d2412" : "#fef9c3", borderColor: isDark ? "#854d0e" : "#fde047", borderWidth: 1, borderRadius: 12, padding: 10, width: "100%", maxWidth: 420 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 4 }}>
+                <Ionicons name="lock-closed" size={12} color={isDark ? "#fde047" : "#854d0e"} />
+                <Text style={{ color: isDark ? "#fde047" : "#854d0e", fontSize: 11, fontWeight: "700" }}>{item.sender_name || (outgoing ? c.agent : who)} · Nota interna</Text>
+                <Text style={{ color: isDark ? "#ca8a04" : "#a16207", fontSize: 10, marginLeft: "auto" }}>{timeLabel(item.created_at)}</Text>
+              </View>
+              <Text style={{ color: isDark ? "#fef08a" : "#713f12", fontSize: 13, lineHeight: 18 }}>{item.content}</Text>
+            </View>
+          </View> : <View style={[styles.bubbleRow, { justifyContent: outgoing ? "flex-end" : "flex-start" }]}>
             <Pressable accessible={false} onLongPress={actionable && !busy ? () => setMessageAction(item) : undefined} style={[styles.bubble, { backgroundColor: bubbleColor, borderBottomRightRadius: outgoing ? 5 : 18, borderBottomLeftRadius: outgoing ? 18 : 5 }]}>
               <View style={styles.senderRow}><Text style={{ color: textColor, fontSize: 11, fontWeight: "700", opacity: .8, flex: 1 }}>{item.sender_name || (outgoing ? c.agent : who)}{ai ? ` · ${c.ai}` : ""}</Text>{actionable ? <Pressable onPress={() => setMessageAction(item)} disabled={busy} accessibilityRole="button" accessibilityLabel={c.actions} hitSlop={9}><Ionicons name="ellipsis-horizontal" size={17} color={textColor} /></Pressable> : null}</View>
               {item.quoted_message_id ? <View style={[styles.quoted, { borderLeftColor: textColor, backgroundColor: "rgba(127,127,127,.12)" }]}><Text numberOfLines={1} style={{ color: textColor, fontSize: 11, fontWeight: "700" }}>{quoted?.sender_name || (quoted?.role === "assistant" ? c.agent : who)}</Text><Text numberOfLines={3} style={{ color: textColor, fontSize: 12, marginTop: 3 }}>{quoted?.content || (quoted?.attachments?.length ? s.attachment.generic : c.unavailableQuote)}</Text></View> : null}
