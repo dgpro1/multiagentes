@@ -33,6 +33,7 @@ from .routers import (    agency,
     professionals,
     providers,
     reports,
+    services,
     whatsapp,
     whatsapp_cloud,
     whatsapp_evolution,
@@ -191,6 +192,7 @@ app.include_router(domains.public_router, prefix="/api")
 app.include_router(social.router, prefix="/api")
 app.include_router(calendar.router, prefix="/api")
 app.include_router(professionals.router, prefix="/api")
+app.include_router(services.router, prefix="/api")
 app.include_router(lead_card.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")
 app.include_router(social_webhook.public_router, prefix="/api")

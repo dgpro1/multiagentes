@@ -58,6 +58,10 @@ CLIENT_MANAGE = "client.manage"
 # takes effect where the agency switched the ``professionals`` portal function
 # on. Listing them is free for anyone signed in to such a portal.
 PROFESSIONALS_MANAGE = "professionals.manage"
+# Add, edit and delete the client's services catalog. Only takes effect where
+# the agency switched the ``services`` portal function on. Listing them is free
+# for anyone signed in to such a portal.
+SERVICES_MANAGE = "services.manage"
 # Create, rename, reorder and delete the custom fields of the lead card. Only
 # takes effect where the agency switched the ``inbox`` portal function on.
 # Listing the fields and filling their values on a lead is free for anyone with
@@ -71,6 +75,7 @@ PERMISSION_FEATURES: dict[str, str] = {
     API_MANAGE: "api",
     CLIENT_MANAGE: "details",
     PROFESSIONALS_MANAGE: "professionals",
+    SERVICES_MANAGE: "services",
     FIELDS_MANAGE: "inbox",
 }
 
@@ -89,6 +94,7 @@ PERMISSIONS: tuple[str, ...] = (
     API_MANAGE,
     CLIENT_MANAGE,
     PROFESSIONALS_MANAGE,
+    SERVICES_MANAGE,
     FIELDS_MANAGE,
 )
 

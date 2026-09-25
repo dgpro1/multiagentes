@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, field_validator, model_validator
 
 from .portal_features import normalize as normalize_features
+from .schemas_professionals import check_weekly_hours
 
 from .services.client_details import CURRENCIES
 from .services.model_catalog import DEFAULT_AUDIO_MODEL, DEFAULT_EMBEDDING_MODEL
@@ -107,6 +108,9 @@ class ClientUpdate(BaseModel):
     # The business's responsible person or director; null or blank clears it.
     owner_name: str | None = Field(default=None, max_length=120)
     currency: str | None = Field(default=None, max_length=3)
+    address: str | None = None
+    google_maps_url: str | None = Field(default=None, max_length=500)
+    business_hours: dict[str, list[list[str]]] | None = None
 
     @field_validator("timezone")
     @classmethod
@@ -122,6 +126,11 @@ class ClientUpdate(BaseModel):
     @classmethod
     def _known_currency(cls, value: str | None) -> str:
         return check_currency(value)
+
+    @field_validator("business_hours")
+    @classmethod
+    def _hours(cls, value: dict | None) -> dict | None:
+        return None if value is None else check_weekly_hours(value)
 
 
 class ClientDetailsUpdate(BaseModel):
@@ -136,6 +145,9 @@ class ClientDetailsUpdate(BaseModel):
     timezone: str | None = Field(default=None, max_length=64)
     owner_name: str | None = Field(default=None, max_length=120)
     currency: str | None = Field(default=None, max_length=3)
+    address: str | None = None
+    google_maps_url: str | None = Field(default=None, max_length=500)
+    business_hours: dict[str, list[list[str]]] | None = None
 
     @field_validator("timezone")
     @classmethod
@@ -152,6 +164,11 @@ class ClientDetailsUpdate(BaseModel):
     def _known_currency(cls, value: str | None) -> str:
         return check_currency(value)
 
+    @field_validator("business_hours")
+    @classmethod
+    def _hours(cls, value: dict | None) -> dict | None:
+        return None if value is None else check_weekly_hours(value)
+
 
 class ClientDetailsOut(BaseModel):
     name: str
@@ -161,6 +178,9 @@ class ClientDetailsOut(BaseModel):
     timezone: str
     owner_name: str | None = None
     currency: str = "USD"
+    address: str | None = None
+    google_maps_url: str | None = None
+    business_hours: dict[str, list[list[str]]] | None = None
     logo_url: str | None = None
 
 
@@ -188,6 +208,9 @@ class ClientOut(ORMModel):
     timezone: str
     owner_name: str | None = None
     currency: str = "USD"
+    address: str | None = None
+    google_maps_url: str | None = None
+    business_hours: dict[str, list[list[str]]] | None = None
     is_active: bool
     portal_slug: str
     portal_enabled: bool

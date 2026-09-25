@@ -2,7 +2,7 @@
 
 import { FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ImagePlus, LoaderCircle, Save, Trash2 } from "lucide-react";
+import { Copy, ImagePlus, LoaderCircle, Plus, Save, Trash2, X } from "lucide-react";
 import { Alert, Modal } from "@/components/ui";
 import { IndustryPicker, isBusinessComplete, type IndustryValue } from "@/components/industry-picker";
 import { AiHint } from "@/components/ai-hint";
@@ -12,7 +12,8 @@ import { TIMEZONES } from "@/lib/timezones";
 import { CURRENCIES } from "@/lib/currencies";
 import { api, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import type { PortalClientDetails } from "@/types";
+import { DAYS, WEEKDAYS, MAX_RANGES, DEFAULT_RANGE, emptyHours, cloneRanges, cloneHours, scheduleError } from "@/lib/schedule";
+import type { PortalClientDetails, TimeRange, WeekDay, WeeklyHours } from "@/types";
 
 type DeletionPreview = { agents: number; channels: number; conversations: number; contacts: number; portal_users: number };
 
@@ -43,11 +44,18 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
   const [business, setBusiness] = useState<IndustryValue>({ industry: client.industry, businessType: client.business_type, custom: client.business_custom });
   const [timezone, setTimezone] = useState(client.timezone || "UTC");
   const [currency, setCurrency] = useState(client.currency || "USD");
+  const [address, setAddress] = useState(client.address ?? "");
+  const [googleMapsUrl, setGoogleMapsUrl] = useState(client.google_maps_url ?? "");
+  const [businessHours, setBusinessHours] = useState<WeeklyHours>(() => cloneHours(client.business_hours));
   const [busy, setBusy] = useState(false);
   const [logoVersion, setLogoVersion] = useState(0);
   const logoRef = useRef<HTMLInputElement>(null);
   const active = client.is_active ?? true;
   const name = client.name;
+
+  const setDayHours = (day: WeekDay, ranges: TimeRange[]) => {
+    setBusinessHours((current) => ({ ...current, [day]: ranges }));
+  };
 
   async function uploadLogo(file?: File) {
     if (!file) return;
@@ -67,8 +75,32 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
 
   async function saveDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true);
+    const problem = scheduleError(businessHours, t);
+    if (problem) {
+      toast.error(problem);
+      setBusy(false);
+      return;
+    }
+    const weekly_hours: WeeklyHours = emptyHours();
+    let hasAnyHours = false;
+    for (const day of DAYS) {
+      const sorted = [...(businessHours[day] ?? [])].sort((a, b) => a[0].localeCompare(b[0]));
+      weekly_hours[day] = sorted;
+      if (sorted.length > 0) hasAnyHours = true;
+    }
     const data = new FormData(event.currentTarget);
-    const body: Record<string, unknown> = { name: data.get("name"), industry: business.industry, business_type: business.businessType, business_custom: business.custom, timezone, owner_name: String(data.get("owner_name") ?? "").trim() || null, currency };
+    const body: Record<string, unknown> = {
+      name: data.get("name"),
+      industry: business.industry,
+      business_type: business.businessType,
+      business_custom: business.custom,
+      timezone,
+      owner_name: String(data.get("owner_name") ?? "").trim() || null,
+      currency,
+      address: address.trim() || null,
+      google_maps_url: googleMapsUrl.trim() || null,
+      business_hours: hasAnyHours ? weekly_hours : null,
+    };
     if (agency) body.is_active = data.get("is_active") === "on";
     try { onChange(await api<T>(apiBase, { method: "PATCH", body: JSON.stringify(body) })); toast.success(t("clients.detail.detailsSaved")); }
     catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
@@ -92,6 +124,7 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
   }
 
   const logoSrc = client.logo_url ? `${client.logo_url}${client.logo_url.includes("?") ? "&" : "?"}r=${logoVersion}` : null;
+  const firstActiveDay = DAYS.find((day) => (businessHours[day] ?? []).length > 0);
 
   return <>
     <form className="page-form" onSubmit={saveDetails}>
@@ -116,6 +149,40 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
           <label>{t("clients.detail.currencyLabel")}<select name="currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>{(CURRENCIES as readonly string[]).includes(currency) ? null : <option value={currency}>{currency}</option>}{CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}</select><span className="field-help">{t("clients.detail.currencyHint")}</span></label>
           <label>{t("clients.detail.timezoneLabel")}<Combobox value={timezone} onChange={setTimezone} options={TIMEZONES} placeholder={t("clients.detail.timezoneLabel")} /><span className="field-help">{t("clients.detail.timezoneHint")}</span></label>
           {agency && <label className="switch-row"><span><strong>{t("clients.detail.activeClient")}</strong><small>{t("clients.detail.activeClientHint")}</small></span><input name="is_active" type="checkbox" defaultChecked={active} /></label>}
+        </div>
+      </section>
+
+      <section className="form-section">
+        <div className="section-copy"><h2>{t("clients.detail.locationSection")}</h2><p>{t("clients.detail.locationSectionCopy")}</p></div>
+        <div className="form-fields">
+          <label>{t("clients.detail.addressLabel")}<input name="address" maxLength={255} value={address} onChange={(e) => setAddress(e.target.value)} placeholder={t("clients.detail.addressPlaceholder")} /></label>
+          <label>{t("clients.detail.googleMapsLabel")}<input name="google_maps_url" type="url" maxLength={500} value={googleMapsUrl} onChange={(e) => setGoogleMapsUrl(e.target.value)} placeholder={t("clients.detail.googleMapsPlaceholder")} /><span className="field-help">{t("clients.detail.googleMapsHint")}</span></label>
+          <div className="professionals-field">
+            <span className="professionals-label">{t("clients.detail.businessHoursLabel")}</span>
+            <small className="field-help">{t("clients.detail.businessHoursHint")}{timezone ? ` ${t("professionals.timezoneNote", { timezone })}` : ""}</small>
+            <div className="professionals-schedule">
+              {DAYS.map((day) => {
+                const ranges = businessHours[day] ?? [];
+                const dayName = t(`professionals.daysLong.${day}`);
+                return <div key={day} className="professionals-day">
+                  <label className="professionals-day-name"><input type="checkbox" checked={ranges.length > 0} aria-label={t("professionals.form.dayToggle", { day: dayName })} onChange={(e) => setDayHours(day, e.target.checked ? [[...DEFAULT_RANGE]] : [])} />{t(`professionals.daysShort.${day}`)}</label>
+                  <div className="professionals-ranges">
+                    {ranges.length === 0 && <span className="muted">{t("professionals.form.dayOff")}</span>}
+                    {ranges.map((range, index) => <div key={index} className="professionals-range">
+                      <input type="time" required value={range[0]} aria-label={t("professionals.form.rangeStart", { day: dayName })} onChange={(e) => setDayHours(day, ranges.map((item, at) => (at === index ? [e.target.value, item[1]] : item)))} />
+                      <span aria-hidden="true">–</span>
+                      <input type="time" required value={range[1]} aria-label={t("professionals.form.rangeEnd", { day: dayName })} onChange={(e) => setDayHours(day, ranges.map((item, at) => (at === index ? [item[0], e.target.value] : item)))} />
+                      <button type="button" className="icon-button" onClick={() => setDayHours(day, ranges.filter((_, at) => at !== index))} title={t("professionals.form.removeRange")} aria-label={t("professionals.form.removeRange")}><X size={14} /></button>
+                    </div>)}
+                  </div>
+                  <div className="professionals-day-actions">
+                    {ranges.length > 0 && ranges.length < MAX_RANGES && <button type="button" className="icon-button" onClick={() => setDayHours(day, [...ranges, ["14:00", "18:00"]])} title={t("professionals.form.addRange")} aria-label={t("professionals.form.addRange")}><Plus size={14} /></button>}
+                    {day === firstActiveDay && <button type="button" className="icon-button" onClick={() => setBusinessHours((current) => { const hours = cloneHours(current); for (const weekday of WEEKDAYS) hours[weekday] = cloneRanges(current[day] ?? []); return hours; })} title={t("professionals.form.copyToWeekdaysTitle")} aria-label={t("professionals.form.copyToWeekdays")}><Copy size={14} /></button>}
+                  </div>
+                </div>;
+              })}
+            </div>
+          </div>
         </div>
       </section>
       <div className={agency ? "form-footer split" : "form-footer"}>

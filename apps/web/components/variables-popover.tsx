@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Search, Tag, User, Phone, Mail, Hash, Bot, Radio } from "lucide-react";
-import { useT } from "@/lib/i18n";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Hash, Mail, Phone, Tag, User } from "lucide-react";
 import type { ContactValues } from "@/lib/contact-variables";
 
 export type VariableItem = {
@@ -37,9 +36,7 @@ export function VariablesPopover({
   contactValues,
   leadNumber,
   dealValue,
-  channel,
 }: VariablesPopoverProps) {
-  const t = useT();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -74,7 +71,7 @@ export function VariablesPopover({
       label: "Compañía",
       category: "Contacto",
       icon: User,
-      value: contactValues && "company" in contactValues ? (contactValues as any).company || undefined : undefined,
+      value: contactValues && "company" in contactValues ? (contactValues as Record<string, string | null | undefined>).company || undefined : undefined,
     },
     {
       key: "lead_name",

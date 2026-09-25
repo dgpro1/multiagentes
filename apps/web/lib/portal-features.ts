@@ -24,6 +24,7 @@ export const PORTAL_FEATURES = [
   { key: "channels.webchat", default: false },
   { key: "details", default: false },
   { key: "professionals", default: false },
+  { key: "services", default: false },
 ] as const;
 
 export type PortalFeature = (typeof PORTAL_FEATURES)[number]["key"];
@@ -55,6 +56,7 @@ export const FEATURES_BY_CLIENT_TAB: Record<string, readonly PortalFeature[]> = 
   api: ["api"],
   details: ["details"],
   professionals: ["professionals"],
+  services: ["services"],
   portal: PORTAL_FEATURES.map((entry) => entry.key),
 };
 

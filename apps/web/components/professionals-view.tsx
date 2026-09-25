@@ -5,59 +5,21 @@ import { Copy, LoaderCircle, Pencil, Plus, Stethoscope, Trash2, X } from "lucide
 import { Alert, EmptyState, Modal } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
-import { useT, type TranslateFn } from "@/lib/i18n";
+import { useT } from "@/lib/i18n";
 import type { Professional, TimeRange, WeekDay, WeeklyHours } from "@/types";
 
-const DAYS: readonly WeekDay[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-const WEEKDAYS: readonly WeekDay[] = ["mon", "tue", "wed", "thu", "fri"];
-const MAX_RANGES = 4;
+import { DAYS, WEEKDAYS, MAX_RANGES, DEFAULT_RANGE, emptyHours, cloneRanges, cloneHours, scheduleError, summarizeHours } from "@/lib/schedule";
+
 const SLOT_OPTIONS = [10, 15, 20, 30, 45, 60, 90, 120] as const;
 const DEFAULT_SLOT = 30;
-const DEFAULT_RANGE: TimeRange = ["09:00", "17:00"];
 const PALETTE = ["#2563eb", "#7c3aed", "#db2777", "#dc2626", "#ea580c", "#ca8a04", "#16a34a", "#0d9488", "#0891b2", "#475569"] as const;
 
 type Draft = { name: string; role: string; color: string; isActive: boolean; slotMinutes: number; hours: WeeklyHours };
-
-const emptyHours = (): WeeklyHours => ({ mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] });
-const cloneRanges = (ranges: TimeRange[]): TimeRange[] => ranges.map(([start, end]) => [start, end]);
-const cloneHours = (hours: WeeklyHours): WeeklyHours => {
-  const copy = emptyHours();
-  for (const day of DAYS) copy[day] = cloneRanges(hours[day] ?? []);
-  return copy;
-};
 
 /** The palette color not yet taken by another professional, or the next one in turn. */
 function nextColor(existing: Professional[]): string {
   const used = new Set(existing.map((item) => item.color.toLowerCase()));
   return PALETTE.find((color) => !used.has(color)) ?? PALETTE[existing.length % PALETTE.length];
-}
-
-/** "Mon–Fri 09:00–13:00, 14:00–18:00 · Sat 09:00–12:00": consecutive days with the same hours are grouped. */
-function summarize(hours: WeeklyHours, t: TranslateFn): string {
-  const groups: { from: WeekDay; to: WeekDay; ranges: string }[] = [];
-  for (const day of DAYS) {
-    const ranges = (hours[day] ?? []).map(([start, end]) => `${start}–${end}`).join(", ");
-    if (!ranges) continue;
-    const last = groups[groups.length - 1];
-    if (last && last.ranges === ranges && DAYS.indexOf(last.to) === DAYS.indexOf(day) - 1) last.to = day;
-    else groups.push({ from: day, to: day, ranges });
-  }
-  if (!groups.length) return t("professionals.noHours");
-  const label = (from: WeekDay, to: WeekDay) => (from === to ? t(`professionals.daysShort.${from}`) : `${t(`professionals.daysShort.${from}`)}–${t(`professionals.daysShort.${to}`)}`);
-  return groups.map((group) => `${label(group.from, group.to)} ${group.ranges}`).join(" · ");
-}
-
-/** The first rule a schedule breaks, worded for the person, or null when it is valid. Mirrors the server's checks. */
-function scheduleError(hours: WeeklyHours, t: TranslateFn): string | null {
-  for (const day of DAYS) {
-    const dayName = t(`professionals.daysLong.${day}`);
-    const ranges = hours[day];
-    if (ranges.some(([start, end]) => !start || !end)) return t("professionals.errors.incomplete", { day: dayName });
-    if (ranges.some(([start, end]) => start >= end)) return t("professionals.errors.endBeforeStart", { day: dayName });
-    const sorted = [...ranges].sort((a, b) => a[0].localeCompare(b[0]));
-    if (sorted.some((range, index) => index > 0 && range[0] < sorted[index - 1][1])) return t("professionals.errors.overlap", { day: dayName });
-  }
-  return null;
 }
 
 /** A client's professionals with their weekly hours. `apiBase` is the API prefix the rows live under: the portal's
@@ -140,7 +102,7 @@ export function ProfessionalsView({ apiBase, canManage, timezone }: { apiBase: s
             <div className="professionals-info">
               <strong>{pro.name}<span className={`mini-badge ${pro.is_active ? "human" : "resolved"}`}>{pro.is_active ? t("professionals.active") : t("professionals.inactive")}</span></strong>
               {pro.role && <small>{pro.role}</small>}
-              <span className="professionals-hours">{summarize(pro.weekly_hours, t)}</span>
+              <span className="professionals-hours">{summarizeHours(pro.weekly_hours, t)}</span>
               <small>{t("professionals.slotSummary", { minutes: pro.slot_minutes })}</small>
             </div>
             {canManage && <div className="professionals-actions">

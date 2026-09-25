@@ -17,6 +17,7 @@ import { calendar } from "./dicts/calendar";
 import { oauth } from "./dicts/oauth";
 import { pipeline } from "./dicts/pipeline";
 import { professionals } from "./dicts/professionals";
+import { services } from "./dicts/services";
 import { lead } from "./dicts/lead";
 
 export const en = {
@@ -36,6 +37,7 @@ export const en = {
   oauth: oauth.en,
   pipeline: pipeline.en,
   professionals: professionals.en,
+  services: services.en,
   lead: lead.en,
 };
 

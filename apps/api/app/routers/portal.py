@@ -16,7 +16,7 @@ from ..database import get_db, new_session
 from ..industries import catalog as industry_catalog
 from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
 from ..portal_features import enabled_keys, ensure_enabled
-from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, FIELDS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
+from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, FIELDS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, SERVICES_MANAGE, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
 from ..ratelimit import login_rate_limit, public_asset_rate_limit
 from ..schemas import (
     ClientDetailsOut,
@@ -88,10 +88,12 @@ from ..schemas_lead_card import (
     LeadUpdate,
 )
 from ..schemas_professionals import ProfessionalCreate, ProfessionalOut, ProfessionalUpdate
+from ..schemas_services import ServiceCreate, ServiceOut, ServiceUpdate
 from ..schemas_calendar import CalendarEventsOut, CalendarMemberCreate, CalendarMemberOut, CalendarMemberUpdate, CalendarOverviewOut
 from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
 from ..services import professionals as professionals_service
+from ..services import services_catalog
 from ..services.client_details import apply_details, clear_logo, store_logo
 from ..services import channel_accounts
 from ..services import lead_card as lead_card_service
@@ -473,6 +475,9 @@ def _details_out(slug: str, client: Client) -> dict:
         "timezone": client.timezone,
         "owner_name": client.owner_name,
         "currency": client.currency or "USD",
+        "address": client.address,
+        "google_maps_url": client.google_maps_url,
+        "business_hours": client.business_hours or {},
         "logo_url": f"/api/portal/{slug}/client-logo?v={int(client.updated_at.timestamp())}" if client.logo_mime else None,
     }
 
@@ -551,6 +556,43 @@ def portal_delete_professional(
     slug: str, professional_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
 ):
     professionals_service.delete_professional(db, client, professional_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{slug}/services", response_model=list[ServiceOut], dependencies=[Depends(require_feature("services"))])
+def portal_services(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return services_catalog.list_services(db, client)
+
+
+@router.post(
+    "/{slug}/services", response_model=ServiceOut, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_feature("services")), Depends(require_permission(SERVICES_MANAGE))],
+)
+def portal_create_service(
+    slug: str, payload: ServiceCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    return services_catalog.create_service(db, client, payload)
+
+
+@router.patch(
+    "/{slug}/services/{service_id}", response_model=ServiceOut,
+    dependencies=[Depends(require_feature("services")), Depends(require_permission(SERVICES_MANAGE))],
+)
+def portal_update_service(
+    slug: str, service_id: uuid.UUID, payload: ServiceUpdate,
+    client: Client = Depends(_portal_client), db: Session = Depends(get_db),
+):
+    return services_catalog.update_service(db, client, service_id, payload)
+
+
+@router.delete(
+    "/{slug}/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_feature("services")), Depends(require_permission(SERVICES_MANAGE))],
+)
+def portal_delete_service(
+    slug: str, service_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    services_catalog.delete_service(db, client, service_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

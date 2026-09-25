@@ -106,6 +106,11 @@ class Client(Base):
     owner_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     # ISO 4217 code the deal values of this client's pipeline are in.
     currency: Mapped[str] = mapped_column(String(3), default="USD", server_default="USD")
+    # Physical business location and Google Maps link.
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    google_maps_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Business operating hours (weekday to ["HH:MM", "HH:MM"] ranges map).
+    business_hours: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
@@ -132,6 +137,9 @@ class Client(Base):
     )
     professionals: Mapped[list["Professional"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", order_by="Professional.created_at"
+    )
+    services: Mapped[list["Service"]] = relationship(
+        back_populates="client", cascade="all, delete-orphan", order_by="Service.position, Service.created_at"
     )
     lead_fields: Mapped[list["LeadField"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", order_by="LeadField.position, LeadField.created_at"
@@ -1218,6 +1226,35 @@ class Professional(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
     client: Mapped[Client] = relationship(back_populates="professionals")
+
+
+class Service(Base):
+    """A product or service the client's business offers.
+
+    Includes its price, duration, modality (presencial/online/a_domicilio),
+    requirements, deposit rules, and active state.
+    """
+
+    __tablename__ = "services"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(180))
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    price: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    currency: Mapped[str] = mapped_column(String(3), default="USD", server_default="USD")
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
+    modality: Mapped[str] = mapped_column(String(32), default="presencial", server_default="presencial")
+    requires_deposit: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    deposit_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    requirements: Mapped[str] = mapped_column(Text, default="", server_default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+    client: Mapped[Client] = relationship(back_populates="services")
 
 
 class LeadField(Base):

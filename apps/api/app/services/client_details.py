@@ -21,7 +21,7 @@ ALLOWED_LOGO_TYPES = {"image/png", "image/jpeg", "image/webp", "image/svg+xml"}
 CURRENCIES = ("USD", "EUR", "MXN", "COP", "CLP", "ARS", "PEN", "BRL", "UYU", "BOB", "PYG", "DOP", "CRC", "GTQ", "PAB")
 
 # Columns that may be cleared with an explicit null; every other one must hold a value.
-NULLABLE_DETAILS = frozenset({"owner_name"})
+NULLABLE_DETAILS = frozenset({"owner_name", "address", "google_maps_url", "business_hours"})
 
 
 def check_industry(industry: str, business_type: str) -> None:

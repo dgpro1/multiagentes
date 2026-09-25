@@ -70,7 +70,7 @@ def find_python(explicit):
 
 def find_bash():
     """Git for Windows bash if present: the bash.exe in System32 or WindowsApps is the WSL launcher."""
-    for path in (r"C:\Program Files\Git\usr\bin\bash.exe", r"C:\Program Files\Git\bin\bash.exe"):
+    for path in (r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe"):
         if Path(path).exists():
             return path
     found = shutil.which("bash")

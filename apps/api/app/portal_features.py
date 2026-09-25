@@ -41,6 +41,7 @@ CATALOG: tuple[tuple[str, bool], ...] = (
     ("channels.webchat", False),
     ("details", False),
     ("professionals", False),
+    ("services", False),
 )
 
 KEYS: tuple[str, ...] = tuple(key for key, _ in CATALOG)

@@ -22,7 +22,7 @@ NO_FEATURE = {"detail": "This feature is not enabled for this portal"}
 ALWAYS_ON_TODAY = ["inbox", "contacts", "pipeline", "calendar", "reports", "teams", "tags", "templates", "canned"]
 NOT_BUILT_YET = [
     "agents", "api", "channels.whatsapp", "channels.whatsapp_cloud", "channels.instagram", "channels.messenger",
-    "channels.webchat", "details", "professionals",
+    "channels.webchat", "details", "professionals", "services",
 ]
 ZERO = "00000000-0000-0000-0000-000000000000"
 
@@ -351,6 +351,10 @@ GATED = [
     ("POST", "/professionals", ["professionals"]),
     ("PATCH", "/professionals/{id}", ["professionals"]),
     ("DELETE", "/professionals/{id}", ["professionals"]),
+    ("GET", "/services", ["services"]),
+    ("POST", "/services", ["services"]),
+    ("PATCH", "/services/{id}", ["services"]),
+    ("DELETE", "/services/{id}", ["services"]),
     ("POST", "/teams", ["teams"]),
     ("PATCH", "/teams/{id}", ["teams"]),
     ("DELETE", "/teams/{id}", ["teams"]),

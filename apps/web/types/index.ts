@@ -34,6 +34,9 @@ export type Client = {
   owner_name: string | null;
   /** ISO 4217 code the client's deal values are written in. */
   currency: string;
+  address: string | null;
+  google_maps_url: string | null;
+  business_hours: WeeklyHours | null;
   agents: AgentSummary[];
   created_at: string;
   updated_at: string;
@@ -697,6 +700,30 @@ export type PortalClientDetails = {
   logo_url: string | null;
   owner_name: string | null;
   currency: string;
+  address: string | null;
+  google_maps_url: string | null;
+  business_hours: WeeklyHours | null;
+};
+
+export type ServiceModality = "presencial" | "online" | "a_domicilio";
+
+/** A service or product a business offers. */
+export type Service = {
+  id: string;
+  client_id: string;
+  name: string;
+  description: string;
+  price: number;
+  currency: string;
+  duration_minutes: number;
+  modality: ServiceModality;
+  requires_deposit: boolean;
+  deposit_amount: number | null;
+  requirements: string;
+  is_active: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
 };
 
 export type WeekDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";

@@ -18,10 +18,10 @@
 // A client's own domain serves the portal from the root (proxy.ts rewrites it to
 // /portal/{slug}), so the portal prefix is worked out from where the page is.
 
-export const PORTAL_VIEWS = ["inbox", "contacts", "calendar", "pipeline", "reports", "agents", "channels", "api", "details", "professionals", "settings"] as const;
+export const PORTAL_VIEWS = ["inbox", "contacts", "calendar", "pipeline", "reports", "agents", "channels", "api", "details", "professionals", "services", "settings"] as const;
 export type PortalView = (typeof PORTAL_VIEWS)[number];
 
-export const CLIENT_TABS = ["details", "agents", "channels", "inbox", "teams", "professionals", "tags", "templates", "calendar", "pipeline", "api", "portal"] as const;
+export const CLIENT_TABS = ["details", "agents", "channels", "inbox", "teams", "professionals", "services", "tags", "templates", "calendar", "pipeline", "api", "portal"] as const;
 export type ClientTab = (typeof CLIENT_TABS)[number];
 
 // In the order the channel cards are shown.

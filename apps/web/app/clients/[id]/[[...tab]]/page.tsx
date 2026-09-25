@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Bot, Calendar as CalendarIcon, Copy, ExternalLink, FileText, GitBranch, Globe2, Inbox, KeyRound, LoaderCircle, Lock, Pencil, Radio, Save, Settings2, ShieldAlert, ShieldCheck, Stethoscope, Tag, Trash2, UserCheck, UserRound, Users, UserX } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, Briefcase, Calendar as CalendarIcon, Copy, ExternalLink, FileText, GitBranch, Globe2, Inbox, KeyRound, LoaderCircle, Lock, Pencil, Radio, Save, Settings2, ShieldAlert, ShieldCheck, Stethoscope, Tag, Trash2, UserCheck, UserRound, Users, UserX } from "lucide-react";
 import { Alert, EmptyState, Modal, StatusBadge } from "@/components/ui";
 import { SectionTabs } from "@/components/section-tabs";
 import { ApiIntegrations } from "@/components/api-integrations";
@@ -11,6 +11,7 @@ import { CalendarView } from "@/components/calendar-view";
 import { PipelineBoard } from "@/components/pipeline-board";
 import { ClientDetails } from "@/components/client-details";
 import { ProfessionalsView } from "@/components/professionals-view";
+import { ServicesView } from "@/components/services-view";
 import { GrowingTextarea } from "@/components/growing-textarea";
 import { LeadCard } from "@/components/lead-card/lead-card";
 import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
@@ -98,6 +99,7 @@ export default function ClientDetailPage() {
       { id: "inbox", label: t("clients.detail.tabInbox"), icon: Inbox, href: clientPath(client.id, "inbox") },
       { id: "teams", label: t("clients.detail.tabTeams"), icon: Users, href: clientPath(client.id, "teams") },
       { id: "professionals", label: t("clients.detail.tabProfessionals"), icon: Stethoscope, href: clientPath(client.id, "professionals") },
+      { id: "services", label: t("clients.detail.tabServices"), icon: Briefcase, href: clientPath(client.id, "services") },
       { id: "tags", label: t("clients.detail.tabTags"), icon: Tag, href: clientPath(client.id, "tags") },
       { id: "templates", label: t("clients.detail.tabTemplates"), icon: FileText, href: clientPath(client.id, "templates") },
       { id: "calendar", label: t("clients.detail.tabCalendar"), icon: CalendarIcon, href: clientPath(client.id, "calendar") },
@@ -118,6 +120,7 @@ export default function ClientDetailPage() {
     {/* Teams and WhatsApp templates are the client's own, managed here or from its portal; the views are the portal's, pointed at the agency routes. */}
     {tab === "teams" && <div className="embedded-portal-view"><TeamsView base={`/clients/${client.id}`} /></div>}
     {tab === "professionals" && <div className="embedded-portal-view"><ProfessionalsView apiBase={`/clients/${client.id}`} canManage timezone={client.timezone} /></div>}
+    {tab === "services" && <div className="embedded-portal-view"><ServicesView apiBase={`/clients/${client.id}`} canManage currency={client.currency} /></div>}
     {tab === "tags" && <div className="embedded-portal-view"><TagsView base={`/clients/${client.id}/contact-tags`} canManage /></div>}
     {tab === "templates" && <div className="embedded-portal-view"><TemplatesView base={`/clients/${client.id}`} /></div>}
     {tab === "calendar" && <CalendarView base={`/clients/${client.id}`} canManage />}

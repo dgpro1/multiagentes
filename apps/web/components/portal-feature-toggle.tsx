@@ -26,6 +26,7 @@ const LABELS: Record<PortalFeature, I18nKey> = {
   "channels.webchat": "clients.detail.pfChannelWebchat",
   details: "clients.detail.pfDetails",
   professionals: "clients.detail.pfProfessionals",
+  services: "clients.detail.pfServices",
 };
 
 /** One on/off switch per function of a client's portal. Turning one on makes that
