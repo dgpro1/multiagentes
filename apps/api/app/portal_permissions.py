@@ -62,6 +62,9 @@ PROFESSIONALS_MANAGE = "professionals.manage"
 # the agency switched the ``services`` portal function on. Listing them is free
 # for anyone signed in to such a portal.
 SERVICES_MANAGE = "services.manage"
+# Create, reschedule, cancel and delete appointments. Listing appointments and
+# availability is free for anyone signed in to such a portal.
+APPOINTMENTS_MANAGE = "appointments.manage"
 # Create, rename, reorder and delete the custom fields of the lead card. Only
 # takes effect where the agency switched the ``inbox`` portal function on.
 # Listing the fields and filling their values on a lead is free for anyone with
@@ -76,6 +79,7 @@ PERMISSION_FEATURES: dict[str, str] = {
     CLIENT_MANAGE: "details",
     PROFESSIONALS_MANAGE: "professionals",
     SERVICES_MANAGE: "services",
+    APPOINTMENTS_MANAGE: "appointments",
     FIELDS_MANAGE: "inbox",
 }
 
@@ -95,6 +99,7 @@ PERMISSIONS: tuple[str, ...] = (
     CLIENT_MANAGE,
     PROFESSIONALS_MANAGE,
     SERVICES_MANAGE,
+    APPOINTMENTS_MANAGE,
     FIELDS_MANAGE,
 )
 

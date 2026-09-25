@@ -28,6 +28,8 @@ import { LeadCard } from "@/components/lead-card/lead-card";
 import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
 import { ReplyChannelPicker } from "@/components/reply-channel-picker";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
+import { AppointmentModal } from "@/components/appointment-modal";
+import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
 import { VariablesPopover } from "@/components/variables-popover";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, portalLeadScope } from "@/components/lead-card/scope";
@@ -367,6 +369,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   // The composer card: what is typed (drives the Send colour and Cancel), and its small menus.
   const [draft, setDraft] = useState("");
   const [composerMode, setComposerMode] = useState<ComposerMode>("chat");
+  const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variablesQuery, setVariablesQuery] = useState("");
   const [composerMenu, setComposerMenu] = useState<null | "action" | "channel" | "plus" | "emoji">(null);
@@ -772,6 +775,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
       </div>}
     </aside><section className="drop-target" {...dropProps}>{overlay}{!selected && <EmptyState icon={<Inbox />} title={t("portal.inbox.empty.title")} description={t("portal.inbox.empty.description")} />}{selected && <><header><button type="button" className="icon-button inbox-back" onClick={() => clearSelection("push")} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button><LeadAvatarButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)} /><div><strong>{selected.contact_name || selected.title}<span className="lead-number">#{selected.number}</span></strong><small className="portal-channel-line">{replyVia.multi ? <ChannelDots channels={[...new Set(replyVia.threads.map((thread) => thread.channel))]} t={t} /> : <>{channelIcon(selected.channel)} {channelLabel(selected.channel)}</>}{selected.account_label && <span className="account-badge" title={selected.account_label}>{selected.account_label}</span>}{selected.archived_at && <span className="mini-badge resolved"><Archive size={11} /> {t("portal.inbox.conversation.archivedBadge")}</span>}{selected.channel === "whatsapp_cloud" && !selected.reply_window_open && <span className="window-pill closed"><Clock size={11} /> {selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}</span>}</small></div><div className="thread-actions"><button type="button" className="icon-button" title={t("portal.inbox.copyLink")} aria-label={t("portal.inbox.copyLink")} onClick={() => { void navigator.clipboard?.writeText(`${window.location.origin}${portalPath(urlBase, "inbox", selected.number)}`).then(() => toast.success(t("portal.inbox.linkCopied"))); }}><Link2 size={16} /></button>{enabled("teams") && teams.length > 0 && <label className="assignee-picker team-picker"><span>{t("portal.teams.picker")}</span><select aria-label={t("portal.teams.picker")} title={t("portal.teams.picker")} value={selected.team_id ?? ""} onChange={(e) => setConversationTeam(e.target.value)}><option value="">{t("portal.teams.pickerNone")}</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>}{selected.mode === "human" && <label className="assignee-picker"><span>{t("portal.inbox.assignment.label")}</span><select aria-label={t("portal.inbox.assignment.label")} title={t("portal.inbox.assignment.label")} value={selected.assignee_id ?? ""} onChange={(e) => e.target.value && assignTo(e.target.value)}>{!selected.assignee_id && <option value="">{t("portal.inbox.assignment.pick")}</option>}{members.map((member) => <option key={member.id} value={member.id}>{memberLabel(member)}</option>)}</select></label>}{selected.archived_at && can("inbox.delete") && <><button className="status-toggle resolved" onClick={() => setArchived(false)}><ArchiveRestore size={15} /> {t("portal.inbox.conversation.restore")}</button><button className="status-toggle danger" onClick={() => { setConfirmWord(""); setDeleting(selected); }}><Trash2 size={15} /> {t("portal.inbox.conversation.delete")}</button></>}{selected.contact_id && !selected.archived_at && can("contacts.manage") && <button className="icon-button" onClick={() => setBlockingContact(true)} title={t("portal.inbox.conversation.blockContact")} aria-label={t("portal.inbox.conversation.blockContact")}><Ban size={16} /></button>}<button className="icon-button" onClick={() => setMediaOpen(true)} title={t("chat.sharedContent")} aria-label={t("chat.sharedContent")}><Images size={16} /></button></div></header><div className="portal-messages" ref={messagesRef}>{selected.messages?.map((message, index) => {
               if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
+              if (isAppointmentActivity(message)) return <AppointmentActivityCard key={message.id} message={message} />;
               if (message.kind === "activity") {
                 return <div key={message.id} className="activity-line"><span>{activityText(message)}</span><time>{formatTime(message.created_at, lang)}</time></div>;
               }
@@ -816,6 +820,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
         via={replyVia.via}
         onViaChange={replyVia.setVia}
         onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
+        onOpenAppointmentModal={() => setAppointmentModalOpen(true)}
       />
       <VariablesPopover
         open={variablesOpen}
@@ -892,7 +897,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
                 <button type="button" className={`composer-icon plus${composerMenu === "plus" || composerMenu === "emoji" ? " open" : ""}`} title={t("portal.inbox.composer.more")} aria-label={t("portal.inbox.composer.more")} aria-haspopup="menu" aria-expanded={composerMenu === "plus" || composerMenu === "emoji"} onClick={() => setComposerMenu(composerMenu === "plus" || composerMenu === "emoji" ? null : "plus")}><Plus size={20} /></button>
                 {composerMenu === "plus" && <div className="composer-menu-list up" role="menu">
                   <button type="button" role="menuitem" disabled={!canReply || busy} onClick={() => setComposerMenu("emoji")}><Smile size={18} /><span>{t("portal.inbox.composer.emoji")}</span></button>
-                  <button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><CalendarIcon size={18} /><span>{t("portal.inbox.composer.schedule")}</span></button>
+                  <button type="button" role="menuitem" onClick={() => { setComposerMenu(null); setAppointmentModalOpen(true); }}><CalendarIcon size={18} /><span>{t("portal.inbox.composer.schedule")}</span></button>
                   <button type="button" role="menuitem" disabled={!policy.canAttach || busy} onClick={() => { setComposerMenu(null); fileInputRef.current?.click(); }}><Paperclip size={18} /><span>{t("chat.attachFile")}</span></button>
                   <button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><Navigation size={18} /><span>{t("portal.inbox.composer.navigate")}</span></button>
                 </div>}
@@ -903,7 +908,18 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
           )}
         </div>
       </div>
-    </div></form>}<MediaPanel open={mediaOpen} onClose={() => setMediaOpen(false)} messages={selected.messages ?? []} urlFor={attachmentUrl} /><TemplatePicker base={base} open={templateOpen} title={t("portal.inbox.window.sendTemplate")} contactValues={contactValues} onClose={() => setTemplateOpen(false)} onSend={replyWithTemplate} /></>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { refresh().catch(() => {}); }} onMerged={(primary) => { void api<Conversation>(`/portal/${slug}/conversations/number/${primary.number}`).then((detail) => { selectedIdRef.current = detail.id; setSelected(detail); if (detail.number !== urlNumber) goTo("inbox", detail.number); refresh().catch(() => {}); }).catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}</div>}</section>
+    </div></form>}<MediaPanel open={mediaOpen} onClose={() => setMediaOpen(false)} messages={selected.messages ?? []} urlFor={attachmentUrl} /><TemplatePicker base={base} open={templateOpen} title={t("portal.inbox.window.sendTemplate")} contactValues={contactValues} onClose={() => setTemplateOpen(false)} onSend={replyWithTemplate} />{appointmentModalOpen && selected && (
+      <AppointmentModal
+        open={appointmentModalOpen}
+        onClose={() => setAppointmentModalOpen(false)}
+        base={`/portal/${slug}`}
+        conversationId={selected.id}
+        contactId={selected.contact_id}
+        onSuccess={() => {
+          refresh().catch(() => {});
+        }}
+      />
+    )}</>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { refresh().catch(() => {}); }} onMerged={(primary) => { void api<Conversation>(`/portal/${slug}/conversations/number/${primary.number}`).then((detail) => { selectedIdRef.current = detail.id; setSelected(detail); if (detail.number !== urlNumber) goTo("inbox", detail.number); refresh().catch(() => {}); }).catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}</div>}</section>
     {/* Confirmations for the actions that leave a mark: archiving every resolved conversation, deleting one or several, blocking the contact. */}
     <Modal open={archivingAll} title={t("portal.inbox.archive.archiveAllTitle")} description={t("portal.inbox.archive.archiveAllCopy", { count: String(summary?.resolved ?? visibleItems.length) })} onClose={() => setArchivingAll(false)}>
       <div className="modal-form">{error && <Alert>{error}</Alert>}<div className="modal-actions"><button type="button" className="button" onClick={() => setArchivingAll(false)}>{t("common.cancel")}</button><button type="button" className="button primary" disabled={bulkBusy} onClick={archiveAllResolved}>{bulkBusy ? <LoaderCircle className="spin" size={16} /> : <><Archive size={15} /> {t("portal.inbox.archive.archiveAll")}</>}</button></div></div>

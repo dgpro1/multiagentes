@@ -25,6 +25,7 @@ export const PORTAL_FEATURES = [
   { key: "details", default: false },
   { key: "professionals", default: false },
   { key: "services", default: false },
+  { key: "appointments", default: false },
 ] as const;
 
 export type PortalFeature = (typeof PORTAL_FEATURES)[number]["key"];
@@ -51,7 +52,7 @@ export const FEATURES_BY_CLIENT_TAB: Record<string, readonly PortalFeature[]> = 
   teams: ["teams"],
   tags: ["tags"],
   templates: ["templates"],
-  calendar: ["calendar"],
+  calendar: ["calendar", "appointments"],
   pipeline: ["pipeline"],
   api: ["api"],
   details: ["details"],
@@ -75,6 +76,8 @@ export const FEATURE_OF_PERMISSION: Record<string, PortalFeature> = {
   "api.manage": "api",
   "client.manage": "details",
   "professionals.manage": "professionals",
+  "services.manage": "services",
+  "appointments.manage": "appointments",
 };
 
 /** Permissions that hold while ANY of several functions is on (channel management needs at least one channel type). */

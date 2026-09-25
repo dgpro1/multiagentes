@@ -42,6 +42,7 @@ CATALOG: tuple[tuple[str, bool], ...] = (
     ("details", False),
     ("professionals", False),
     ("services", False),
+    ("appointments", False),
 )
 
 KEYS: tuple[str, ...] = tuple(key for key, _ in CATALOG)
@@ -64,6 +65,8 @@ def normalize(stored: dict | None) -> dict[str, bool]:
         for key in KEYS:
             if key in stored:
                 result[key] = bool(stored[key])
+        if "appointments" not in stored and "calendar" in result:
+            result["appointments"] = result["calendar"]
     return result
 
 

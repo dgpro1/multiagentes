@@ -38,6 +38,8 @@ PROFESSIONALS_READ = "professionals.read"
 PROFESSIONALS_MANAGE = "professionals.manage"
 SERVICES_READ = "services.read"
 SERVICES_MANAGE = "services.manage"
+APPOINTMENTS_READ = "appointments.read"
+APPOINTMENTS_MANAGE = "appointments.manage"
 LEAD_FIELDS_READ = "lead_fields.read"
 LEAD_FIELDS_MANAGE = "lead_fields.manage"
 INTEGRATIONS_MANAGE = "integrations.manage"
@@ -73,6 +75,8 @@ ALL: tuple[str, ...] = (
     PROFESSIONALS_MANAGE,
     SERVICES_READ,
     SERVICES_MANAGE,
+    APPOINTMENTS_READ,
+    APPOINTMENTS_MANAGE,
     LEAD_FIELDS_READ,
     LEAD_FIELDS_MANAGE,
     INTEGRATIONS_MANAGE,
@@ -110,6 +114,8 @@ DESCRIPTIONS: dict[str, str] = {
     PROFESSIONALS_MANAGE: "Add, edit and delete professionals and their weekly hours.",
     SERVICES_READ: "See the services catalog of a client.",
     SERVICES_MANAGE: "Add, edit and delete services in the client's catalog.",
+    APPOINTMENTS_READ: "See the appointments and availability of a client.",
+    APPOINTMENTS_MANAGE: "Create, reschedule, cancel and manage appointments.",
     LEAD_FIELDS_READ: "See the custom fields of the lead card.",
     LEAD_FIELDS_MANAGE: "Create, edit and delete the custom fields of the lead card.",
     INTEGRATIONS_MANAGE: "Create and revoke API credentials.",
@@ -133,6 +139,7 @@ PRESETS: dict[str, frozenset[str]] = {
             TEAMS_MANAGE,
             PROFESSIONALS_MANAGE,
             SERVICES_MANAGE,
+            APPOINTMENTS_MANAGE,
             LEAD_FIELDS_MANAGE,
         }
     ),

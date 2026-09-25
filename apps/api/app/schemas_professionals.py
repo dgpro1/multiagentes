@@ -67,6 +67,7 @@ class ProfessionalCreate(BaseModel):
     is_active: bool = True
     slot_minutes: int = Field(default=30, ge=MIN_SLOT_MINUTES, le=MAX_SLOT_MINUTES)
     weekly_hours: dict = Field(default_factory=dict)
+    service_ids: list[uuid.UUID] = Field(default_factory=list)
 
     @field_validator("name")
     @classmethod
@@ -89,6 +90,7 @@ class ProfessionalUpdate(BaseModel):
     is_active: bool | None = None
     slot_minutes: int | None = Field(default=None, ge=MIN_SLOT_MINUTES, le=MAX_SLOT_MINUTES)
     weekly_hours: dict | None = None
+    service_ids: list[uuid.UUID] | None = None
 
     @field_validator("name")
     @classmethod
@@ -117,6 +119,7 @@ class ProfessionalOut(BaseModel):
     is_active: bool
     slot_minutes: int
     weekly_hours: dict[str, list[list[str]]]
+    service_ids: list[uuid.UUID] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -124,3 +127,12 @@ class ProfessionalOut(BaseModel):
     @classmethod
     def _all_seven_days(cls, value):
         return full_week(value)
+
+    @field_validator("service_ids", mode="before")
+    @classmethod
+    def _extract_services(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [getattr(item, "id", item) for item in value]
+        return []

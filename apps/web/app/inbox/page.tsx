@@ -9,6 +9,8 @@ import { MediaPanel } from "@/components/media-panel";
 import { LeadCard } from "@/components/lead-card/lead-card";
 import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
+import { AppointmentModal } from "@/components/appointment-modal";
+import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
 import { VariablesPopover } from "@/components/variables-popover";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
@@ -50,6 +52,7 @@ export default function InboxPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [locating, setLocating] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
+  const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
   // A lead that absorbed others has several threads: the composer picks one and every reply names it.
   const replyVia = useReplyVia(selected);
   const owners = useAttachmentOwners(selected);
@@ -377,6 +380,7 @@ export default function InboxPage() {
             <div className="inbox-messages" ref={messagesRef}>
               {selected.messages?.map((message, index) => {
                 if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
+                if (isAppointmentActivity(message)) return <AppointmentActivityCard key={message.id} message={message} />;
                 const stamp = formatTime(message.created_at, lang);
                 if (message.kind === "note") {
                   return (
@@ -419,6 +423,7 @@ export default function InboxPage() {
                 via={replyVia.via}
                 onViaChange={replyVia.setVia}
                 onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
+                onOpenAppointmentModal={() => setAppointmentModalOpen(true)}
               />
               <VariablesPopover
                 open={variablesOpen}
@@ -495,6 +500,19 @@ export default function InboxPage() {
       {leadOpen && selected && leadScope && <LeadScopeProvider scope={leadScope}>
         <LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { loadFirst({ silent: true }); refreshSelected(); }} onMerged={(primary) => { void choose(primary.conversation_id).catch(() => {}); loadFirst({ silent: true }); }} syncKey={selected.messages?.at(-1)?.id} />
       </LeadScopeProvider>}
+      {appointmentModalOpen && selected && selected.client_id && (
+        <AppointmentModal
+          open={appointmentModalOpen}
+          onClose={() => setAppointmentModalOpen(false)}
+          base={`/clients/${selected.client_id}`}
+          conversationId={selected.id}
+          contactId={selected.contact_id}
+          onSuccess={() => {
+            refreshSelected();
+            loadFirst({ silent: true });
+          }}
+        />
+      )}
     </div>
   </div>;
 }

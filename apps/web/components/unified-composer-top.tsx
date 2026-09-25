@@ -16,6 +16,7 @@ interface UnifiedComposerTopProps {
   via?: string;
   onViaChange?: (conversationId: string) => void;
   onOpenVariables: () => void;
+  onOpenAppointmentModal?: () => void;
 }
 
 export function UnifiedComposerTop({
@@ -26,6 +27,7 @@ export function UnifiedComposerTop({
   via,
   onViaChange,
   onOpenVariables,
+  onOpenAppointmentModal,
 }: UnifiedComposerTopProps) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState<"action" | "channel" | null>(null);
@@ -111,13 +113,13 @@ export function UnifiedComposerTop({
             <button
               type="button"
               role="menuitem"
-              disabled
-              title="Disponible en Sub-Fase 5"
-              style={{ opacity: 0.5, cursor: "not-allowed" }}
+              onClick={() => {
+                setMenuOpen(null);
+                onOpenAppointmentModal?.();
+              }}
             >
-              <CalendarCheck size={15} />
+              <CalendarCheck size={15} color="#2563eb" />
               <span>{t("inbox.composerBookAppointment") || "Agendar cita"}</span>
-              <small style={{ fontSize: 10, color: "var(--muted)" }}>Fase 5</small>
             </button>
           </div>
         )}

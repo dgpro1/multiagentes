@@ -150,7 +150,7 @@ export type Attachment = { id: string; kind: "image" | "audio" | "video" | "file
 export type MergeSide = { number: number; name?: string | null; price?: number | null; currency?: string | null; created_at?: string | null; channels?: string[]; custom_fields?: Record<string, unknown> };
 /** One channel thread of a lead that absorbed others: the primary's own or a linked one. */
 export type LinkedThread = { conversation_id: string; channel: string; label: string | null; account_label: string | null; is_primary: boolean; mode: "ai" | "human"; last_inbound_at: string | null };
-export type Message = { id: string; role: "user" | "assistant" | "system"; kind?: "message" | "activity" | "note"; delivery_status?: "pending" | "sent" | "delivered" | "read" | "failed" | "unknown" | null; delivery_error?: string | null; activity?: { event: string; hours?: number | string; assignee?: string; from?: string; team?: string; target?: string; reason?: string; tag?: string; primary_number?: number; secondary_number?: number; primary?: MergeSide; secondary?: MergeSide } | null; conversation_id?: string; channel?: string; content: string; sources: Source[]; tool_calls?: ToolCallMeta[] | null; sender_type: "visitor" | "ai" | "human"; sender_name: string | null; reaction?: string | null; incoming_reaction?: string | null; quoted_message_id?: string | null; created_at: string; attachments?: Attachment[] };
+export type Message = { id: string; role: "user" | "assistant" | "system"; kind?: "message" | "activity" | "note"; delivery_status?: "pending" | "sent" | "delivered" | "read" | "failed" | "unknown" | null; delivery_error?: string | null; activity?: { event: string; hours?: number | string; assignee?: string; from?: string; team?: string; target?: string; reason?: string; tag?: string; primary_number?: number; secondary_number?: number; primary?: MergeSide; secondary?: MergeSide; title?: string; date?: string; [key: string]: unknown } | null; conversation_id?: string; channel?: string; content: string; sources: Source[]; tool_calls?: ToolCallMeta[] | null; sender_type: "visitor" | "ai" | "human"; sender_name: string | null; reaction?: string | null; incoming_reaction?: string | null; quoted_message_id?: string | null; created_at: string; attachments?: Attachment[] };
 
 export type ConversationInbox = {
   id: string;
@@ -742,6 +742,7 @@ export type Professional = {
   is_active: boolean;
   slot_minutes: number;
   weekly_hours: WeeklyHours;
+  service_ids?: string[];
   created_at: string;
   updated_at: string;
 };
@@ -789,3 +790,44 @@ export type LeadCard = {
 /** One candidate of the merge dialog's search. */
 export type MergeCandidate = { conversation_id: string; number: number; contact_name: string | null; phone: string | null; email: string | null; channel: string; channels: string[]; stage: LeadStage | null; deal_value: number | null; created_at: string };
 export type LeadMergeResult = { primary: LeadCard; secondary_number: number };
+
+export type AppointmentStatus = "confirmed" | "cancelled" | "completed" | "no_show";
+
+export type Appointment = {
+  id: string;
+  agency_id: string;
+  client_id: string;
+  conversation_id: string | null;
+  contact_id: string | null;
+  professional_id: string | null;
+  service_id: string | null;
+  title: string;
+  start_time: string;
+  end_time: string;
+  duration_minutes: number;
+  status: AppointmentStatus;
+  notes: string | null;
+  created_by_role: string | null;
+  created_at: string;
+  updated_at: string;
+  professional_name?: string | null;
+  service_name?: string | null;
+  contact_name?: string | null;
+};
+
+export type AvailabilitySlot = {
+  start_time: string;
+  end_time: string;
+  professional_id?: string | null;
+  professional_name?: string | null;
+};
+
+export type AvailabilityDay = {
+  date: string;
+  slots: AvailabilitySlot[];
+};
+
+export type AvailabilityResponse = {
+  days: AvailabilityDay[];
+};
+

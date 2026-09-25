@@ -6,7 +6,7 @@ import { Alert, EmptyState, Modal } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import type { Professional, TimeRange, WeekDay, WeeklyHours } from "@/types";
+import type { Professional, Service, TimeRange, WeekDay, WeeklyHours } from "@/types";
 
 import { DAYS, WEEKDAYS, MAX_RANGES, DEFAULT_RANGE, emptyHours, cloneRanges, cloneHours, scheduleError, summarizeHours } from "@/lib/schedule";
 
@@ -14,7 +14,7 @@ const SLOT_OPTIONS = [10, 15, 20, 30, 45, 60, 90, 120] as const;
 const DEFAULT_SLOT = 30;
 const PALETTE = ["#2563eb", "#7c3aed", "#db2777", "#dc2626", "#ea580c", "#ca8a04", "#16a34a", "#0d9488", "#0891b2", "#475569"] as const;
 
-type Draft = { name: string; role: string; color: string; isActive: boolean; slotMinutes: number; hours: WeeklyHours };
+type Draft = { name: string; role: string; color: string; isActive: boolean; slotMinutes: number; hours: WeeklyHours; serviceIds: string[] };
 
 /** The palette color not yet taken by another professional, or the next one in turn. */
 function nextColor(existing: Professional[]): string {
@@ -29,6 +29,7 @@ export function ProfessionalsView({ apiBase, canManage, timezone }: { apiBase: s
   const t = useT();
   const toast = useToast();
   const [items, setItems] = useState<Professional[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,7 +37,14 @@ export function ProfessionalsView({ apiBase, canManage, timezone }: { apiBase: s
   const [deleting, setDeleting] = useState<Professional | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
 
-  const load = useCallback(async () => { setItems(await api<Professional[]>(`${apiBase}/professionals`)); }, [apiBase]);
+  const load = useCallback(async () => {
+    const [pros, srvs] = await Promise.all([
+      api<Professional[]>(`${apiBase}/professionals`),
+      api<Service[]>(`${apiBase}/services`).catch(() => [] as Service[]),
+    ]);
+    setItems(pros);
+    setServices(srvs);
+  }, [apiBase]);
   useEffect(() => {
     setLoading(true);
     load().catch((err) => setError(messageFrom(err))).finally(() => setLoading(false));
@@ -46,8 +54,8 @@ export function ProfessionalsView({ apiBase, canManage, timezone }: { apiBase: s
     setError("");
     setEditing(target);
     setDraft(target === "new"
-      ? { name: "", role: "", color: nextColor(items), isActive: true, slotMinutes: DEFAULT_SLOT, hours: emptyHours() }
-      : { name: target.name, role: target.role ?? "", color: target.color, isActive: target.is_active, slotMinutes: target.slot_minutes, hours: cloneHours(target.weekly_hours) });
+      ? { name: "", role: "", color: nextColor(items), isActive: true, slotMinutes: DEFAULT_SLOT, hours: emptyHours(), serviceIds: [] }
+      : { name: target.name, role: target.role ?? "", color: target.color, isActive: target.is_active, slotMinutes: target.slot_minutes, hours: cloneHours(target.weekly_hours), serviceIds: target.service_ids ?? [] });
   }
   const closeEditor = () => { setEditing(null); setDraft(null); };
   const patch = (changes: Partial<Draft>) => setDraft((current) => (current ? { ...current, ...changes } : current));
@@ -62,7 +70,7 @@ export function ProfessionalsView({ apiBase, canManage, timezone }: { apiBase: s
     if (problem) { setError(problem); return; }
     const weekly_hours = emptyHours();
     for (const day of DAYS) weekly_hours[day] = [...draft.hours[day]].sort((a, b) => a[0].localeCompare(b[0]));
-    const body = { name, role: draft.role.trim() || null, color: draft.color, is_active: draft.isActive, slot_minutes: draft.slotMinutes, weekly_hours };
+    const body = { name, role: draft.role.trim() || null, color: draft.color, is_active: draft.isActive, slot_minutes: draft.slotMinutes, weekly_hours, service_ids: draft.serviceIds };
     setBusy(true); setError("");
     try {
       if (editing === "new") await api<Professional>(`${apiBase}/professionals`, { method: "POST", body: JSON.stringify(body) });
@@ -104,6 +112,23 @@ export function ProfessionalsView({ apiBase, canManage, timezone }: { apiBase: s
               {pro.role && <small>{pro.role}</small>}
               <span className="professionals-hours">{summarizeHours(pro.weekly_hours, t)}</span>
               <small>{t("professionals.slotSummary", { minutes: pro.slot_minutes })}</small>
+              {services.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+                  {pro.service_ids && pro.service_ids.length > 0 ? (
+                    services
+                      .filter((s) => pro.service_ids?.includes(s.id))
+                      .map((s) => (
+                        <span key={s.id} className="mini-badge team" style={{ fontSize: "11px" }}>
+                          {s.name}
+                        </span>
+                      ))
+                  ) : (
+                    <span className="muted" style={{ fontSize: "11px" }}>
+                      {t("professionals.allServices")}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             {canManage && <div className="professionals-actions">
               <button type="button" className="icon-button" onClick={() => openEditor(pro)} title={t("professionals.edit")} aria-label={t("professionals.edit")}><Pencil size={15} /></button>
@@ -134,6 +159,34 @@ export function ProfessionalsView({ apiBase, canManage, timezone }: { apiBase: s
           </label>
           <label className="switch-row"><span><strong>{t("professionals.form.active")}</strong><small>{t("professionals.form.activeHint")}</small></span><input type="checkbox" checked={draft.isActive} onChange={(e) => patch({ isActive: e.target.checked })} /></label>
         </div>
+        {services.length > 0 && (
+          <div className="professionals-field">
+            <span className="professionals-label">{t("professionals.servicesAssigned")}</span>
+            <small className="field-help">{t("professionals.servicesAssignedHint")}</small>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "6px" }}>
+              {services.map((srv) => {
+                const checked = draft.serviceIds.includes(srv.id);
+                return (
+                  <button
+                    type="button"
+                    key={srv.id}
+                    className={`button small ${checked ? "primary" : "secondary"}`}
+                    onClick={() => {
+                      patch({
+                        serviceIds: checked
+                          ? draft.serviceIds.filter((id) => id !== srv.id)
+                          : [...draft.serviceIds, srv.id],
+                      });
+                    }}
+                    style={{ borderRadius: "20px", fontSize: "12px", padding: "4px 10px" }}
+                  >
+                    {srv.name} {srv.duration_minutes ? `(${srv.duration_minutes}m)` : ""}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="professionals-field">
           <span className="professionals-label">{t("professionals.form.schedule")}</span>
           <small className="field-help">{t("professionals.form.scheduleHint")}{timezone ? ` ${t("professionals.timezoneNote", { timezone })}` : ""}</small>

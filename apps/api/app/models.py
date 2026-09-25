@@ -144,6 +144,9 @@ class Client(Base):
     lead_fields: Mapped[list["LeadField"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", order_by="LeadField.position, LeadField.created_at"
     )
+    appointments: Mapped[list["Appointment"]] = relationship(
+        back_populates="client", cascade="all, delete-orphan", order_by="Appointment.start_time"
+    )
 
     @property
     def logo_url(self) -> str | None:
@@ -509,6 +512,7 @@ class Contact(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="contact", passive_deletes=True)
+    appointments: Mapped[list["Appointment"]] = relationship(back_populates="contact", passive_deletes=True)
     # Labels people put on the contact by hand from the portal. Nothing sets
     # them automatically: not the import, not an inbound message.
     tags: Mapped[list["ContactTag"]] = relationship(
@@ -676,6 +680,7 @@ class Conversation(Base):
         cascade="save-update, merge, delete",
         passive_deletes=True,
     )
+    appointments: Mapped[list["Appointment"]] = relationship(back_populates="conversation")
 
     @property
     def team_name(self) -> str | None:
@@ -1223,9 +1228,33 @@ class Professional(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     slot_minutes: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
     weekly_hours: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    assignment_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
     client: Mapped[Client] = relationship(back_populates="professionals")
+    appointments: Mapped[list["Appointment"]] = relationship(back_populates="professional")
+    services: Mapped[list["Service"]] = relationship(
+        secondary="professional_services",
+        order_by="Service.name",
+        back_populates="professionals",
+        passive_deletes=True,
+    )
+
+    @property
+    def service_ids(self) -> list[uuid.UUID]:
+        return [s.id for s in self.services]
+
+
+class ProfessionalService(Base):
+    __tablename__ = "professional_services"
+
+    professional_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("professionals.id", ondelete="CASCADE"), primary_key=True
+    )
+    service_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("services.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class Service(Base):
@@ -1255,6 +1284,58 @@ class Service(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
     client: Mapped[Client] = relationship(back_populates="services")
+    appointments: Mapped[list["Appointment"]] = relationship(back_populates="service")
+    professionals: Mapped[list["Professional"]] = relationship(
+        secondary="professional_services",
+        order_by="Professional.name",
+        back_populates="services",
+        passive_deletes=True,
+    )
+
+
+class Appointment(Base):
+    """A scheduled appointment or task booked with a client's professional and/or service.
+
+    Tied to a conversation (lead thread), contact, professional, and service.
+    Start and end times are always stored in UTC with timezone awareness.
+    """
+
+    __tablename__ = "appointments"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    professional_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("professionals.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    service_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("services.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
+    title: Mapped[str] = mapped_column(String(160))
+    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    duration_minutes: Mapped[int] = mapped_column(Integer)
+    # confirmed, cancelled, completed, no_show
+    status: Mapped[str] = mapped_column(String(32), default="confirmed", server_default="confirmed", index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # operator, agent, portal, customer
+    created_by_role: Mapped[str] = mapped_column(String(32), default="operator", server_default="operator")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+    client: Mapped[Client] = relationship(back_populates="appointments")
+    conversation: Mapped["Conversation | None"] = relationship(back_populates="appointments")
+    contact: Mapped["Contact | None"] = relationship(back_populates="appointments")
+    professional: Mapped["Professional | None"] = relationship(back_populates="appointments")
+    service: Mapped["Service | None"] = relationship(back_populates="appointments")
 
 
 class LeadField(Base):

@@ -16,6 +16,8 @@ import { GrowingTextarea } from "@/components/growing-textarea";
 import { LeadCard } from "@/components/lead-card/lead-card";
 import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
+import { AppointmentModal } from "@/components/appointment-modal";
+import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
 import { VariablesPopover } from "@/components/variables-popover";
 import { formatTime } from "@/lib/datetime";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
@@ -327,6 +329,7 @@ function ClientInbox({ clientId, urlNumber }: { clientId: string; urlNumber?: nu
   async function mode(next: "ai" | "human") { if (!selected) return; setSelected(await api<Conversation>(`/conversations/${selected.id}/mode`, { method: "PATCH", body: JSON.stringify({ mode: next }) })); await load(); }
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [composerMode, setComposerMode] = useState<ComposerMode>("chat");
+  const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variablesQuery, setVariablesQuery] = useState("");
   const [draft, setDraft] = useState("");
@@ -407,6 +410,7 @@ function ClientInbox({ clientId, urlNumber }: { clientId: string; urlNumber?: nu
   if (!items.length) return <EmptyState icon={<Inbox />} title={t("clients.detail.inboxEmptyTitle")} description={t("clients.detail.inboxEmptyDescription")} />;
   return <div ref={attachLead} className={`inbox-layout${leadOpen ? " has-lead" : ""}${leadOverlay ? " lead-overlay" : ""}`}><aside className="inbox-list"><header><strong>{t("clients.detail.conversations")}</strong><span>{items.length}</span></header>{items.map((item) => <button key={item.id} className={selected?.id === item.id ? "active" : ""} onClick={() => choose(item)}><span className="entity-avatar tiny"><UserRound size={15} /></span><span><strong>{item.title}</strong><small>#{item.number} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel, t)} · {item.mode === "human" ? t("clients.detail.modeHuman") : t("clients.detail.modeAi")}</small></span></button>)}</aside><section className="inbox-thread">{selected && <><header><LeadAvatarButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)} /><div><strong>{selected.title}</strong><small>#{selected.number} · {channelLabel(selected.channel, t)}</small></div><button className={`mode-toggle ${selected.mode}`} onClick={() => mode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("clients.detail.takeControl") : t("clients.detail.returnToAi")}</button></header><div className="inbox-messages">{selected.messages?.map((message) => {
     if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
+    if (isAppointmentActivity(message)) return <AppointmentActivityCard key={message.id} message={message} />;
     const stamp = formatTime(message.created_at, lang);
     if (message.kind === "note") {
       return (
@@ -438,6 +442,7 @@ function ClientInbox({ clientId, urlNumber }: { clientId: string; urlNumber?: nu
       via={replyVia.via}
       onViaChange={replyVia.setVia}
       onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
+      onOpenAppointmentModal={() => setAppointmentModalOpen(true)}
     />
     <VariablesPopover
       open={variablesOpen}
@@ -504,5 +509,17 @@ function ClientInbox({ clientId, urlNumber }: { clientId: string; urlNumber?: nu
         {composerMode === "note" ? (t("inbox.composerSaveNote") || "Guardar nota") : t("clients.detail.send")}
       </button>
     </form>
-  </div></>}{!selected && <div className="inline-empty"><Inbox size={22} /><div><strong>{t("clients.detail.selectConversation")}</strong></div></div>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { load().catch(() => {}); }} onMerged={(primary) => { void choose({ id: primary.conversation_id }).catch(() => {}); load().catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}</div>;
+  </div></>}{!selected && <div className="inline-empty"><Inbox size={22} /><div><strong>{t("clients.detail.selectConversation")}</strong></div></div>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { load().catch(() => {}); }} onMerged={(primary) => { void choose({ id: primary.conversation_id }).catch(() => {}); load().catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}{appointmentModalOpen && selected && (
+    <AppointmentModal
+      open={appointmentModalOpen}
+      onClose={() => setAppointmentModalOpen(false)}
+      base={`/clients/${clientId}`}
+      conversationId={selected.id}
+      contactId={selected.contact_id}
+      onSuccess={() => {
+        void choose({ id: selected.id });
+        load().catch(() => {});
+      }}
+    />
+  )}</div>;
 }

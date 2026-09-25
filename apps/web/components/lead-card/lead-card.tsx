@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Copy, GitMerge, Link2, MoreHorizontal, Settings2, UserRound, X } from "lucide-react";
 import { InlineInput, parseAmount } from "@/components/lead-card/inline-input";
 import { FieldManager } from "@/components/lead-card/field-manager";
+import { AppointmentsSection } from "@/components/lead-card/appointments-section";
 import { useLeadScope } from "@/components/lead-card/scope";
 import { MergeDialog } from "@/components/merge-leads/merge-dialog";
 import { SharedContentList } from "@/components/shared-content";
@@ -247,6 +248,14 @@ export function LeadCard({ conversationId, number, messages, urlFor, overlay = f
                 : fields.map((field) => <CustomFieldRow key={field.id} field={field} value={card.custom_values[field.key]} onSave={(value) => patchLead({ custom_values: { [field.key]: value } })} />)}
 
               <ContactBlock card={card} editable={scope.canEditContact && Boolean(card.contact.id)} onSave={saveContact} onCopyPhone={(phone) => copy(phone, t("lead.phoneCopied"))} />
+
+              <AppointmentsSection
+                conversationId={conversationId}
+                contactId={card.contact.id}
+                base={scope.leadsBase}
+                syncKey={syncKey}
+                onChanged={refresh}
+              />
             </div>}
         </>}
     </div>

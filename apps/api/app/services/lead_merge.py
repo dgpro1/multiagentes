@@ -40,7 +40,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
-from ..models import Client, Contact, Conversation, now_utc
+from ..models import Appointment, Client, Contact, Conversation, now_utc
 from ..schemas_lead_card import LeadMergeCandidateOut
 from . import lead_group
 from .contacts import merge_contacts, phone_from_chat_id
@@ -191,6 +191,15 @@ def merge_leads(
     if final_contact_id is not None:
         primary.contact_id = final_contact_id
     primary.updated_at = now
+
+    # Appointments attached to absorbed threads move to the primary lead
+    secondary_ids = [row.id for row in (secondary, *secondary_threads)]
+    appointment_updates: dict = {Appointment.conversation_id: primary.id}
+    if final_contact_id is not None:
+        appointment_updates[Appointment.contact_id] = final_contact_id
+    db.query(Appointment).filter(Appointment.conversation_id.in_(secondary_ids)).update(
+        appointment_updates, synchronize_session=False
+    )
 
     details = {
         "primary_number": primary.number,

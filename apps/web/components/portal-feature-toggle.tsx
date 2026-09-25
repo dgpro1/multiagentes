@@ -27,6 +27,7 @@ const LABELS: Record<PortalFeature, I18nKey> = {
   details: "clients.detail.pfDetails",
   professionals: "clients.detail.pfProfessionals",
   services: "clients.detail.pfServices",
+  appointments: "clients.detail.pfAppointments",
 };
 
 /** One on/off switch per function of a client's portal. Turning one on makes that

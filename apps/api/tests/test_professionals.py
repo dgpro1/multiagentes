@@ -63,7 +63,7 @@ def test_the_agency_creates_lists_updates_and_deletes(authenticated_client: Test
     created = client.post(_url(customer), json={"name": "  Dr. Ruiz  ", "role": "Orthodontist", "weekly_hours": WEEK})
     assert created.status_code == 201, created.text
     body = created.json()
-    assert set(body) == {"id", "client_id", "name", "role", "color", "is_active", "slot_minutes", "weekly_hours", "created_at", "updated_at"}
+    assert set(body) == {"id", "client_id", "name", "role", "color", "is_active", "slot_minutes", "weekly_hours", "service_ids", "created_at", "updated_at"}
     assert body["client_id"] == customer["id"]
     assert (body["name"], body["role"], body["is_active"], body["slot_minutes"]) == ("Dr. Ruiz", "Orthodontist", True, 30)
     assert body["color"].startswith("#") and len(body["color"]) == 7

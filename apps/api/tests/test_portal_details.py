@@ -16,7 +16,19 @@ from conftest import TestingSession
 NO_FEATURE = {"detail": "This feature is not enabled for this portal"}
 FORBIDDEN = {"detail": "Your role cannot do this"}
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
-SHAPE = {"name", "industry", "business_type", "business_custom", "timezone", "owner_name", "currency", "logo_url"}
+SHAPE = {
+    "name",
+    "industry",
+    "business_type",
+    "business_custom",
+    "timezone",
+    "owner_name",
+    "currency",
+    "logo_url",
+    "address",
+    "google_maps_url",
+    "business_hours",
+}
 
 
 def _portal(client: TestClient, on: bool = True, **fields) -> tuple[dict, str]:

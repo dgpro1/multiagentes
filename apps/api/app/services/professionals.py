@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Client, Professional
+from ..models import Client, Professional, Service
 from ..schemas_professionals import ProfessionalCreate, ProfessionalUpdate
 from .calendar import PALETTE
 
@@ -50,6 +50,16 @@ def create_professional(db: Session, client: Client, payload: ProfessionalCreate
         slot_minutes=payload.slot_minutes,
         weekly_hours=payload.weekly_hours,
     )
+    if payload.service_ids:
+        services = list(
+            db.scalars(
+                select(Service).where(
+                    Service.id.in_(payload.service_ids),
+                    Service.client_id == client.id,
+                )
+            ).all()
+        )
+        row.services = services
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -65,6 +75,16 @@ def update_professional(db: Session, client: Client, professional_id: uuid.UUID,
             setattr(row, key, values[key])
     if values.get("role") is not None:
         row.role = values["role"].strip()
+    if payload.service_ids is not None:
+        services = list(
+            db.scalars(
+                select(Service).where(
+                    Service.id.in_(payload.service_ids),
+                    Service.client_id == client.id,
+                )
+            ).all()
+        ) if payload.service_ids else []
+        row.services = services
     db.commit()
     db.refresh(row)
     return row

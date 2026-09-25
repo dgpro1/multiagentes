@@ -16,6 +16,9 @@ const en = {
   delete: "Delete professional",
   saved: "Professional saved.",
   deleted: "Professional deleted.",
+  servicesAssigned: "Assigned services",
+  servicesAssignedHint: "Select the services this professional performs. If none are selected, they can perform any service.",
+  allServices: "All services (general)",
   daysShort: { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" },
   daysLong: { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" },
   form: {
@@ -69,6 +72,9 @@ const es: typeof en = {
   delete: "Eliminar profesional",
   saved: "Profesional guardado.",
   deleted: "Profesional eliminado.",
+  servicesAssigned: "Servicios que realiza",
+  servicesAssignedHint: "Selecciona los servicios que este profesional puede atender. Si no marcas ninguno, podrá atender cualquier servicio.",
+  allServices: "Todos los servicios (general)",
   daysShort: { mon: "Lun", tue: "Mar", wed: "Mié", thu: "Jue", fri: "Vie", sat: "Sáb", sun: "Dom" },
   daysLong: { mon: "Lunes", tue: "Martes", wed: "Miércoles", thu: "Jueves", fri: "Viernes", sat: "Sábado", sun: "Domingo" },
   form: {

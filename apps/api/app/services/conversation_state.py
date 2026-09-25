@@ -46,6 +46,9 @@ _ACTIVITY_TEXT = {
     "blocked": "{actor} blocked the contact",
     "unblocked": "{actor} unblocked the contact; messages sent while blocked were not answered",
     "entity_merged": "{actor} merged lead #{secondary_number} into lead #{primary_number}",
+    "appointment_created": "{actor} scheduled {title} on {date}",
+    "appointment_rescheduled": "{actor} rescheduled {title} to {date}",
+    "appointment_cancelled": "{actor} cancelled appointment {title}",
 }
 
 

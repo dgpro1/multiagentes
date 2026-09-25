@@ -14,6 +14,7 @@ from .routers import (    agency,
     agent_tools,
     agents,
     api_v1,
+    appointments,
     auth,
     calendar,
     catalog,
@@ -193,6 +194,7 @@ app.include_router(social.router, prefix="/api")
 app.include_router(calendar.router, prefix="/api")
 app.include_router(professionals.router, prefix="/api")
 app.include_router(services.router, prefix="/api")
+app.include_router(appointments.router, prefix="/api")
 app.include_router(lead_card.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")
 app.include_router(social_webhook.public_router, prefix="/api")

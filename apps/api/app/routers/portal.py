@@ -16,7 +16,7 @@ from ..database import get_db, new_session
 from ..industries import catalog as industry_catalog
 from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
 from ..portal_features import enabled_keys, ensure_enabled
-from ..portal_permissions import CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, FIELDS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, SERVICES_MANAGE, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
+from ..portal_permissions import APPOINTMENTS_MANAGE, CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, FIELDS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, SERVICES_MANAGE, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
 from ..ratelimit import login_rate_limit, public_asset_rate_limit
 from ..schemas import (
     ClientDetailsOut,
@@ -89,11 +89,13 @@ from ..schemas_lead_card import (
 )
 from ..schemas_professionals import ProfessionalCreate, ProfessionalOut, ProfessionalUpdate
 from ..schemas_services import ServiceCreate, ServiceOut, ServiceUpdate
+from ..schemas_appointments import AppointmentCreate, AppointmentOut, AppointmentUpdate, AvailabilityDay, AvailabilityResponse
 from ..schemas_calendar import CalendarEventsOut, CalendarMemberCreate, CalendarMemberOut, CalendarMemberUpdate, CalendarOverviewOut
 from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
 from ..services import professionals as professionals_service
 from ..services import services_catalog
+from ..services import appointments as appointments_service
 from ..services.client_details import apply_details, clear_logo, store_logo
 from ..services import channel_accounts
 from ..services import lead_card as lead_card_service
@@ -594,6 +596,135 @@ def portal_delete_service(
 ):
     services_catalog.delete_service(db, client, service_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/{slug}/appointments",
+    response_model=list[AppointmentOut],
+    dependencies=[Depends(require_feature("appointments"))],
+)
+def portal_appointments(
+    slug: str,
+    conversation_id: uuid.UUID | None = None,
+    contact_id: uuid.UUID | None = None,
+    professional_id: uuid.UUID | None = None,
+    status: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+):
+    return appointments_service.list_appointments(
+        db,
+        client,
+        conversation_id=conversation_id,
+        contact_id=contact_id,
+        professional_id=professional_id,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+@router.post(
+    "/{slug}/appointments",
+    response_model=AppointmentOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_feature("appointments")), Depends(require_permission(APPOINTMENTS_MANAGE))],
+)
+def portal_create_appointment(
+    slug: str,
+    payload: AppointmentCreate,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+    user: PortalUser | None = Depends(_portal_user),
+):
+    appointment = appointments_service.create_appointment(
+        db,
+        client,
+        payload,
+        actor_name=user.name if user else "Operator",
+    )
+    out = AppointmentOut.model_validate(appointment)
+    out.professional_name = appointment.professional.name if appointment.professional else None
+    out.service_name = appointment.service.name if appointment.service else None
+    out.contact_name = appointment.contact.name if appointment.contact else None
+    return out
+
+
+@router.patch(
+    "/{slug}/appointments/{appointment_id}",
+    response_model=AppointmentOut,
+    dependencies=[Depends(require_feature("appointments")), Depends(require_permission(APPOINTMENTS_MANAGE))],
+)
+def portal_update_appointment(
+    slug: str,
+    appointment_id: uuid.UUID,
+    payload: AppointmentUpdate,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+    user: PortalUser | None = Depends(_portal_user),
+):
+    appointment = appointments_service.update_appointment(
+        db,
+        client,
+        appointment_id,
+        payload,
+        actor_name=user.name if user else "Operator",
+    )
+    out = AppointmentOut.model_validate(appointment)
+    out.professional_name = appointment.professional.name if appointment.professional else None
+    out.service_name = appointment.service.name if appointment.service else None
+    out.contact_name = appointment.contact.name if appointment.contact else None
+    return out
+
+
+@router.delete(
+    "/{slug}/appointments/{appointment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_feature("appointments")), Depends(require_permission(APPOINTMENTS_MANAGE))],
+)
+def portal_delete_appointment(
+    slug: str,
+    appointment_id: uuid.UUID,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+    user: PortalUser | None = Depends(_portal_user),
+):
+    appointments_service.delete_appointment(
+        db,
+        client,
+        appointment_id,
+        actor_name=user.name if user else "Operator",
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/{slug}/appointments/availability",
+    response_model=AvailabilityResponse,
+    dependencies=[Depends(require_feature("appointments"))],
+)
+def portal_appointments_availability(
+    slug: str,
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    service_id: uuid.UUID | None = None,
+    professional_id: uuid.UUID | None = None,
+    duration_minutes: int | None = None,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+):
+    days = appointments_service.calculate_availability(
+        db,
+        client,
+        date_from,
+        date_to,
+        service_id=service_id,
+        professional_id=professional_id,
+        duration_minutes=duration_minutes,
+    )
+    return AvailabilityResponse(days=[AvailabilityDay(**d) for d in days])
 
 
 @router.get("/{slug}/lead-fields", response_model=list[LeadFieldOut], dependencies=[Depends(require_feature("inbox"))])

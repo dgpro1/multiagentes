@@ -7,6 +7,7 @@ import { Alert, EmptyState, Modal } from "@/components/ui";
 import { MessageAttachments, type GalleryImage } from "@/components/attachments";
 import { RichText } from "@/components/rich-text";
 import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
+import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
 import { QuotedSnippet, ReactionBadge } from "@/components/message-gestures";
 import { DeliveryTicks } from "@/components/delivery-ticks";
 import { activityText } from "@/lib/activity";
@@ -543,6 +544,7 @@ export function ContactsView({ slug, channels, openConversation, can, agentName,
           {previewLoading && <div className="no-conversations"><LoaderCircle className="spin" size={16} /></div>}
           {(preview.messages ?? []).map((message, index, all) => {
             if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
+            if (isAppointmentActivity(message)) return <AppointmentActivityCard key={message.id} message={message} />;
             if (message.kind === "activity") return <div key={message.id} className="activity-line"><span>{activityText(t, message)}</span><time>{formatTime(message.created_at, lang)}</time></div>;
             const prev = index > 0 ? all[index - 1] : null;
             const grouped = Boolean(prev && prev.kind !== "activity" && prev.role === message.role && prev.sender_name === message.sender_name);
