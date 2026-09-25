@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Calendar as CalendarIcon, Clock, User, Scissors, Check, AlertCircle } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, User, Scissors } from "lucide-react";
 import { api, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { useToast } from "@/components/toast";
@@ -33,7 +33,6 @@ export function AppointmentModal({
 
   const [services, setServices] = useState<Service[]>([]);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
-  const [loadingMeta, setLoadingMeta] = useState(false);
 
   // Form states
   const todayStr = new Date().toISOString().split("T")[0];
@@ -55,7 +54,6 @@ export function AppointmentModal({
   useEffect(() => {
     if (!open) return;
     let active = true;
-    setLoadingMeta(true);
     setError(null);
 
     Promise.allSettled([
@@ -65,7 +63,6 @@ export function AppointmentModal({
       if (!active) return;
       if (srvRes.status === "fulfilled") setServices(srvRes.value.filter((s) => s.is_active));
       if (profRes.status === "fulfilled") setProfessionals(profRes.value.filter((p) => p.is_active));
-      setLoadingMeta(false);
     });
 
     return () => {
@@ -166,7 +163,7 @@ export function AppointmentModal({
     try {
       if (initialAppointment) {
         // Reschedule / Update
-        const payload: Record<string, any> = {
+        const payload: Record<string, unknown> = {
           title: finalTitle,
           notes: notes.trim() || null,
           service_id: serviceId || null,

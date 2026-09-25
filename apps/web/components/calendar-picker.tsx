@@ -34,9 +34,9 @@ export function CalendarPicker({ value, onChange, min, max, disabled }: Calendar
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Parse current selected date
-  const [selectedYear, selectedMonth, selectedDay] = value
+  const [selectedYear, selectedMonth] = value
     ? value.split("-").map(Number)
-    : [new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate()];
+    : [new Date().getFullYear(), new Date().getMonth() + 1];
 
   // View year and month (for pagination)
   const [viewYear, setViewYear] = useState<number>(selectedYear);

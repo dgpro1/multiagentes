@@ -90,12 +90,14 @@ from ..schemas_lead_card import (
 from ..schemas_professionals import ProfessionalCreate, ProfessionalOut, ProfessionalUpdate
 from ..schemas_services import ServiceCreate, ServiceOut, ServiceUpdate
 from ..schemas_appointments import AppointmentCreate, AppointmentOut, AppointmentUpdate, AvailabilityDay, AvailabilityResponse
+from ..schemas_scheduled_messages import ScheduledMessageCreate, ScheduledMessageOut, ScheduledMessageUpdate
 from ..schemas_calendar import CalendarEventsOut, CalendarMemberCreate, CalendarMemberOut, CalendarMemberUpdate, CalendarOverviewOut
 from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
 from ..services import professionals as professionals_service
 from ..services import services_catalog
 from ..services import appointments as appointments_service
+from ..services import scheduled_messages as scheduled_messages_service
 from ..services.client_details import apply_details, clear_logo, store_logo
 from ..services import channel_accounts
 from ..services import lead_card as lead_card_service
@@ -2598,6 +2600,79 @@ async def portal_add_note(
     lead.updated_at = now_utc()
     db.commit()
     return _present(_detail(db, client, conversation_id))
+
+
+@router.get(
+    "/{slug}/conversations/{conversation_id}/scheduled-messages",
+    response_model=list[ScheduledMessageOut],
+    dependencies=[Depends(require_feature("inbox"))],
+)
+def portal_list_scheduled_messages(
+    slug: str,
+    conversation_id: uuid.UUID,
+    status: str | None = None,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+):
+    return scheduled_messages_service.list_scheduled_messages(
+        db, client, conversation_id, status=status
+    )
+
+
+@router.post(
+    "/{slug}/conversations/{conversation_id}/scheduled-messages",
+    response_model=ScheduledMessageOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_feature("inbox"))],
+)
+def portal_create_scheduled_message(
+    slug: str,
+    conversation_id: uuid.UUID,
+    payload: ScheduledMessageCreate,
+    client: Client = Depends(_portal_client),
+    user: PortalUser | None = Depends(_portal_user),
+    sender_name: str = Depends(_sender_name),
+    db: Session = Depends(get_db),
+):
+    return scheduled_messages_service.create_scheduled_message(
+        db, client, conversation_id, payload, user=user, sender_name=sender_name
+    )
+
+
+@router.patch(
+    "/{slug}/conversations/{conversation_id}/scheduled-messages/{scheduled_id}",
+    response_model=ScheduledMessageOut,
+    dependencies=[Depends(require_feature("inbox"))],
+)
+def portal_update_scheduled_message(
+    slug: str,
+    conversation_id: uuid.UUID,
+    scheduled_id: uuid.UUID,
+    payload: ScheduledMessageUpdate,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+):
+    return scheduled_messages_service.update_scheduled_message(
+        db, client, conversation_id, scheduled_id, payload
+    )
+
+
+@router.delete(
+    "/{slug}/conversations/{conversation_id}/scheduled-messages/{scheduled_id}",
+    response_model=ScheduledMessageOut,
+    dependencies=[Depends(require_feature("inbox"))],
+)
+def portal_cancel_scheduled_message(
+    slug: str,
+    conversation_id: uuid.UUID,
+    scheduled_id: uuid.UUID,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+):
+    return scheduled_messages_service.cancel_scheduled_message(
+        db, client, conversation_id, scheduled_id
+    )
+
 
 
 @router.post(

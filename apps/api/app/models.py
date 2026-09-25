@@ -147,6 +147,9 @@ class Client(Base):
     appointments: Mapped[list["Appointment"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", order_by="Appointment.start_time"
     )
+    scheduled_messages: Mapped[list["ScheduledMessage"]] = relationship(
+        back_populates="client", cascade="all, delete-orphan", order_by="ScheduledMessage.scheduled_for"
+    )
 
     @property
     def logo_url(self) -> str | None:
@@ -681,6 +684,9 @@ class Conversation(Base):
         passive_deletes=True,
     )
     appointments: Mapped[list["Appointment"]] = relationship(back_populates="conversation")
+    scheduled_messages: Mapped[list["ScheduledMessage"]] = relationship(
+        foreign_keys="ScheduledMessage.conversation_id", back_populates="conversation"
+    )
 
     @property
     def team_name(self) -> str | None:
@@ -1336,6 +1342,47 @@ class Appointment(Base):
     contact: Mapped["Contact | None"] = relationship(back_populates="appointments")
     professional: Mapped["Professional | None"] = relationship(back_populates="appointments")
     service: Mapped["Service | None"] = relationship(back_populates="appointments")
+
+
+class ScheduledMessage(Base):
+    """A deferred message scheduled to be delivered at a specific future time.
+
+    Tied to a conversation, optionally linked to a specific channel thread
+    (`via_conversation_id`) and portal user who scheduled it.
+    """
+
+    __tablename__ = "scheduled_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    via_conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    portal_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("portal_users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    sender_type: Mapped[str] = mapped_column(String(20), default="human", server_default="human")
+    sender_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # pending, sent, cancelled, failed
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending", index=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+    client: Mapped[Client] = relationship(back_populates="scheduled_messages")
+    conversation: Mapped["Conversation"] = relationship(
+        foreign_keys=[conversation_id], back_populates="scheduled_messages"
+    )
+    via_conversation: Mapped["Conversation | None"] = relationship(foreign_keys=[via_conversation_id])
+    portal_user: Mapped["PortalUser | None"] = relationship()
 
 
 class LeadField(Base):

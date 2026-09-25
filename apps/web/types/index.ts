@@ -831,3 +831,23 @@ export type AvailabilityResponse = {
   days: AvailabilityDay[];
 };
 
+export type ScheduledMessageStatus = "pending" | "sent" | "cancelled" | "failed";
+
+export type ScheduledMessage = {
+  id: string;
+  agency_id: string;
+  client_id: string;
+  conversation_id: string;
+  via_conversation_id: string | null;
+  portal_user_id: string | null;
+  sender_type: string;
+  sender_name: string | null;
+  content: string;
+  scheduled_for: string;
+  status: ScheduledMessageStatus;
+  failure_reason: string | null;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+

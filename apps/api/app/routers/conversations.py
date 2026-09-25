@@ -37,6 +37,12 @@ from ..services.providers import resolve_agent_credentials
 from ..services.usage import record_usage
 from ..services.whatsapp import deliver_reaction, resolve_quote, send_channel_location, send_channel_message, signal_channel_read
 from ..services import channel_accounts, lead_group, lead_view
+from ..services import scheduled_messages as scheduled_messages_service
+from ..schemas_scheduled_messages import (
+    ScheduledMessageCreate,
+    ScheduledMessageOut,
+    ScheduledMessageUpdate,
+)
 from ..services.text_search import folded_like
 from ..services.whatsapp_inbound import InboundMessage, resolve_inbound_content
 
@@ -583,6 +589,77 @@ async def add_note(
     lead.updated_at = now_utc()
     db.commit()
     return _respond(db, user, conversation_id)
+
+
+@router.get(
+    "/{conversation_id}/scheduled-messages",
+    response_model=list[ScheduledMessageOut],
+    dependencies=[Depends(require(INBOX_READ))],
+)
+def list_scheduled_messages(
+    conversation_id: uuid.UUID,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    lead = _conversation(db, user, conversation_id)
+    return scheduled_messages_service.list_scheduled_messages(
+        db, lead.agent.client, lead.id, status=status
+    )
+
+
+@router.post(
+    "/{conversation_id}/scheduled-messages",
+    response_model=ScheduledMessageOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require(INBOX_REPLY))],
+)
+def create_scheduled_message(
+    conversation_id: uuid.UUID,
+    payload: ScheduledMessageCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    lead = _conversation(db, user, conversation_id, act=True)
+    return scheduled_messages_service.create_scheduled_message(
+        db, lead.agent.client, lead.id, payload, sender_name=user.name
+    )
+
+
+@router.patch(
+    "/{conversation_id}/scheduled-messages/{scheduled_id}",
+    response_model=ScheduledMessageOut,
+    dependencies=[Depends(require(INBOX_REPLY))],
+)
+def update_scheduled_message(
+    conversation_id: uuid.UUID,
+    scheduled_id: uuid.UUID,
+    payload: ScheduledMessageUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    lead = _conversation(db, user, conversation_id, act=True)
+    return scheduled_messages_service.update_scheduled_message(
+        db, lead.agent.client, lead.id, scheduled_id, payload
+    )
+
+
+@router.delete(
+    "/{conversation_id}/scheduled-messages/{scheduled_id}",
+    response_model=ScheduledMessageOut,
+    dependencies=[Depends(require(INBOX_REPLY))],
+)
+def cancel_scheduled_message(
+    conversation_id: uuid.UUID,
+    scheduled_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    lead = _conversation(db, user, conversation_id, act=True)
+    return scheduled_messages_service.cancel_scheduled_message(
+        db, lead.agent.client, lead.id, scheduled_id
+    )
+
 
 
 @router.post("/{conversation_id}/location", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])

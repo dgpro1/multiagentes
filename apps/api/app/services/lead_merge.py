@@ -40,7 +40,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
-from ..models import Appointment, Client, Contact, Conversation, now_utc
+from ..models import Appointment, Client, Contact, Conversation, ScheduledMessage, now_utc
 from ..schemas_lead_card import LeadMergeCandidateOut
 from . import lead_group
 from .contacts import merge_contacts, phone_from_chat_id
@@ -199,6 +199,9 @@ def merge_leads(
         appointment_updates[Appointment.contact_id] = final_contact_id
     db.query(Appointment).filter(Appointment.conversation_id.in_(secondary_ids)).update(
         appointment_updates, synchronize_session=False
+    )
+    db.query(ScheduledMessage).filter(ScheduledMessage.conversation_id.in_(secondary_ids)).update(
+        {ScheduledMessage.conversation_id: primary.id}, synchronize_session=False
     )
 
     details = {

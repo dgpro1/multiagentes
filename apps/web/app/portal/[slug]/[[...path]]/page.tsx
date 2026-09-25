@@ -30,6 +30,8 @@ import { ReplyChannelPicker } from "@/components/reply-channel-picker";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
 import { AppointmentModal } from "@/components/appointment-modal";
 import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
+import { ScheduleMessageModal } from "@/components/schedule-message-modal";
+import { ScheduledMessagesBanner } from "@/components/scheduled-messages-banner";
 import { VariablesPopover } from "@/components/variables-popover";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, portalLeadScope } from "@/components/lead-card/scope";
@@ -51,7 +53,7 @@ import { parsePortalPath, portalBase, portalChannelPath, portalPath, type Portal
 import { enabledChannelTypes, hasFeature, permissionFeatureOn, type PortalFeature } from "@/lib/portal-features";
 import { formatTime, formatWhen, isNearBottom, isSameOpenThread } from "@/lib/datetime";
 import { useLanguage, useT } from "@/lib/i18n";
-import type { Attachment, Conversation, Message, PortalChannel, PortalPublic, Team, TemplateSend } from "@/types";
+import type { Attachment, Conversation, Message, PortalChannel, PortalPublic, ScheduledMessage, Team, TemplateSend } from "@/types";
 import type { ContactValues } from "@/lib/contact-variables";
 
 const POLL_MS = 8000;
@@ -370,6 +372,8 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   const [draft, setDraft] = useState("");
   const [composerMode, setComposerMode] = useState<ComposerMode>("chat");
   const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
+  const [scheduledModalOpen, setScheduledModalOpen] = useState(false);
+  const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variablesQuery, setVariablesQuery] = useState("");
   const [composerMenu, setComposerMenu] = useState<null | "action" | "channel" | "plus" | "emoji">(null);
@@ -449,6 +453,22 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
     api(`/portal/${slug}/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   }, [slug]);
 
+  const refreshScheduledMessages = useCallback(async (targetId?: string) => {
+    const id = targetId || selectedIdRef.current;
+    if (!id) {
+      setScheduledMessages([]);
+      return;
+    }
+    try {
+      const data = await api<ScheduledMessage[]>(`/portal/${slug}/conversations/${id}/scheduled-messages?status=pending`);
+      if (selectedIdRef.current === id) {
+        setScheduledMessages(data || []);
+      }
+    } catch {
+      // ignore
+    }
+  }, [slug]);
+
   const refresh = useCallback(async () => {
     // One request for the page, the counters and what is mine; the open
     // thread is the only other thing asked for.
@@ -464,6 +484,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
     // that thread read unasked; the pane now waits for a choice instead.
     const openId = selectedIdRef.current;
     if (!openId) return;
+    void refreshScheduledMessages(openId);
     const conv = await api<Conversation>(`/portal/${slug}/conversations/${openId}`);
     if (selectedIdRef.current && selectedIdRef.current !== openId) return;
     if (!selectedIdRef.current) { selectedIdRef.current = openId; markRead(openId); }
@@ -475,7 +496,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
       if (prev && rows.find((row) => row.id === openId)?.unread) markRead(openId);
       return conv;
     });
-  }, [slug, buildParams, markRead, announceAssignments, router, urlBase]);
+  }, [slug, buildParams, markRead, announceAssignments, router, urlBase, refreshScheduledMessages]);
 
   useEffect(() => { refresh().catch((err) => setError(messageFrom(err))); }, [refresh]);
   useEffect(() => {
@@ -581,6 +602,71 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
     window.history.replaceState(window.history.state, "", clean);
     void chooseById(id);
   }, [chooseById]);
+
+  useEffect(() => {
+    if (!selected?.id) {
+      setScheduledMessages([]);
+      return;
+    }
+    void refreshScheduledMessages(selected.id);
+  }, [selected?.id, refreshScheduledMessages]);
+
+  // When there are pending scheduled messages, poll frequently so when the scheduled
+  // message is dispatched in background, the banner clears and the message appears live.
+  useEffect(() => {
+    const id = selected?.id;
+    if (!id || scheduledMessages.length === 0) return;
+    const timer = setInterval(async () => {
+      try {
+        const data = await api<ScheduledMessage[]>(`/portal/${slug}/conversations/${id}/scheduled-messages?status=pending`);
+        if (selectedIdRef.current === id) {
+          const next = data || [];
+          setScheduledMessages(next);
+          if (next.length < scheduledMessages.length) {
+            void refresh().catch(() => {});
+            setTimeout(() => { void refresh().catch(() => {}); }, 1200);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [slug, selected?.id, scheduledMessages.length, refresh]);
+
+  async function handleScheduleMessage(content: string, scheduledFor: string) {
+    if (!selected) return;
+    try {
+      await api<ScheduledMessage>(`/portal/${slug}/conversations/${selected.id}/scheduled-messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          scheduled_for: scheduledFor,
+          via_conversation_id: replyVia.via || undefined,
+        }),
+      });
+      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con éxito");
+      if (draft.trim() === content.trim()) {
+        setDraft("");
+      }
+      await refreshScheduledMessages();
+    } catch (err: unknown) {
+      throw new Error(messageFrom(err));
+    }
+  }
+
+  async function handleCancelScheduledMessage(scheduledId: string) {
+    if (!selected) return;
+    try {
+      await api<ScheduledMessage>(`/portal/${slug}/conversations/${selected.id}/scheduled-messages/${scheduledId}`, {
+        method: "DELETE",
+      });
+      toast.success(t("inbox.scheduledCancelSuccess") || "Mensaje programado cancelado");
+      await refreshScheduledMessages();
+    } catch (err: unknown) {
+      toast.error(messageFrom(err));
+    }
+  }
   async function sendReaction(message: Message, emoji: string) {
     const overChannel = message.channel ?? selected?.channel;
     if (!selected || (overChannel !== "whatsapp" && overChannel !== "whatsapp_cloud")) return;
@@ -811,7 +897,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
                 {!message.content && !hasAudio && message.attachments?.length ? <time className="msg-time bare">{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{stamp}</time> : null}
                 {reactingTo === message.id && <ReactionPicker current={message.reaction} removeLabel={t("portal.inbox.conversation.removeReaction")} onPick={(emoji) => sendReaction(message, emoji)} />}
               </article>;
-            })}</div><PhonePauseNotice conversation={selected} onKeepManual={() => setMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />{error && <Alert>{error}</Alert>}{pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}{quoting && <div className="composer-quote"><Reply size={14} /><span><strong>{t("portal.inbox.conversation.replyingTo", { name: quoting.sender_name || (quoting.role === "assistant" ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor")) })}</strong><small>{(quoting.content || "").slice(0, 140)}</small></span><button type="button" onClick={() => setQuoting(null)} aria-label={t("portal.inbox.conversation.cancelReply")} title={t("portal.inbox.conversation.cancelReply")}><X size={14} /></button></div>}{replyVia.multi && windowClosed && !selected.archived_at && <ReplyChannelPicker threads={replyVia.threads} value={replyVia.via} onChange={replyVia.setVia} />}{selected.archived_at ? <div className="portal-composer window-closed archive-bar"><div><strong>{t("portal.inbox.conversation.archivedLocked")}</strong></div></div> : windowClosed ? <div className="portal-composer window-closed"><div><strong>{selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}</strong><small>{t("portal.inbox.window.closedHint")}</small></div><button type="button" className="button primary" onClick={() => setTemplateOpen(true)} disabled={!templatesSupported}><FileText size={16} /> {t("portal.inbox.window.sendTemplate")}</button></div> : <form ref={composerRef} onSubmit={reply} onReset={() => { setDraft(""); setComposerMode("chat"); }} className="portal-composer composer-card">{canned.popup}<div className={`composer-box${composerMode === "note" ? " note-mode" : ""}`} style={{ position: "relative" }}>
+            })}</div><PhonePauseNotice conversation={selected} onKeepManual={() => setMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />{error && <Alert>{error}</Alert>}{pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}{quoting && <div className="composer-quote"><Reply size={14} /><span><strong>{t("portal.inbox.conversation.replyingTo", { name: quoting.sender_name || (quoting.role === "assistant" ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor")) })}</strong><small>{(quoting.content || "").slice(0, 140)}</small></span><button type="button" onClick={() => setQuoting(null)} aria-label={t("portal.inbox.conversation.cancelReply")} title={t("portal.inbox.conversation.cancelReply")}><X size={14} /></button></div>}{replyVia.multi && windowClosed && !selected.archived_at && <ReplyChannelPicker threads={replyVia.threads} value={replyVia.via} onChange={replyVia.setVia} />}{selected.archived_at ? <div className="portal-composer window-closed archive-bar"><div><strong>{t("portal.inbox.conversation.archivedLocked")}</strong></div></div> : windowClosed ? <div className="portal-composer window-closed"><div><strong>{selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}</strong><small>{t("portal.inbox.window.closedHint")}</small></div><button type="button" className="button primary" onClick={() => setTemplateOpen(true)} disabled={!templatesSupported}><FileText size={16} /> {t("portal.inbox.window.sendTemplate")}</button></div> : <><ScheduledMessagesBanner messages={scheduledMessages} onCancel={handleCancelScheduledMessage} /><form ref={composerRef} onSubmit={reply} onReset={() => { setDraft(""); setComposerMode("chat"); }} className="portal-composer composer-card">{canned.popup}<div className={`composer-box${composerMode === "note" ? " note-mode" : ""}`} style={{ position: "relative" }}>
       <UnifiedComposerTop
         mode={composerMode}
         onModeChange={setComposerMode}
@@ -821,6 +907,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
         onViaChange={replyVia.setVia}
         onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
         onOpenAppointmentModal={() => setAppointmentModalOpen(true)}
+        onOpenScheduleModal={() => setScheduledModalOpen(true)}
       />
       <VariablesPopover
         open={variablesOpen}
@@ -898,6 +985,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
                 {composerMenu === "plus" && <div className="composer-menu-list up" role="menu">
                   <button type="button" role="menuitem" disabled={!canReply || busy} onClick={() => setComposerMenu("emoji")}><Smile size={18} /><span>{t("portal.inbox.composer.emoji")}</span></button>
                   <button type="button" role="menuitem" onClick={() => { setComposerMenu(null); setAppointmentModalOpen(true); }}><CalendarIcon size={18} /><span>{t("portal.inbox.composer.schedule")}</span></button>
+                  <button type="button" role="menuitem" onClick={() => { setComposerMenu(null); setScheduledModalOpen(true); }}><Clock size={18} /><span>{t("inbox.composerScheduleMessage") || "Programar mensaje"}</span></button>
                   <button type="button" role="menuitem" disabled={!policy.canAttach || busy} onClick={() => { setComposerMenu(null); fileInputRef.current?.click(); }}><Paperclip size={18} /><span>{t("chat.attachFile")}</span></button>
                   <button type="button" role="menuitem" onClick={() => setComposerMenu(null)}><Navigation size={18} /><span>{t("portal.inbox.composer.navigate")}</span></button>
                 </div>}
@@ -908,7 +996,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
           )}
         </div>
       </div>
-    </div></form>}<MediaPanel open={mediaOpen} onClose={() => setMediaOpen(false)} messages={selected.messages ?? []} urlFor={attachmentUrl} /><TemplatePicker base={base} open={templateOpen} title={t("portal.inbox.window.sendTemplate")} contactValues={contactValues} onClose={() => setTemplateOpen(false)} onSend={replyWithTemplate} />{appointmentModalOpen && selected && (
+    </div></form></>}<MediaPanel open={mediaOpen} onClose={() => setMediaOpen(false)} messages={selected.messages ?? []} urlFor={attachmentUrl} /><TemplatePicker base={base} open={templateOpen} title={t("portal.inbox.window.sendTemplate")} contactValues={contactValues} onClose={() => setTemplateOpen(false)} onSend={replyWithTemplate} />{appointmentModalOpen && selected && (
       <AppointmentModal
         open={appointmentModalOpen}
         onClose={() => setAppointmentModalOpen(false)}
@@ -918,6 +1006,13 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
         onSuccess={() => {
           refresh().catch(() => {});
         }}
+      />
+    )}{scheduledModalOpen && selected && (
+      <ScheduleMessageModal
+        open={scheduledModalOpen}
+        onClose={() => setScheduledModalOpen(false)}
+        onSchedule={handleScheduleMessage}
+        initialContent={draft}
       />
     )}</>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { refresh().catch(() => {}); }} onMerged={(primary) => { void api<Conversation>(`/portal/${slug}/conversations/number/${primary.number}`).then((detail) => { selectedIdRef.current = detail.id; setSelected(detail); if (detail.number !== urlNumber) goTo("inbox", detail.number); refresh().catch(() => {}); }).catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}</div>}</section>
     {/* Confirmations for the actions that leave a mark: archiving every resolved conversation, deleting one or several, blocking the contact. */}

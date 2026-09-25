@@ -11,6 +11,8 @@ import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
 import { AppointmentModal } from "@/components/appointment-modal";
 import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
+import { ScheduleMessageModal } from "@/components/schedule-message-modal";
+import { ScheduledMessagesBanner } from "@/components/scheduled-messages-banner";
 import { VariablesPopover } from "@/components/variables-popover";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
@@ -27,7 +29,7 @@ import { PhonePauseNotice, SocialReplyNotice, useReplyPolicy } from "@/component
 import { api, ApiError, apiUrl, messageFrom } from "@/lib/api";
 import { formatTime, formatWhen, isNearBottom, isSameOpenThread } from "@/lib/datetime";
 import { useLanguage, useT } from "@/lib/i18n";
-import type { Agent, Attachment, Conversation, ConversationInbox } from "@/types";
+import type { Agent, Attachment, Conversation, ConversationInbox, ScheduledMessage } from "@/types";
 
 const LIMIT = 30;
 const POLL_MS = 8000;
@@ -53,6 +55,8 @@ export default function InboxPage() {
   const [locating, setLocating] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
+  const [scheduledModalOpen, setScheduledModalOpen] = useState(false);
+  const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
   // A lead that absorbed others has several threads: the composer picks one and every reply names it.
   const replyVia = useReplyVia(selected);
   const owners = useAttachmentOwners(selected);
@@ -120,6 +124,22 @@ export default function InboxPage() {
     toast.error(t("inbox.threadGone"));
   }, [toast, t]);
 
+  const refreshScheduledMessages = useCallback(async (targetId?: string) => {
+    const id = targetId || selectedIdRef.current;
+    if (!id) {
+      setScheduledMessages([]);
+      return;
+    }
+    try {
+      const data = await api<ScheduledMessage[]>(`/conversations/${id}/scheduled-messages?status=pending`);
+      if (selectedIdRef.current === id) {
+        setScheduledMessages(data || []);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const refreshSelected = useCallback(async () => {
     const id = selectedIdRef.current;
     if (!id) return;
@@ -134,6 +154,7 @@ export default function InboxPage() {
         api(`/conversations/${id}/read`, { method: "POST" }).catch(() => {});
         return conv;
       });
+      void refreshScheduledMessages(conv.id);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404 && selectedIdRef.current === id) {
         closeGoneThread(id);
@@ -141,7 +162,7 @@ export default function InboxPage() {
       }
       // Other poll failures should not interrupt the open thread.
     }
-  }, [closeGoneThread]);
+  }, [closeGoneThread, refreshScheduledMessages]);
 
   useEffect(() => { loadFirst(); }, [loadFirst]);
 
@@ -245,6 +266,72 @@ export default function InboxPage() {
       field.focus();
       field.setSelectionRange(newPos, newPos);
     }, 0);
+  }
+
+  useEffect(() => {
+    if (!selected?.id) {
+      setScheduledMessages([]);
+      return;
+    }
+    void refreshScheduledMessages(selected.id);
+  }, [selected?.id, refreshScheduledMessages]);
+
+  // When there are pending scheduled messages, poll frequently so when the scheduled
+  // message is dispatched in background, the banner clears and the message appears live.
+  useEffect(() => {
+    const id = selected?.id;
+    if (!id || scheduledMessages.length === 0) return;
+    const timer = setInterval(async () => {
+      try {
+        const data = await api<ScheduledMessage[]>(`/conversations/${id}/scheduled-messages?status=pending`);
+        if (selectedIdRef.current === id) {
+          const next = data || [];
+          setScheduledMessages(next);
+          if (next.length < scheduledMessages.length) {
+            void refreshSelected();
+            setTimeout(() => { void refreshSelected(); }, 1200);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [selected?.id, scheduledMessages.length, refreshSelected]);
+
+  async function handleScheduleMessage(content: string, scheduledFor: string) {
+    if (!selected) return;
+    try {
+      await api<ScheduledMessage>(`/conversations/${selected.id}/scheduled-messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          scheduled_for: scheduledFor,
+          via_conversation_id: replyVia.via || undefined,
+        }),
+      });
+      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con éxito");
+      if (draft.trim() === content.trim()) {
+        if (composerRef.current) composerRef.current.value = "";
+        setDraft("");
+      }
+      await refreshScheduledMessages();
+    } catch (err: unknown) {
+      throw new Error(messageFrom(err));
+    }
+  }
+
+  async function handleCancelScheduledMessage(scheduledId: string) {
+    if (!selected) return;
+    try {
+      await api<ScheduledMessage>(`/conversations/${selected.id}/scheduled-messages/${scheduledId}`, {
+        method: "DELETE",
+      });
+      toast.success(t("inbox.scheduledCancelSuccess") || "Mensaje programado cancelado");
+      await refreshScheduledMessages();
+    } catch (err: unknown) {
+      toast.error(messageFrom(err));
+    }
   }
 
   async function sendNote(content: string) {
@@ -414,6 +501,9 @@ export default function InboxPage() {
             <PhonePauseNotice conversation={selected} onKeepManual={() => toggleMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
             {pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}
             {locating && <LocationComposer busy={busy} disabled={!policy.canReply} onCancel={() => setLocating(false)} onSend={sendLocation} />}
+            <div style={{ margin: "0 16px" }}>
+              <ScheduledMessagesBanner messages={scheduledMessages} onCancel={handleCancelScheduledMessage} />
+            </div>
             <div className={`composer-box${composerMode === "note" ? " note-mode" : ""}`} style={{ position: "relative", margin: "10px 16px 14px" }}>
               <UnifiedComposerTop
                 mode={composerMode}
@@ -424,6 +514,7 @@ export default function InboxPage() {
                 onViaChange={replyVia.setVia}
                 onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
                 onOpenAppointmentModal={() => setAppointmentModalOpen(true)}
+                onOpenScheduleModal={() => setScheduledModalOpen(true)}
               />
               <VariablesPopover
                 open={variablesOpen}
@@ -511,6 +602,14 @@ export default function InboxPage() {
             refreshSelected();
             loadFirst({ silent: true });
           }}
+        />
+      )}
+      {scheduledModalOpen && selected && (
+        <ScheduleMessageModal
+          open={scheduledModalOpen}
+          onClose={() => setScheduledModalOpen(false)}
+          onSchedule={handleScheduleMessage}
+          initialContent={draft}
         />
       )}
     </div>

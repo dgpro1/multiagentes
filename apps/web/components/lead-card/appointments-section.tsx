@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Calendar, Clock, Plus, RotateCw, XCircle, CheckCircle2, User, Scissors } from "lucide-react";
+import { Calendar, Clock, Plus, RotateCw, XCircle, User, Scissors } from "lucide-react";
 import { api, messageFrom } from "@/lib/api";
 import { useLanguage, useT } from "@/lib/i18n";
 import { useToast } from "@/components/toast";

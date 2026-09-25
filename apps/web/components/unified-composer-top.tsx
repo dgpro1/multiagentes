@@ -17,6 +17,7 @@ interface UnifiedComposerTopProps {
   onViaChange?: (conversationId: string) => void;
   onOpenVariables: () => void;
   onOpenAppointmentModal?: () => void;
+  onOpenScheduleModal?: () => void;
 }
 
 export function UnifiedComposerTop({
@@ -28,6 +29,7 @@ export function UnifiedComposerTop({
   onViaChange,
   onOpenVariables,
   onOpenAppointmentModal,
+  onOpenScheduleModal,
 }: UnifiedComposerTopProps) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState<"action" | "channel" | null>(null);
@@ -102,13 +104,13 @@ export function UnifiedComposerTop({
             <button
               type="button"
               role="menuitem"
-              disabled
-              title="Disponible en Sub-Fase 4"
-              style={{ opacity: 0.5, cursor: "not-allowed" }}
+              onClick={() => {
+                setMenuOpen(null);
+                onOpenScheduleModal?.();
+              }}
             >
-              <Clock size={15} />
+              <Clock size={15} color="#8b5cf6" />
               <span>{t("inbox.composerScheduleMessage") || "Programar mensaje"}</span>
-              <small style={{ fontSize: 10, color: "var(--muted)" }}>Fase 4</small>
             </button>
             <button
               type="button"

@@ -65,8 +65,6 @@ def normalize(stored: dict | None) -> dict[str, bool]:
         for key in KEYS:
             if key in stored:
                 result[key] = bool(stored[key])
-        if "appointments" not in stored and "calendar" in result:
-            result["appointments"] = result["calendar"]
     return result
 
 
