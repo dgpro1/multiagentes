@@ -143,7 +143,11 @@ export type ToolCallMeta = { name: string; arguments: Record<string, unknown>; r
 
 export type Source = { id: string; filename: string; excerpt: string };
 export type Attachment = { id: string; kind: "image" | "audio" | "video" | "file" | "location"; mime: string; filename: string | null; size_bytes: number };
-export type Message = { id: string; role: "user" | "assistant" | "system"; kind?: "message" | "activity"; delivery_status?: "pending" | "sent" | "delivered" | "read" | "failed" | "unknown" | null; delivery_error?: string | null; activity?: { event: string; hours?: number | string; assignee?: string; from?: string; team?: string; target?: string; reason?: string; tag?: string } | null; content: string; sources: Source[]; tool_calls?: ToolCallMeta[] | null; sender_type: "visitor" | "ai" | "human"; sender_name: string | null; reaction?: string | null; incoming_reaction?: string | null; quoted_message_id?: string | null; created_at: string; attachments?: Attachment[] };
+/** One of the two leads of an "entity_merged" audit entry, as it was when they were merged. */
+export type MergeSide = { number: number; name?: string | null; price?: number | null; currency?: string | null; created_at?: string | null; channels?: string[]; custom_fields?: Record<string, unknown> };
+/** One channel thread of a lead that absorbed others: the primary's own or a linked one. */
+export type LinkedThread = { conversation_id: string; channel: string; label: string | null; account_label: string | null; is_primary: boolean; mode: "ai" | "human"; last_inbound_at: string | null };
+export type Message = { id: string; role: "user" | "assistant" | "system"; kind?: "message" | "activity"; delivery_status?: "pending" | "sent" | "delivered" | "read" | "failed" | "unknown" | null; delivery_error?: string | null; activity?: { event: string; hours?: number | string; assignee?: string; from?: string; team?: string; target?: string; reason?: string; tag?: string; primary_number?: number; secondary_number?: number; primary?: MergeSide; secondary?: MergeSide } | null; conversation_id?: string; channel?: string; content: string; sources: Source[]; tool_calls?: ToolCallMeta[] | null; sender_type: "visitor" | "ai" | "human"; sender_name: string | null; reaction?: string | null; incoming_reaction?: string | null; quoted_message_id?: string | null; created_at: string; attachments?: Attachment[] };
 
 export type ConversationInbox = {
   id: string;
@@ -160,6 +164,10 @@ export type ConversationInbox = {
   unread_count: number;
   updated_at: string;
   last_inbound_at?: string | null;
+  /** Distinct channels of the lead, the primary's first; absent on older responses. */
+  channels?: string[];
+  /** How many other leads were merged into this one. */
+  linked_count?: number;
 };
 export type PortalMember = { id: string; name: string; email: string; availability: "online" | "away" };
 export type TeamMember = { id: string; name: string; email: string; availability: "online" | "away" };
@@ -252,6 +260,12 @@ export type Conversation = {
   unread?: boolean;
   unread_count?: number;
   messages?: Message[];
+  channels?: string[];
+  linked_count?: number;
+  /** The lead's channel threads, the primary first; absent means a single thread. */
+  linked_threads?: LinkedThread[];
+  /** The thread of the last inbound message (else the primary): where a reply goes by default. */
+  reply_via_default?: string;
 };
 
 export type WhatsAppChannel = {
@@ -741,4 +755,9 @@ export type LeadCard = {
   custom_values: Record<string, LeadValue>;
   fields: LeadField[];
   contact: LeadContact;
+  created_at?: string;
+  linked_channels?: { conversation_id: string; channel: string; label: string | null; account_label: string | null; is_primary: boolean }[];
 };
+/** One candidate of the merge dialog's search. */
+export type MergeCandidate = { conversation_id: string; number: number; contact_name: string | null; phone: string | null; email: string | null; channel: string; channels: string[]; stage: LeadStage | null; deal_value: number | null; created_at: string };
+export type LeadMergeResult = { primary: LeadCard; secondary_number: number };

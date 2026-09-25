@@ -7,6 +7,8 @@ import { AttachButton, MessageAttachments, PendingAttachment, RecordButton, useF
 import { LocationComposer } from "@/components/location-composer";
 import { MediaPanel } from "@/components/media-panel";
 import { LeadCard } from "@/components/lead-card/lead-card";
+import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
+import { ReplyChannelPicker } from "@/components/reply-channel-picker";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
@@ -16,7 +18,8 @@ import { GrowingTextarea } from "@/components/growing-textarea";
 import { QuotedSnippet, ReactionBadge } from "@/components/message-gestures";
 import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
-import { ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel } from "@/lib/channels";
+import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels, MessageChannelMark } from "@/lib/channels";
+import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
 import { PhonePauseNotice, SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
 import { api, ApiError, apiUrl, messageFrom } from "@/lib/api";
 import { formatTime, formatWhen, isNearBottom, isSameOpenThread } from "@/lib/datetime";
@@ -46,7 +49,10 @@ export default function InboxPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [locating, setLocating] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
-  const policy = useReplyPolicy(selected);
+  // A lead that absorbed others has several threads: the composer picks one and every reply names it.
+  const replyVia = useReplyVia(selected);
+  const owners = useAttachmentOwners(selected);
+  const policy = useReplyPolicy(replyVia.policyConversation);
   // The lead card beside the thread; a lead's data is reached through its client.
   const { open: leadPanelOpen, setOpen: setLeadOpen, overlay: leadOverlay, attachLayout: attachLead } = useLeadPanel();
   const closeLead = useCallback(() => setLeadOpen(false), [setLeadOpen]);
@@ -116,6 +122,8 @@ export default function InboxPage() {
     try {
       const conv = await api<Conversation>(`/conversations/${id}`);
       if (selectedIdRef.current !== id) return;
+      // An id of a thread absorbed by another lead answers with the primary.
+      if (conv.id !== id) selectedIdRef.current = conv.id;
       setSelected((prev) => {
         if (isSameOpenThread(prev, conv)) return prev;
         setItems((rows) => rows.map((row) => (row.id === id ? { ...row, unread: false, unread_count: 0 } : row)));
@@ -163,7 +171,9 @@ export default function InboxPage() {
     if (composerRef.current) composerRef.current.value = "";
     selectedIdRef.current = id;
     try {
-      setSelected(await api<Conversation>(`/conversations/${id}`));
+      const detail = await api<Conversation>(`/conversations/${id}`);
+      selectedIdRef.current = detail.id;
+      setSelected(detail);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) { closeGoneThread(id); return; }
       throw err;
@@ -194,7 +204,7 @@ export default function InboxPage() {
     if (!selected) return;
     setBusy(true);
     try {
-      setSelected(await api<Conversation>(`/conversations/${selected.id}/location`, { method: "POST", body: JSON.stringify(place) }));
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/location`, { method: "POST", body: JSON.stringify({ ...place, ...replyVia.payload }) }));
       setLocating(false);
       loadFirst({ silent: true });
     } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); composerRef.current?.focus(); }
@@ -212,7 +222,7 @@ export default function InboxPage() {
     const data = new FormData(form);
     setBusy(true);
     try {
-      setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: data.get("content") }) }));
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: data.get("content"), ...replyVia.payload }) }));
       form.reset();
       loadFirst({ silent: true });
     } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); composerRef.current?.focus(); }
@@ -226,6 +236,7 @@ export default function InboxPage() {
       const data = new FormData();
       data.append("file", file);
       if (caption) data.append("caption", caption);
+      if (replyVia.multi) data.append("via_conversation_id", replyVia.via);
       setSelected(await api<Conversation>(`/conversations/${selected.id}/reply-media`, { method: "POST", body: data }));
       if (composerRef.current) composerRef.current.value = "";
       loadFirst({ silent: true });
@@ -235,8 +246,8 @@ export default function InboxPage() {
 
   const selectedId = selected?.id;
   const attachmentUrl = useCallback(
-    (attachment: Attachment) => apiUrl(`/conversations/${selectedId}/attachments/${attachment.id}`),
-    [selectedId],
+    (attachment: Attachment) => apiUrl(`/conversations/${owners.get(attachment.id) ?? selectedId}/attachments/${attachment.id}`),
+    [selectedId, owners],
   );
   const gallery: GalleryImage[] = useMemo(
     () => (selected?.messages ?? []).flatMap((message) =>
@@ -275,7 +286,7 @@ export default function InboxPage() {
                 <span className="inbox-row-body">
                   <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
                   <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
-                  <small className="inbox-row-meta">{item.agent_name} · {channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
+                  <small className="inbox-row-meta">{item.agent_name} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
                 </span>
                 {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
               </button>
@@ -299,6 +310,7 @@ export default function InboxPage() {
             </header>
             <div className="inbox-messages" ref={messagesRef}>
               {selected.messages?.map((message, index) => {
+                if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
                 const prev = index > 0 ? selected.messages![index - 1] : null;
                 const grouped = Boolean(prev && prev.role === message.role && prev.sender_name === message.sender_name);
                 const stamp = formatTime(message.created_at, lang);
@@ -307,10 +319,10 @@ export default function InboxPage() {
                   <div key={message.id} className={`inbox-message ${message.role}${grouped ? " grouped" : ""}`}>
                     {!grouped && <small>{message.sender_name || (message.role === "assistant" ? t("inbox.senderAgent") : t("inbox.senderVisitor"))}</small>}
                     <MessageAttachments attachments={message.attachments} urlFor={attachmentUrl} gallery={gallery} stamp={stamp} />
-                    {message.content && <p><QuotedSnippet messages={selected.messages ?? []} quotedId={message.quoted_message_id} /><RichText text={message.content} /><time className="msg-time">{stamp}{message.role === "assistant" && isSocialChannel(selected.channel) && <DeliveryTicks status={message.delivery_status} error={message.delivery_error} />}</time></p>}
+                    {message.content && <p><QuotedSnippet messages={selected.messages ?? []} quotedId={message.quoted_message_id} /><RichText text={message.content} /><time className="msg-time">{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{stamp}{message.role === "assistant" && isSocialChannel(message.channel ?? selected.channel) && <DeliveryTicks status={message.delivery_status} error={message.delivery_error} />}</time></p>}
                     <ReactionBadge emoji={message.reaction} />
                     <ReactionBadge emoji={message.incoming_reaction} incoming />
-                    {!message.content && !hasAudio && message.attachments?.length ? <time className="msg-time bare">{stamp}</time> : null}
+                    {!message.content && !hasAudio && message.attachments?.length ? <time className="msg-time bare">{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{stamp}</time> : null}
                   </div>
                 );
               })}
@@ -318,8 +330,9 @@ export default function InboxPage() {
             <PhonePauseNotice conversation={selected} onKeepManual={() => toggleMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
             {pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}
             {locating && <LocationComposer busy={busy} disabled={!policy.canReply} onCancel={() => setLocating(false)} onSend={sendLocation} />}
+            {replyVia.multi && <ReplyChannelPicker threads={replyVia.threads} value={replyVia.via} onChange={replyVia.setVia} />}
             <form className="inbox-composer" onSubmit={reply}>
-              {selected.channel === "whatsapp" && <button type="button" className="icon-button" title={t("inbox.locationSend")} aria-label={t("inbox.locationSend")} disabled={!policy.canReply || busy} onClick={() => setLocating((open) => !open)}><MapPin size={17} /></button>}
+              {(replyVia.thread?.channel ?? selected.channel) === "whatsapp" && <button type="button" className="icon-button" title={t("inbox.locationSend")} aria-label={t("inbox.locationSend")} disabled={!policy.canReply || busy} onClick={() => setLocating((open) => !open)}><MapPin size={17} /></button>}
               <AttachButton onFile={setPendingFile} disabled={!policy.canAttach || busy} title={t("chat.attachFile")} />
               <RecordButton onRecorded={sendAttachment} onError={() => toast.error(t("chat.micDenied"))} disabled={!policy.canRecord || busy} title={t("chat.recordAudio")} titleStop={t("chat.stopRecording")} />
               <GrowingTextarea ref={composerRef} name="content" placeholder={selected.mode === "human" ? t("inbox.composerHuman") : t("inbox.composerLocked")} disabled={!policy.canReply || busy} required={!pendingFile} />
@@ -329,7 +342,7 @@ export default function InboxPage() {
           </>}
       </section>
       {leadOpen && selected && leadScope && <LeadScopeProvider scope={leadScope}>
-        <LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { loadFirst({ silent: true }); refreshSelected(); }} syncKey={selected.messages?.at(-1)?.id} />
+        <LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { loadFirst({ silent: true }); refreshSelected(); }} onMerged={(primary) => { void choose(primary.conversation_id).catch(() => {}); loadFirst({ silent: true }); }} syncKey={selected.messages?.at(-1)?.id} />
       </LeadScopeProvider>}
     </div>
   </div>;

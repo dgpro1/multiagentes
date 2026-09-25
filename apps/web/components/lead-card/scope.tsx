@@ -22,6 +22,8 @@ export type LeadScope = {
   contactPath: (contactId: string) => string;
   /** PUT of a contact's whole tag set. */
   contactTagsPath: (contactId: string) => string;
+  /** Base of the client's lead routes (merge candidates and merge): `{leadsBase}/leads/...`. */
+  leadsBase: string;
   /** GET/POST of the client's custom fields. */
   fieldsPath: string;
   /** PATCH/DELETE of one custom field. */
@@ -46,6 +48,7 @@ export type LeadScope = {
 export function agencyLeadScope(clientId: string): LeadScope {
   const client = `/clients/${clientId}`;
   return {
+    leadsBase: client,
     leadPath: (id) => `/conversations/${id}/lead`,
     pipelinePath: (id) => `/conversations/${id}/pipeline`,
     contactPath: (id) => `${client}/contacts/${id}`,
@@ -66,6 +69,7 @@ export function agencyLeadScope(clientId: string): LeadScope {
 export function portalLeadScope(slug: string, can: (key: string) => boolean, leadHref: (number: number) => string): LeadScope {
   const base = `/portal/${slug}`;
   return {
+    leadsBase: base,
     leadPath: (id) => `${base}/conversations/${id}/lead`,
     pipelinePath: (id) => `${base}/conversations/${id}/pipeline`,
     contactPath: (id) => `${base}/contacts/${id}`,

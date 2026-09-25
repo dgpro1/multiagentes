@@ -21,6 +21,8 @@ export function isSameOpenThread(prev: Conversation | null, next: Conversation):
   const stateFields = ["status", "assignee_id", "assignee_name", "team_id", "team_name", "reply_window_open", "reply_window_until", "human_reply_window_open", "human_reply_window_until", "reply_block_reason"] as const;
   if (stateFields.some((field) => prev[field] !== next[field])) return false;
   if (JSON.stringify(prev.channel_capabilities) !== JSON.stringify(next.channel_capabilities)) return false;
+  // A merge adds threads to the lead without necessarily changing its messages.
+  if (JSON.stringify(prev.linked_threads) !== JSON.stringify(next.linked_threads)) return false;
   const prevMessages = prev.messages ?? [];
   const nextMessages = next.messages ?? [];
   if (prevMessages.length !== nextMessages.length) return false;

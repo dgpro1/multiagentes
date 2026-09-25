@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Copy, Link2, MoreHorizontal, Settings2, UserRound, X } from "lucide-react";
+import { ChevronDown, Copy, GitMerge, Link2, MoreHorizontal, Settings2, UserRound, X } from "lucide-react";
 import { InlineInput, parseAmount } from "@/components/lead-card/inline-input";
 import { FieldManager } from "@/components/lead-card/field-manager";
 import { useLeadScope } from "@/components/lead-card/scope";
+import { MergeDialog } from "@/components/merge-leads/merge-dialog";
 import { SharedContentList } from "@/components/shared-content";
 import { TagEditor } from "@/components/tag-editor";
 import { ListRowsSkeleton } from "@/components/skeleton";
@@ -34,7 +35,7 @@ function useEscape(active: boolean, onEscape: () => void) {
  * tags, its stage in the pipeline, who is responsible, its budget, the client's
  * custom fields and the contact's details, plus the files shared in the chat.
  * Where the data lives (agency or portal) comes from the LeadScope above it. */
-export function LeadCard({ conversationId, number, messages, urlFor, overlay = false, onClose, onChanged, syncKey }: {
+export function LeadCard({ conversationId, number, messages, urlFor, overlay = false, onClose, onChanged, onMerged, syncKey }: {
   conversationId: string;
   /** The lead's number, shown while the card is still loading. */
   number: number;
@@ -46,6 +47,8 @@ export function LeadCard({ conversationId, number, messages, urlFor, overlay = f
   onClose: () => void;
   /** Called after a save that may show elsewhere (the contact's name in the list, say). */
   onChanged?: () => void;
+  /** Called after this lead was merged with another; receives the primary lead, which the host opens and reloads. */
+  onMerged?: (primary: LeadCardData) => void;
   /** Changes when the thread does (a new message); the card reloads quietly, since the agent may have moved the lead. */
   syncKey?: string | number | null;
 }) {
@@ -59,6 +62,7 @@ export function LeadCard({ conversationId, number, messages, urlFor, overlay = f
   const [catalog, setCatalog] = useState<ContactTag[]>([]);
   const [tab, setTab] = useState<"main" | "files">("main");
   const [managing, setManaging] = useState(false);
+  const [merging, setMerging] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tagsBusy, setTagsBusy] = useState(false);
   // Bumped when a save fails, to put every input back to what the server holds.
@@ -192,6 +196,7 @@ export function LeadCard({ conversationId, number, messages, urlFor, overlay = f
             <div className="start-line-menu lead-menu" role="menu">
               {scope.leadLink && <button type="button" role="menuitem" onClick={() => copy(scope.leadLink!(shownNumber), t("lead.linkCopied"))}><Link2 size={15} /><span><strong>{t("lead.copyLink")}</strong></span></button>}
               <button type="button" role="menuitem" onClick={() => copy(String(shownNumber), t("lead.numberCopied"))}><Copy size={15} /><span><strong>{t("lead.copyNumber")}</strong></span></button>
+              {scope.canEditContact && card && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setMerging(true); }}><GitMerge size={15} /><span><strong>{t("lead.mergeWith")}</strong></span></button>}
             </div>
           </>}
         </span>
@@ -246,6 +251,7 @@ export function LeadCard({ conversationId, number, messages, urlFor, overlay = f
         </>}
     </div>
 
+    {merging && card && <MergeDialog card={card} onClose={() => setMerging(false)} onMerged={(primary) => { setMerging(false); onMerged?.(primary); }} />}
     {scope.canManageFields && <FieldManager open={managing} fields={fields} onClose={() => setManaging(false)} onChanged={() => { void refresh(); onChanged?.(); }} />}
   </div>;
 }
@@ -345,6 +351,7 @@ function ContactBlock({ card, editable, onSave, onCopyPhone }: {
 }) {
   const t = useT();
   const { contact } = card;
+  const linked = card.linked_channels ?? [];
   return <section className="lead-contact">
     <div className="lead-contact-head">
       <span className="inbox-avatar">
@@ -367,6 +374,14 @@ function ContactBlock({ card, editable, onSave, onCopyPhone }: {
         </span>
       </div>
     </div>
+    {linked.length > 1 && <div className="lead-linked">
+      <span className="lead-row-label">{t("lead.linkedChannels")}</span>
+      <ul>{linked.map((item) => <li key={item.conversation_id}>
+        <span className={`lead-channel-pill ${item.channel}`}><ChannelIcon channel={item.channel} size={11} />{channelLabel(item.channel, t)}</span>
+        <span className="lead-linked-name">{item.label || item.account_label || ""}</span>
+        {item.is_primary && <em className="lead-linked-primary">{t("lead.primaryMark")}</em>}
+      </li>)}</ul>
+    </div>}
     {!contact.id && <p className="lead-empty"><small>{t("lead.noContact")}</small></p>}
     <div className="lead-row">
       <span className="lead-row-label">{t("lead.phone")}</span>

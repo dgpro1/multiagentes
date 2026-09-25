@@ -26,6 +26,7 @@ export function activityText(t: TranslateFn, message: Message): string {
     case "team_assigned": return t("portal.inbox.activity.team_assigned", { actor, team: String(details?.team ?? "") });
     case "team_removed": return t("portal.inbox.activity.team_removed", { actor, team: String(details?.team ?? "") });
     case "escalated": return t("portal.inbox.activity.escalated", { actor, target: String(details?.target ?? ""), reason: String(details?.reason ?? "") });
+    case "entity_merged": return t("lead.merge.audit.text", { primary: String(details?.primary_number ?? ""), secondary: String(details?.secondary_number ?? "") });
     case "routed_by_tag": return t("portal.inbox.activity.routed_by_tag", { target: String(details?.target ?? ""), tag: String(details?.tag ?? "") });
     default: return message.content;
   }

@@ -23,6 +23,28 @@ export function ChannelIcon({ channel, size = 10 }: { channel: string; size?: nu
   return <Icon size={size} />;
 }
 
+/** Every channel a lead reaches through, the primary's first; an older response carries only `channel`. */
+export function leadChannels(item: { channel: string; channels?: string[] }): string[] {
+  return item.channels && item.channels.length ? item.channels : [item.channel];
+}
+
+/** Small round channel icons side by side, one per channel. */
+export function ChannelDots({ channels, t, size = 10 }: { channels: string[]; t: (key: I18nKey) => string; size?: number }) {
+  return <span className="channel-dots">{channels.map((channel) => <span key={channel} className={`channel-dot ${channel}`} title={channelLabel(channel, t)}><ChannelIcon channel={channel} size={size} /></span>)}</span>;
+}
+
+/** The tiny channel icon at a message's edge, shown when the lead's thread mixes several channels. */
+export function MessageChannelMark({ channel, t }: { channel?: string; t: (key: I18nKey) => string }) {
+  if (!channel) return null;
+  return <span className={`msg-channel channel-dot ${channel}`} title={channelLabel(channel, t)}><ChannelIcon channel={channel} size={8} /></span>;
+}
+
+/** One of a lead's threads by name: "WhatsApp +57 300 000 0000", "Instagram @user". */
+export function threadName(thread: { channel: string; label?: string | null; account_label?: string | null }, t: (key: I18nKey) => string): string {
+  const who = (thread.label || thread.account_label || "").trim();
+  return who ? `${channelLabel(thread.channel, t)} ${who}` : channelLabel(thread.channel, t);
+}
+
 export function isSocialChannel(channel?: string): boolean {
   return channel === "instagram" || channel === "messenger";
 }

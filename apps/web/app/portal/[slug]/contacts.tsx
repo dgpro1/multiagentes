@@ -6,10 +6,12 @@ import { TemplatePicker } from "./templates";
 import { Alert, EmptyState, Modal } from "@/components/ui";
 import { MessageAttachments, type GalleryImage } from "@/components/attachments";
 import { RichText } from "@/components/rich-text";
+import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
 import { QuotedSnippet, ReactionBadge } from "@/components/message-gestures";
 import { DeliveryTicks } from "@/components/delivery-ticks";
 import { activityText } from "@/lib/activity";
 import { ChannelIcon, channelLabel, isSocialChannel } from "@/lib/channels";
+import { useAttachmentOwners } from "@/lib/linked-threads";
 import { chatToText, downloadText } from "@/lib/export";
 import { useToast } from "@/components/toast";
 import { PhoneInput } from "@/components/phone-input";
@@ -277,7 +279,8 @@ export function ContactsView({ slug, channels, openConversation, can, agentName,
     catch (err) { setError(messageFrom(err)); setPreview(null); }
     finally { setPreviewLoading(false); }
   }
-  const previewUrl = useCallback((attachment: Attachment) => apiUrl(`/portal/${slug}/conversations/${preview?.id}/attachments/${attachment.id}`), [slug, preview?.id]);
+  const previewOwners = useAttachmentOwners(preview);
+  const previewUrl = useCallback((attachment: Attachment) => apiUrl(`/portal/${slug}/conversations/${previewOwners.get(attachment.id) ?? preview?.id}/attachments/${attachment.id}`), [slug, preview?.id, previewOwners]);
   const previewMessages = useMemo(() => (preview?.messages ?? []).filter((m) => m.kind !== "activity"), [preview]);
   const previewHandlers = useMemo(() => {
     const ai = new Set<string>(); const humans = new Set<string>();
@@ -539,6 +542,7 @@ export function ContactsView({ slug, channels, openConversation, can, agentName,
         <div className="portal-messages preview-thread">
           {previewLoading && <div className="no-conversations"><LoaderCircle className="spin" size={16} /></div>}
           {(preview.messages ?? []).map((message, index, all) => {
+            if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
             if (message.kind === "activity") return <div key={message.id} className="activity-line"><span>{activityText(t, message)}</span><time>{formatTime(message.created_at, lang)}</time></div>;
             const prev = index > 0 ? all[index - 1] : null;
             const grouped = Boolean(prev && prev.kind !== "activity" && prev.role === message.role && prev.sender_name === message.sender_name);
