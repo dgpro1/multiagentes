@@ -490,6 +490,17 @@ class ConversationOut(ORMModel):
     # When the contact last wrote; the inbox shows this so the row's time
     # means "waiting since", not "our last activity".
     last_inbound_at: datetime | None = None
+    # A lead merged from several conversations spans several channels: the
+    # distinct codes of its threads, the lead's own first, and how many threads
+    # were merged into it (0 when none were).
+    channels: list[str] = []
+    linked_count: int = 0
+
+    @model_validator(mode="after")
+    def _own_channel(self):
+        if not self.channels:
+            self.channels = [self.channel]
+        return self
 
 
 class AttachmentOut(ORMModel):
@@ -519,10 +530,37 @@ class MessageOut(ORMModel):
     quoted_message_id: uuid.UUID | None = None
     created_at: datetime
     attachments: list[AttachmentOut] = []
+    # The thread this message lives on and that thread's channel: a merged
+    # lead shows the messages of all its threads in one timeline.
+    conversation_id: uuid.UUID | None = None
+    channel: str | None = None
+
+
+class LinkedThreadOut(BaseModel):
+    """One thread of a lead (the lead's own conversation comes first)."""
+
+    conversation_id: uuid.UUID
+    channel: str
+    label: str | None = None
+    account_label: str | None = None
+    is_primary: bool = False
+    mode: str = "ai"
+    last_inbound_at: datetime | None = None
+    # Whether a free-form reply can go out on this thread right now, since the
+    # windows of WhatsApp Cloud and the social channels are per thread.
+    reply_window_open: bool = True
+    reply_window_until: datetime | None = None
+    reply_block_reason: str | None = None
 
 
 class ConversationDetail(ConversationOut):
     messages: list[MessageOut] = []
+    # Every thread of the lead, the primary first, and the one a reply goes
+    # through unless the caller names another: the thread of the latest
+    # inbound message, else the primary.
+    # Read from a view attribute, never from the ORM's ``linked_threads`` relationship of the same name.
+    linked_threads: list[LinkedThreadOut] = Field(default_factory=list, validation_alias="linked_threads_view")
+    reply_via_default: uuid.UUID | None = None
 
 
 class ConversationInboxOut(BaseModel):
@@ -541,6 +579,8 @@ class ConversationInboxOut(BaseModel):
     unread_count: int = 0
     updated_at: datetime
     last_inbound_at: datetime | None = None
+    channels: list[str] = []
+    linked_count: int = 0
 
 
 class LocationSend(BaseModel):
@@ -548,17 +588,23 @@ class LocationSend(BaseModel):
     longitude: float = Field(ge=-180, le=180)
     name: str = Field(default="", max_length=200)
     address: str = Field(default="", max_length=300)
+    # Which thread of a merged lead sends it; the lead's own by default.
+    via_conversation_id: uuid.UUID | None = None
 
 
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=50000)
     # Reply quoting this earlier message of the conversation (swipe-to-reply).
     quoted_message_id: uuid.UUID | None = None
+    # Which thread of a merged lead the reply goes out on; the lead's own by default.
+    via_conversation_id: uuid.UUID | None = None
 
 
 class ReactionRequest(BaseModel):
     # Empty string removes the reaction.
     emoji: str = Field(default="", max_length=16)
+    # The thread the reacted message lives on, when the caller names it.
+    via_conversation_id: uuid.UUID | None = None
 
 
 class ConversationModeUpdate(BaseModel):
@@ -851,6 +897,8 @@ class TemplateSend(BaseModel):
     location: TemplateLocation | None = None
     # One slot per button; only the dynamic ones are read.
     button_values: list[str] = Field(default_factory=list, max_length=10)
+    # Which thread of a merged lead sends it; the lead's own by default.
+    via_conversation_id: uuid.UUID | None = None
 
 
 class ReportDay(BaseModel):

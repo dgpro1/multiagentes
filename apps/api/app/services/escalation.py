@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Agent, Conversation, EscalationRule, PortalUser, Team, now_utc
+from . import lead_group
 from .conversation_state import assign, record_activity, set_team
 from .notifications import notify_assigned, notify_needs_human
 from .routing import route_conversation
@@ -205,9 +206,14 @@ async def apply_escalation(
     if conversation.status == "resolved":
         return
     team, person = resolve_destination(db, agent, conversation, request)
-    if conversation.mode != "human":
-        conversation.mode = "human"
-        conversation.taken_over_at = now_utc()
+    # A thread merged into another lead hands over the whole lead: every thread
+    # goes to people, and the team, the assignee and the alert are the lead's.
+    stamp = now_utc()
+    for row in lead_group.group_of(db, conversation):
+        if row.mode != "human":
+            row.mode = "human"
+            row.taken_over_at = stamp
+    conversation = lead_group.primary_of(conversation)
     target = person.name if person else (team.name if team else "a person")
     reason = request.reason or (request.rule.condition[:120] if request.rule else request.trigger or "")
     record_activity(db, conversation, "escalated", actor=agent.name, details={"target": target, "reason": reason})

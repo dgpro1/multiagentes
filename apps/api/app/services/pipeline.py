@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..models import Agent, Client, Contact, Conversation, PipelineStage, now_utc
 from ..schemas import PipelineStageCreate, PipelineStageUpdate, QuickLeadCreate
+from . import lead_group
 from .contacts import normalize_phone, resolve_contact
 from .conversation_state import record_activity, set_pipeline_stage
 from .tools.specs import ToolSpec
@@ -39,7 +40,7 @@ def list_stages(db: Session, client: Client) -> list[PipelineStage]:
 def stage_out(db: Session, stage: PipelineStage) -> dict:
     count, total = db.execute(
         select(func.count(Conversation.id), func.coalesce(func.sum(Conversation.deal_value), 0))
-        .where(Conversation.pipeline_stage_id == stage.id, Conversation.status == "open")
+        .where(Conversation.pipeline_stage_id == stage.id, Conversation.status == "open", lead_group.is_lead_row())
     ).one()
     return {
         "id": stage.id, "name": stage.name, "color": stage.color, "position": stage.position,
@@ -106,7 +107,12 @@ def board(db: Session, client: Client) -> dict:
     cards = db.scalars(
         select(Conversation)
         .options(selectinload(Conversation.contact).selectinload(Contact.tags))
-        .where(Conversation.client_id == client.id, Conversation.status == "open", Conversation.archived_at.is_(None))
+        .where(
+            Conversation.client_id == client.id,
+            Conversation.status == "open",
+            Conversation.archived_at.is_(None),
+            lead_group.is_lead_row(),
+        )
         .order_by(Conversation.updated_at.desc())
         .limit(MAX_BOARD_CARDS)
     ).all()

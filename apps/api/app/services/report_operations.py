@@ -62,9 +62,14 @@ class ConversationFilters:
         self.provider = (provider or "").strip()[:30] or None
         self.bucket = safe_bucket(bucket)
 
-    def where(self, alias: str = "c", stamp: str | None = None) -> tuple[str, dict]:
+    def where(self, alias: str = "c", stamp: str | None = None, *, leads_only: bool = False) -> tuple[str, dict]:
+        """``leads_only`` counts leads: a conversation merged into another one
+        is a thread of that lead, not one of its own. Message volume keeps
+        counting by thread."""
         stamp = stamp or f"{alias}.created_at"
         clauses = [f"{alias}.agency_id = :agency_id"]
+        if leads_only:
+            clauses.append(f"{alias}.primary_conversation_id IS NULL")
         params: dict = {"agency_id": self.agency_id, "tz": self.tz, "bucket": self.bucket}
         start = datetime.combine(self.date_from, time.min, tzinfo=timezone.utc) if self.date_from else datetime(1970, 1, 1, tzinfo=timezone.utc)
         params["date_from"] = start
@@ -163,7 +168,7 @@ def operations(db: Session, filters: ConversationFilters) -> dict:
     """Totals, breakdowns and timing for the conversations that started in
     the range. Message counts cover messages sent in the range, whichever
     conversation they belong to, so a long-running chat still counts."""
-    where, params = filters.where("c")
+    where, params = filters.where("c", leads_only=True)
     msg_where, msg_params = filters.where("c", stamp="m.created_at")
     msg_params["date_from"] = params["date_from"]
 

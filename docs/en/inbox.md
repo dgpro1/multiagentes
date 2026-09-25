@@ -44,3 +44,17 @@ Next to a conversation, the lead card shows it as a sales lead (a lead is a conv
 - **Custom fields** are defined per client (up to 30) as text, number, date, select or checkbox. A field's key and type are fixed once created; deleting a field hides its values without erasing them.
 
 Anyone with the inbox can choose the responsible and fill the fields on a lead. Only portal admins (permission `fields.manage`) and the agency can create, rename, reorder or delete the fields. Agency operators use the same card and the same routes under `/api/conversations/{id}/lead` and `/api/clients/{id}/lead-fields`.
+
+
+## Merging leads
+
+When the same person writes from two places (WhatsApp and Instagram, or a new number), the two leads can be merged into one. From the lead card choose **Merge**, search for the other lead by name, phone, e-mail or number (`#123`) and confirm. The lead you are in stays as the **primary**; the other one is the **secondary**. Merging is final: it cannot be undone.
+
+- **Budget:** the primary keeps its own. Only when it has none (or 0) does it take the secondary's.
+- **Custom fields:** the primary's values are never overwritten; the fields it left empty are filled from the secondary. The same goes for the responsible person, the assignee and the team.
+- **Contact:** two different contacts are merged into the primary's (identities, tags and company included); if only the secondary has a contact, the primary adopts it. Tags live on the contact, so they are combined.
+- **Conversation:** nothing is deleted. The secondary keeps its channel and its messages and keeps receiving what that channel delivers, but it now belongs to the primary: the inbox shows one lead with the messages of every channel in one timeline, each marked with its channel, and you choose which channel a reply goes out on. Taking control, assigning, moving to a team, resolving and archiving act on the whole lead. If the contact writes again on the secondary's channel, the primary reopens instead of a new lead being created.
+- **Number:** the secondary's number becomes an alias of the primary: opening `#<secondary number>` opens the primary.
+- **History:** the primary's timeline records the merge with what the secondary had (its budget and custom fields), so nothing is lost.
+
+In the client portal, merging needs the `contacts.manage` permission (portal admins) and the inbox function; searching for a lead to merge only needs the inbox. Agency operators use `GET /api/clients/{id}/leads/merge-candidates` and `POST /api/clients/{id}/leads/merge`; the portal serves the same at `/api/portal/{slug}/leads/...`. Replies accept an optional `via_conversation_id` to choose the channel of a merged lead.

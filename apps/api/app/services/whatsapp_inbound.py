@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from ..database import new_session
 from .contacts import display_name, phone_from_chat_id, previous_conversation_recap, rename_conversations, resolve_contact
+from . import lead_group
 from .conversation_state import exchanged_only, note_inbound, note_reply, set_pipeline_stage
 from ..models import Agent, Conversation, Message, MessageAttachment, now_utc
 from .attachments import llm_text, store_attachment
@@ -213,7 +214,9 @@ async def process_inbound(
         .where(
             fk_column == channel.id,
             peer_filter,
-            Conversation.status != "resolved",
+            # A thread merged into another lead is found whatever its status:
+            # the message reopens that lead instead of starting a new one.
+            or_(Conversation.status != "resolved", Conversation.primary_conversation_id.is_not(None)),
         )
         .order_by(Conversation.created_at.desc())
         .limit(1)
@@ -597,7 +600,8 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
     conversation.updated_at = now_utc()
     channel.last_error = None
     if pipeline_holder:
-        set_pipeline_stage(db, conversation, pipeline_holder[-1], actor=agent.name)
+        # The deal belongs to the lead, whichever of its threads the agent answered on.
+        set_pipeline_stage(db, lead_group.primary_of(conversation), pipeline_holder[-1], actor=agent.name)
     if escalation_holder and conversation.channel in ("instagram", "messenger"):
         request = escalation_holder[-1]
         conversation.social_pending_escalation = {

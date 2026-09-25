@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Contact, Conversation, PortalUser, Team, TeamMember, now_utc
+from . import lead_group
 from .conversation_state import assign, record_activity, set_team
 
 _NEVER = datetime.min.replace(tzinfo=timezone.utc)
@@ -42,6 +43,7 @@ def _open_counts(db: Session, member_ids: list) -> dict:
             Conversation.assignee_id.in_(member_ids),
             Conversation.status == "open",
             Conversation.mode == "human",
+            lead_group.is_lead_row(),
         )
         .group_by(Conversation.assignee_id)
     ).all()

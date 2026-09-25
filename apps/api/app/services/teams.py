@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Client, Conversation, PortalUser, Team, TeamMember, now_utc
+from . import lead_group
 from ..schemas import TeamUpsert
 
 TEAM_CHANNELS = {"whatsapp", "whatsapp_cloud", "widget", "instagram", "messenger"}
@@ -33,7 +34,7 @@ def team_out(db: Session, team: Team) -> dict:
         select(
             func.count(Conversation.id),
             func.count(Conversation.id).filter(Conversation.assignee_id.is_(None)),
-        ).where(Conversation.team_id == team.id, Conversation.status == "open")
+        ).where(Conversation.team_id == team.id, Conversation.status == "open", lead_group.is_lead_row())
     ).one()
     return {
         "id": team.id,

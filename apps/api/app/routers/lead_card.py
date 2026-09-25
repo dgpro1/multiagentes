@@ -7,7 +7,7 @@ the client to ``services/lead_card.py``, ``services/lead_fields.py`` and
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,8 +16,18 @@ from ..database import get_db
 from ..deps import confined_client_id, get_current_user, require
 from ..models import Client, Conversation, User
 from ..schemas import ContactOut, ContactTagsSet, ContactUpdate
-from ..schemas_lead_card import LeadCardOut, LeadFieldCreate, LeadFieldOut, LeadFieldUpdate, LeadUpdate
+from ..schemas_lead_card import (
+    LeadCardOut,
+    LeadFieldCreate,
+    LeadFieldOut,
+    LeadFieldUpdate,
+    LeadMergeCandidateOut,
+    LeadMergeOut,
+    LeadMergeRequest,
+    LeadUpdate,
+)
 from ..services import contact_edit
+from ..services import lead_merge as lead_merge_service
 from ..services import lead_card as lead_card_service
 from ..services import lead_fields as lead_fields_service
 
@@ -59,9 +69,43 @@ def update_lead(
     conversation_id: uuid.UUID, payload: LeadUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     client = _conversation_client(db, user, conversation_id)
-    conversation = lead_card_service.get_lead(db, client, conversation_id)
+    conversation = lead_card_service.get_lead(db, client, conversation_id, act=True)
     lead_card_service.update_lead(db, client, conversation, payload)
     return lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, conversation_id))
+
+
+@router.get(
+    "/clients/{client_id}/leads/merge-candidates",
+    response_model=list[LeadMergeCandidateOut],
+    dependencies=[Depends(require(INBOX_READ))],
+)
+def merge_candidates(
+    client_id: uuid.UUID,
+    q: str | None = Query(default=None, max_length=120),
+    exclude: uuid.UUID | None = None,
+    limit: int = Query(default=20, ge=1, le=20),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Leads of the client that can be merged with ``exclude``: primaries only,
+    found by contact name, phone, e-mail or number."""
+    return lead_merge_service.merge_candidates(db, _client(db, user, client_id), q, exclude, limit)
+
+
+@router.post(
+    "/clients/{client_id}/leads/merge", response_model=LeadMergeOut, dependencies=[Depends(require(CONTACTS_MANAGE))]
+)
+def merge_leads(
+    client_id: uuid.UUID, payload: LeadMergeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """Fold the secondary lead into the primary one. Final: the secondary stays
+    as a linked thread of the primary and its number becomes an alias."""
+    client = _client(db, user, client_id)
+    primary, secondary_number = lead_merge_service.merge_leads(
+        db, client, payload.primary_conversation_id, payload.secondary_conversation_id, user.name
+    )
+    return {"primary": lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, primary.id)),
+            "secondary_number": secondary_number}
 
 
 @router.patch(

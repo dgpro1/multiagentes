@@ -7,6 +7,7 @@ from sqlalchemy import or_, select
 from ..models import Conversation, Message, now_utc
 from .attachments import llm_text
 from .conversation_state import note_reply, record_activity
+from .lead_group import primary_of
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,8 @@ def record_outgoing(db, channel, payload):
     conversation = db.scalar(select(Conversation).where(
         Conversation.whatsapp_channel_id == channel.id,
         Conversation.external_chat_id == payload.remote_jid,
-        Conversation.status != "resolved").order_by(Conversation.created_at.desc()).limit(1)
+        or_(Conversation.status != "resolved", Conversation.primary_conversation_id.is_not(None)))
+        .order_by(Conversation.created_at.desc()).limit(1)
         .with_for_update().execution_options(populate_existing=True))
     if not conversation:
         conversation = Conversation(agency_id=channel.agency_id, client_id=channel.client_id,
@@ -81,6 +83,9 @@ def record_outgoing(db, channel, payload):
     if not conversation.waiting_since or occurred >= conversation.waiting_since:
         note_reply(conversation)
     conversation.updated_at = max(conversation.updated_at, occurred)
+    if conversation.primary_conversation_id is not None:
+        lead = primary_of(conversation)
+        lead.updated_at = max(lead.updated_at, occurred)
     db.commit()
 
 

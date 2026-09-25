@@ -641,6 +641,12 @@ class Conversation(Base):
     )
     # Values of the client's custom lead fields, keyed by LeadField.key.
     custom_values: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    # Set when this conversation was absorbed by a lead merge: the row it points
+    # at is "the lead" and this one is a linked thread that keeps its channel,
+    # chat key and messages. Never chains: a primary is never itself linked.
+    primary_conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     # Set by an inbound message, cleared by the next reply: how long the
     # contact has been waiting for an answer.
     waiting_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -653,6 +659,15 @@ class Conversation(Base):
     team: Mapped["Team | None"] = relationship(foreign_keys=[team_id])
     pipeline_stage: Mapped["PipelineStage | None"] = relationship(foreign_keys=[pipeline_stage_id])
     responsible: Mapped["PortalUser | None"] = relationship(foreign_keys=[responsible_id])
+    primary_thread: Mapped["Conversation | None"] = relationship(
+        remote_side="Conversation.id", back_populates="linked_threads", foreign_keys=[primary_conversation_id]
+    )
+    linked_threads: Mapped[list["Conversation"]] = relationship(
+        back_populates="primary_thread",
+        foreign_keys="Conversation.primary_conversation_id",
+        cascade="save-update, merge, delete",
+        passive_deletes=True,
+    )
 
     @property
     def team_name(self) -> str | None:

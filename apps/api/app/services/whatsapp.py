@@ -179,12 +179,16 @@ def resolve_quote(
     cannot be rendered as a quote on WhatsApp."""
     if not quoted_message_id:
         return None, None
+    from .lead_group import group_ids
+
+    # Any thread of the same lead may be quoted; only a message of the thread
+    # the reply goes out on can be rendered as a quote by the channel.
     quoted = db.scalar(
-        select(Message).where(Message.id == quoted_message_id, Message.conversation_id == conversation.id)
+        select(Message).where(Message.id == quoted_message_id, Message.conversation_id.in_(group_ids(db, conversation)))
     )
     if not quoted:
         raise HTTPException(status_code=404, detail="The quoted message is not part of this conversation")
-    return quoted.id, quoted.external_message_id
+    return quoted.id, (quoted.external_message_id if quoted.conversation_id == conversation.id else None)
 
 
 async def signal_channel_read(

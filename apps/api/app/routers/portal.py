@@ -9,7 +9,7 @@ import re
 
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import Interval, and_, case, exists, func, literal, or_, select
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, aliased, joinedload, object_session, selectinload
 
 from ..config import get_settings
 from ..database import get_db, new_session
@@ -76,7 +76,16 @@ from ..schemas import (
     TeamUpsert,
 )
 from ..security import create_portal_token, decode_portal_token, verify_password
-from ..schemas_lead_card import LeadCardOut, LeadFieldCreate, LeadFieldOut, LeadFieldUpdate, LeadUpdate
+from ..schemas_lead_card import (
+    LeadCardOut,
+    LeadFieldCreate,
+    LeadFieldOut,
+    LeadFieldUpdate,
+    LeadMergeCandidateOut,
+    LeadMergeOut,
+    LeadMergeRequest,
+    LeadUpdate,
+)
 from ..schemas_professionals import ProfessionalCreate, ProfessionalOut, ProfessionalUpdate
 from ..schemas_calendar import CalendarEventsOut, CalendarMemberCreate, CalendarMemberOut, CalendarMemberUpdate, CalendarOverviewOut
 from ..services import calendar as calendar_service
@@ -85,6 +94,8 @@ from ..services import professionals as professionals_service
 from ..services.client_details import apply_details, clear_logo, store_logo
 from ..services import channel_accounts
 from ..services import lead_card as lead_card_service
+from ..services import lead_group, lead_view
+from ..services import lead_merge as lead_merge_service
 from ..services import lead_fields as lead_fields_service
 from ..services.text_search import folded_like
 from ..services.contact_edit import (
@@ -276,7 +287,7 @@ def _window_fields(conversation: Conversation, last_inbound_at) -> dict:
 
 def _present(conversation: Conversation) -> ConversationDetail:
     assignee = conversation.assignee
-    return ConversationDetail.model_validate(conversation).model_copy(
+    detail = ConversationDetail.model_validate(conversation).model_copy(
         update={
             "assignee_name": (assignee.name.strip() or assignee.email) if assignee else None,
             "team_name": conversation.team.name if conversation.team else None,
@@ -284,9 +295,22 @@ def _present(conversation: Conversation) -> ConversationDetail:
             **_window_fields(conversation, _last_inbound_at(conversation)),
         }
     )
+    # A lead merged from several conversations: one timeline, every thread.
+    return lead_view.with_group(object_session(conversation), conversation, detail)
 
 
-def _detail(db: Session, client: Client, conversation_id: uuid.UUID) -> Conversation:
+def _detail(db: Session, client: Client, conversation_id: uuid.UUID, *, act: bool = False) -> Conversation:
+    """The conversation of this client with its messages. A thread merged into
+    another lead reads as that lead; acting through it (``act``) is refused."""
+    lead_id = db.scalar(
+        select(Conversation.primary_conversation_id).where(
+            Conversation.id == conversation_id, Conversation.client_id == client.id
+        )
+    )
+    if lead_id is not None:
+        if act:
+            raise HTTPException(status_code=409, detail=lead_group.ACT_ON_THE_LEAD)
+        conversation_id = lead_id
     conversation = db.scalar(
         select(Conversation)
         .options(selectinload(Conversation.messages).selectinload(Message.attachments), joinedload(Conversation.agent), joinedload(Conversation.assignee))
@@ -662,7 +686,7 @@ def portal_set_conversation_pipeline(
     slug: str, conversation_id: uuid.UUID, payload: ConversationPipelineUpdate,
     client: Client = Depends(_portal_client), sender_name: str = Depends(_sender_name), db: Session = Depends(get_db),
 ):
-    conversation = _detail(db, client, conversation_id)
+    conversation = _detail(db, client, conversation_id, act=True)
     pipeline_service.move_conversation(db, client, conversation, payload.pipeline_stage_id, payload.deal_value, actor=sender_name)
     return _present(_detail(db, client, conversation_id))
 
@@ -713,52 +737,68 @@ def _conversation_page(
     # Same shape as the agency inbox: the latest message and the unread count
     # are resolved in SQL, so the list never loads message histories, and the
     # filters run server-side so paging stays consistent with what is shown.
+    # A lead merged from several conversations reads as one row: the messages
+    # of its threads are grouped under the primary.
+    group_key = lead_group.group_key()
     ranked = (
         select(
-            Message.conversation_id.label("cid"),
+            group_key.label("cid"),
             Message.content.label("content"),
             Message.sender_type.label("sender_type"),
-            func.row_number().over(partition_by=Message.conversation_id, order_by=Message.created_at.desc()).label("rn"),
+            func.row_number().over(partition_by=group_key, order_by=Message.created_at.desc()).label("rn"),
         )
+        .select_from(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
         .where(Message.kind == "message")
         .subquery()
     )
     last = select(ranked).where(ranked.c.rn == 1).subquery()
     unread_counts = (
-        select(Message.conversation_id.label("cid"), func.count(Message.id).label("n"))
+        select(group_key.label("cid"), func.count(Message.id).label("n"))
+        .select_from(Message)
         .join(Conversation, Conversation.id == Message.conversation_id)
         .where(
             Message.sender_type == "visitor",
             Message.is_historical.is_(False),
             or_(Conversation.operator_read_at.is_(None), Message.created_at > Conversation.operator_read_at),
         )
-        .group_by(Message.conversation_id)
+        .group_by(group_key)
     ).subquery()
+    # A lead is answered by a person while its primary or any thread is.
+    group_human = lead_group.has_human_thread()
+    lead_human = or_(Conversation.mode == "human", group_human)
     # Unread is a call to action for a person: the contact wrote and nobody
     # has looked. While the AI answers there is nothing to act on, and a
     # conversation a colleague holds is theirs to catch up on, so unread only
     # counts what is mine or nobody's.
     concerns_me = or_(Conversation.assignee_id.is_(None), Conversation.assignee_id == (user.id if user else None))
     unread_count = case(
-        (and_(Conversation.mode == "human", concerns_me), func.coalesce(unread_counts.c.n, 0)),
+        (and_(lead_human, concerns_me), func.coalesce(unread_counts.c.n, 0)),
         else_=0,
     )
 
     last_inbound = (
-        select(Message.conversation_id.label("cid"), func.max(Message.created_at).label("at"))
+        select(group_key.label("cid"), func.max(Message.created_at).label("at"))
+        .select_from(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
         .where(Message.kind == "message", Message.sender_type == "visitor")
-        .group_by(Message.conversation_id)
+        .group_by(group_key)
         .subquery()
     )
     query = (
-        select(Conversation, last.c.content, unread_count.label("unread_count"), PortalUser.name.label("assignee_name"), PortalUser.email.label("assignee_email"), last_inbound.c.at.label("last_inbound_at"), Team.name.label("team_name"))
+        select(Conversation, last.c.content, unread_count.label("unread_count"), PortalUser.name.label("assignee_name"), PortalUser.email.label("assignee_email"), last_inbound.c.at.label("last_inbound_at"), Team.name.label("team_name"), group_human.label("group_human"))
         .outerjoin(last, last.c.cid == Conversation.id)
         .outerjoin(unread_counts, unread_counts.c.cid == Conversation.id)
         .outerjoin(PortalUser, PortalUser.id == Conversation.assignee_id)
         .outerjoin(last_inbound, last_inbound.c.cid == Conversation.id)
         .outerjoin(Team, Team.id == Conversation.team_id)
         .outerjoin(Contact, Contact.id == Conversation.contact_id)
-        .where(Conversation.client_id == client.id, Conversation.channel != PLAYGROUND, Contact.blocked_at.is_(None))
+        .where(
+            Conversation.client_id == client.id,
+            Conversation.channel != PLAYGROUND,
+            Contact.blocked_at.is_(None),
+            lead_group.is_lead_row(),
+        )
     )
     # The archive is its own inbox: archived conversations show only there.
     query = query.where(Conversation.archived_at.is_not(None) if archived else Conversation.archived_at.is_(None))
@@ -771,13 +811,15 @@ def _conversation_page(
     if assignee == "me" and user:
         query = query.where(Conversation.assignee_id == user.id)
     elif assignee == "none":
-        query = query.where(Conversation.mode == "human", Conversation.assignee_id.is_(None))
+        query = query.where(lead_human, Conversation.assignee_id.is_(None))
     # No status filter means everything, so clients that predate statuses keep
     # seeing their whole list.
     if status in ("open", "resolved"):
         query = query.where(Conversation.status == status)
-    if mode in ("ai", "human"):
-        query = query.where(Conversation.mode == mode)
+    if mode == "human":
+        query = query.where(lead_human)
+    elif mode == "ai":
+        query = query.where(~lead_human)
     if unread:
         query = query.where(unread_count > 0)
     if unanswered:
@@ -806,19 +848,25 @@ def _conversation_page(
         .offset(offset)
     ).all()
     channel_accounts.annotate(db, [row[0] for row in rows])
+    stats = lead_group.group_stats(db, [row[0] for row in rows])
     items = [
-        ConversationOut.model_validate(conv).model_copy(
-            update={
-                "preview": (content or "")[:140].strip(),
-                "unread": int(row_unread_count) > 0,
-                "unread_count": int(row_unread_count),
-                "assignee_name": ((assignee_name or "").strip() or assignee_email) if conv.assignee_id else None,
-                "last_inbound_at": last_inbound_at,
-                "team_name": team_name,
-                **_window_fields(conv, last_inbound_at),
-            }
+        lead_view.list_item(
+            ConversationOut.model_validate(conv).model_copy(
+                update={
+                    "preview": (content or "")[:140].strip(),
+                    "unread": int(row_unread_count) > 0,
+                    "unread_count": int(row_unread_count),
+                    "assignee_name": ((assignee_name or "").strip() or assignee_email) if conv.assignee_id else None,
+                    "last_inbound_at": last_inbound_at,
+                    "team_name": team_name,
+                    **_window_fields(conv, last_inbound_at),
+                }
+            ),
+            conv,
+            stats[conv.id],
+            group_human=bool(row_group_human),
         )
-        for conv, content, row_unread_count, assignee_name, assignee_email, last_inbound_at, team_name in rows
+        for conv, content, row_unread_count, assignee_name, assignee_email, last_inbound_at, team_name, row_group_human in rows
     ]
     return items, total
 
@@ -895,6 +943,7 @@ def portal_inbox(
                 Conversation.archived_at.is_(None),
                 Conversation.status == "open",
                 Conversation.assignee_id == user.id,
+                lead_group.is_lead_row(),
             )
             .order_by(Conversation.created_at.desc())
             .limit(100)
@@ -915,24 +964,29 @@ async def portal_mark_read(
     )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    conversation.operator_read_at = now_utc()
+    # Reading a lead reads every thread merged into it.
+    threads = lead_group.group_of(db, conversation)
+    now = now_utc()
+    for thread in threads:
+        thread.operator_read_at = now
     db.commit()
     # Opening the thread is the operator reading it: blue-tick the latest
     # visitor message on WhatsApp too. Best-effort by design, and off the
     # request: the portal opens the thread on this answer, and the channel's
     # API takes longer than everything else the click does put together.
-    latest_external = db.scalar(
-        select(Message.external_message_id)
-        .where(
-            Message.conversation_id == conversation.id,
-            Message.role == "user",
-            Message.external_message_id.is_not(None),
+    for thread in threads:
+        latest_external = db.scalar(
+            select(Message.external_message_id)
+            .where(
+                Message.conversation_id == thread.id,
+                Message.role == "user",
+                Message.external_message_id.is_not(None),
+            )
+            .order_by(Message.created_at.desc())
+            .limit(1)
         )
-        .order_by(Message.created_at.desc())
-        .limit(1)
-    )
-    if latest_external:
-        _signal_read_later(conversation.id, [latest_external])
+        if latest_external:
+            _signal_read_later(thread.id, [latest_external])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1363,7 +1417,7 @@ def portal_contact_conversations(
     to the cases opened between two dates (inclusive); the total travels in
     X-Total-Count so the card can page as the person scrolls."""
     contact = _portal_contact(db, client, contact_id)
-    scope = [Conversation.contact_id == contact.id, Conversation.channel != PLAYGROUND]
+    scope = [Conversation.contact_id == contact.id, Conversation.channel != PLAYGROUND, lead_group.is_lead_row()]
     if since:
         scope.append(Conversation.created_at >= datetime.combine(since, time.min, tzinfo=timezone.utc))
     if until:
@@ -1580,16 +1634,23 @@ def portal_report(
     start = datetime.combine(from_, time.min, tzinfo=timezone.utc) + shift
     end = datetime.combine(to, time.min, tzinfo=timezone.utc) + shift + timedelta(days=1)
     conv_filters = [Conversation.client_id == client.id, Conversation.channel != PLAYGROUND]
+    # Leads count once (a thread merged into another is not one); the message
+    # volume below still counts every thread's messages.
+    lead_filters = [*conv_filters, lead_group.is_lead_row()]
     # Imported archives did not start or resolve a case in this inbox.
     conv_filters.append(or_(Conversation.social_channel_id.is_(None), exists(
         select(Message.id).where(Message.conversation_id == Conversation.id,
             Message.kind == "message", Message.is_historical.is_(False)).correlate(Conversation))))
+    lead_filters.append(conv_filters[-1])
     if channel:
         conv_filters.append(Conversation.channel == channel)
+        lead_filters.append(Conversation.channel == channel)
     if assignee_id:
         conv_filters.append(Conversation.assignee_id == assignee_id)
+        lead_filters.append(Conversation.assignee_id == assignee_id)
     if team_id:
         conv_filters.append(Conversation.team_id == team_id)
+        lead_filters.append(Conversation.team_id == team_id)
 
     def local_day(column):
         return func.date(column - literal(shift, Interval))
@@ -1597,20 +1658,20 @@ def portal_report(
     started_day = local_day(Conversation.created_at)
     started_rows = db.execute(
         select(started_day, func.count())
-        .where(*conv_filters, Conversation.created_at >= start, Conversation.created_at < end)
+        .where(*lead_filters, Conversation.created_at >= start, Conversation.created_at < end)
         .group_by(started_day)
     ).all()
     resolved_day = local_day(Conversation.resolved_at)
     resolved_rows = db.execute(
         select(resolved_day, func.count())
-        .where(*conv_filters, Conversation.resolved_at >= start, Conversation.resolved_at < end)
+        .where(*lead_filters, Conversation.resolved_at >= start, Conversation.resolved_at < end)
         .group_by(resolved_day)
     ).all()
     handoffs, ai_resolved = db.execute(
         select(
             func.count().filter(Conversation.taken_over_at.is_not(None)),
             func.count().filter(Conversation.status == "resolved", Conversation.taken_over_at.is_(None)),
-        ).where(*conv_filters, Conversation.created_at >= start, Conversation.created_at < end)
+        ).where(*lead_filters, Conversation.created_at >= start, Conversation.created_at < end)
     ).one()
 
     human_reply = and_(Message.role == "assistant", Message.sender_type == "human")
@@ -1652,25 +1713,25 @@ def portal_report(
 
     channel_rows = db.execute(
         select(Conversation.channel, func.count())
-        .where(*conv_filters, Conversation.created_at >= start, Conversation.created_at < end)
+        .where(*lead_filters, Conversation.created_at >= start, Conversation.created_at < end)
         .group_by(Conversation.channel)
         .order_by(func.count().desc())
     ).all()
 
     active_contacts = db.scalar(
         select(func.count(func.distinct(Conversation.contact_id))).where(
-            *conv_filters,
+            *lead_filters,
             Conversation.contact_id.is_not(None),
             Conversation.created_at >= start,
             Conversation.created_at < end,
         )
     )
     open_now = db.scalar(
-        select(func.count()).select_from(Conversation).where(*conv_filters, Conversation.status != "resolved")
+        select(func.count()).select_from(Conversation).where(*lead_filters, Conversation.status != "resolved")
     )
     avg_first_reply = db.scalar(
         select(func.avg(func.extract("epoch", Conversation.first_reply_at - Conversation.created_at))).where(
-            *conv_filters,
+            *lead_filters,
             Conversation.first_reply_at.is_not(None),
             Conversation.created_at >= start,
             Conversation.created_at < end,
@@ -1678,7 +1739,7 @@ def portal_report(
     )
     avg_resolution = db.scalar(
         select(func.avg(func.extract("epoch", Conversation.resolved_at - Conversation.created_at))).where(
-            *conv_filters,
+            *lead_filters,
             Conversation.resolved_at >= start,
             Conversation.resolved_at < end,
         )
@@ -1707,7 +1768,7 @@ def portal_report(
         db.execute(
             select(Conversation.assignee_id, func.count())
             .where(
-                *conv_filters,
+                *lead_filters,
                 Conversation.assignee_id.is_not(None),
                 Conversation.assigned_at >= start,
                 Conversation.assigned_at < end,
@@ -1719,7 +1780,7 @@ def portal_report(
         db.execute(
             select(Conversation.assignee_id, func.count())
             .where(
-                *conv_filters,
+                *lead_filters,
                 Conversation.assignee_id.is_not(None),
                 Conversation.status != "resolved",
             )
@@ -1837,7 +1898,9 @@ async def portal_start_conversation(
     fk_column = getattr(Conversation, fk_field)
     existing = db.scalar(
         select(Conversation).where(
-            fk_column == channel_row.id, Conversation.external_chat_id == external_chat_id, Conversation.status != "resolved"
+            fk_column == channel_row.id,
+            Conversation.external_chat_id == external_chat_id,
+            or_(Conversation.status != "resolved", Conversation.primary_conversation_id.is_not(None)),
         )
     )
     if existing:
@@ -1898,7 +1961,8 @@ async def portal_reply_template(
     db: Session = Depends(get_db),
 ):
     """Reach a person again after the window closed."""
-    conversation = _detail(db, client, conversation_id)
+    lead = _detail(db, client, conversation_id, act=True)
+    conversation = lead_group.thread_in_group(db, lead, payload.via_conversation_id)
     if conversation.channel != "whatsapp_cloud" or not conversation.external_chat_id:
         raise HTTPException(status_code=409, detail="Templates only exist on the WhatsApp API line")
     if conversation.phone_pause_until is not None:
@@ -1939,21 +2003,28 @@ def portal_inbox_summary(
 def _inbox_summary(db: Session, client: Client, user: PortalUser | None) -> dict:
     """Counts behind the list's switches and chips, computed the same way the
     list is so a badge never promises something the filter does not show."""
+    # A lead merged from several conversations counts once, as one lead: its
+    # threads' messages are read together.
+    thread = aliased(Conversation)
+    in_lead = or_(thread.id == Conversation.id, thread.primary_conversation_id == Conversation.id)
     unread_exists = (
         select(Message.id)
+        .join(thread, thread.id == Message.conversation_id)
         .where(
-            Message.conversation_id == Conversation.id,
+            in_lead,
             Message.sender_type == "visitor",
             Message.is_historical.is_(False),
-            or_(Conversation.operator_read_at.is_(None), Message.created_at > Conversation.operator_read_at),
+            or_(thread.operator_read_at.is_(None), Message.created_at > thread.operator_read_at),
         )
+        .correlate(Conversation)
         .exists()
     )
     # The contact wrote last: the most recent real message (activity lines are
     # not messages) is theirs, so nobody has answered yet.
     last_sender = (
         select(Message.sender_type)
-        .where(Message.conversation_id == Conversation.id, Message.kind == "message")
+        .join(thread, thread.id == Message.conversation_id)
+        .where(in_lead, Message.kind == "message")
         .order_by(Message.created_at.desc())
         .limit(1)
         .correlate(Conversation)
@@ -1961,7 +2032,7 @@ def _inbox_summary(db: Session, client: Client, user: PortalUser | None) -> dict
     )
     live = Conversation.archived_at.is_(None)
     is_open = and_(Conversation.status == "open", live)
-    is_human = Conversation.mode == "human"
+    is_human = or_(Conversation.mode == "human", lead_group.has_human_thread())
     is_mine = Conversation.assignee_id == (user.id if user else None)
     concerns_me = or_(Conversation.assignee_id.is_(None), is_mine)
     row = db.execute(
@@ -1970,7 +2041,7 @@ def _inbox_summary(db: Session, client: Client, user: PortalUser | None) -> dict
             func.count().filter(Conversation.status == "resolved", live).label("resolved"),
             func.count().filter(Conversation.archived_at.is_not(None)).label("archived"),
             func.count().filter(is_open, is_human).label("human"),
-            func.count().filter(is_open, Conversation.mode == "ai").label("ai"),
+            func.count().filter(is_open, ~is_human).label("ai"),
             func.count().filter(is_open, is_human, concerns_me, unread_exists).label("unread"),
             func.count().filter(is_open, last_sender == "visitor").label("unanswered"),
             func.count().filter(is_open, is_mine).label("mine"),
@@ -1978,7 +2049,12 @@ def _inbox_summary(db: Session, client: Client, user: PortalUser | None) -> dict
         )
         .select_from(Conversation)
         .outerjoin(Contact, Contact.id == Conversation.contact_id)
-        .where(Conversation.client_id == client.id, Conversation.channel != PLAYGROUND, Contact.blocked_at.is_(None))
+        .where(
+            Conversation.client_id == client.id,
+            Conversation.channel != PLAYGROUND,
+            Contact.blocked_at.is_(None),
+            lead_group.is_lead_row(),
+        )
     ).one()
     return {
         "open": row.open, "resolved": row.resolved, "archived": row.archived, "human": row.human, "ai": row.ai,
@@ -2003,6 +2079,7 @@ def portal_archive_resolved(
             Conversation.channel != PLAYGROUND,
             Conversation.status == "resolved",
             Conversation.archived_at.is_(None),
+            lead_group.is_lead_row(),
         )
     ).all()
     for conversation in rows:
@@ -2023,7 +2100,9 @@ def portal_delete_archived(
     With ``ids`` only those are deleted (and only the archived ones among
     them); without, the whole archive goes.
     """
-    query = select(Conversation).where(Conversation.client_id == client.id, Conversation.archived_at.is_not(None))
+    query = select(Conversation).where(
+        Conversation.client_id == client.id, Conversation.archived_at.is_not(None), lead_group.is_lead_row()
+    )
     if payload and payload.ids is not None:
         query = query.where(Conversation.id.in_(payload.ids))
     rows = db.scalars(query).all()
@@ -2042,7 +2121,7 @@ def portal_archive(
     sender_name: str = Depends(_sender_name),
     db: Session = Depends(get_db),
 ):
-    conversation = _detail(db, client, conversation_id)
+    conversation = _detail(db, client, conversation_id, act=True)
     if set_archived(db, conversation, payload.archived, actor=sender_name):
         db.commit()
     return _present(_detail(db, client, conversation_id))
@@ -2054,7 +2133,7 @@ def portal_delete_conversation(
 ):
     """Delete one conversation for good. Only from the archive, so nothing
     disappears from an inbox in a single step."""
-    conversation = _detail(db, client, conversation_id)
+    conversation = _detail(db, client, conversation_id, act=True)
     if conversation.archived_at is None:
         raise HTTPException(status_code=409, detail="Archive the conversation before deleting it")
     db.delete(conversation)
@@ -2088,7 +2167,7 @@ def portal_mode(
     sender_name: str = Depends(_sender_name),
     db: Session = Depends(get_db),
 ):
-    conversation = _detail(db, client, conversation_id)
+    conversation = _detail(db, client, conversation_id, act=True)
     changed = set_mode(db, conversation, payload.mode, actor=sender_name, user=user)
     if changed:
         db.commit()
@@ -2104,7 +2183,7 @@ async def portal_set_conversation_team(
     sender_name: str = Depends(_sender_name),
     db: Session = Depends(get_db),
 ):
-    conversation = _detail(db, client, conversation_id)
+    conversation = _detail(db, client, conversation_id, act=True)
     team = get_team(db, client, payload.team_id) if payload.team_id else None
     changed = set_team(db, conversation, team, actor=sender_name)
     routed = None
@@ -2126,7 +2205,7 @@ async def portal_assign(
     sender_name: str = Depends(_sender_name),
     db: Session = Depends(get_db),
 ):
-    conversation = _detail(db, client, conversation_id)
+    conversation = _detail(db, client, conversation_id, act=True)
     if not payload.assignee_id:
         # A conversation is either the AI's or a person's. To let go of it,
         # hand it back to the AI rather than leaving it without an owner.
@@ -2158,9 +2237,42 @@ def portal_update_lead(
 ):
     """Choose the lead's responsible and fill its custom fields. Free for
     anyone with the inbox, like assigning; it never changes who answers."""
-    conversation = lead_card_service.get_lead(db, client, conversation_id)
+    conversation = lead_card_service.get_lead(db, client, conversation_id, act=True)
     lead_card_service.update_lead(db, client, conversation, payload)
     return lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, conversation_id))
+
+
+@router.get("/{slug}/leads/merge-candidates", response_model=list[LeadMergeCandidateOut], dependencies=[Depends(require_feature("inbox"))])
+def portal_lead_merge_candidates(
+    slug: str,
+    q: str | None = Query(default=None, max_length=120),
+    exclude: uuid.UUID | None = None,
+    limit: int = Query(default=20, ge=1, le=20),
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+):
+    """Leads of this portal that can be merged with ``exclude``: primaries only,
+    found by contact name, phone, e-mail or number."""
+    return lead_merge_service.merge_candidates(db, client, q, exclude, limit)
+
+
+@router.post("/{slug}/leads/merge", response_model=LeadMergeOut, dependencies=[Depends(require_feature("inbox")), Depends(require_permission(CONTACTS_MANAGE))])
+def portal_merge_leads(
+    slug: str,
+    payload: LeadMergeRequest,
+    client: Client = Depends(_portal_client),
+    sender_name: str = Depends(_sender_name),
+    db: Session = Depends(get_db),
+):
+    """Fold the secondary lead into the primary one. Final: the secondary stays
+    as a linked thread of the primary and its number becomes an alias."""
+    primary, secondary_number = lead_merge_service.merge_leads(
+        db, client, payload.primary_conversation_id, payload.secondary_conversation_id, sender_name
+    )
+    return {
+        "primary": lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, primary.id)),
+        "secondary_number": secondary_number,
+    }
 
 
 @router.patch("/{slug}/conversations/{conversation_id}/status", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
@@ -2172,7 +2284,7 @@ def portal_status(
     sender_name: str = Depends(_sender_name),
     db: Session = Depends(get_db),
 ):
-    conversation = _detail(db, client, conversation_id)
+    conversation = _detail(db, client, conversation_id, act=True)
     changed = set_status(db, conversation, payload.status, actor=sender_name)
     if changed:
         db.commit()
@@ -2217,12 +2329,14 @@ async def portal_reply_media(
     conversation_id: uuid.UUID,
     file: UploadFile = File(...),
     caption: str = Form(default=""),
+    via_conversation_id: uuid.UUID | None = Form(default=None),
     client: Client = Depends(_portal_client),
     user: PortalUser | None = Depends(_portal_user),
     sender_name: str = Depends(_sender_name),
     db: Session = Depends(get_db),
 ):
-    conversation = _detail(db, client, conversation_id)
+    lead = _detail(db, client, conversation_id, act=True)
+    conversation = lead_group.thread_in_group(db, lead, via_conversation_id)
     _require_open_window(conversation)
     await store_operator_media_reply(
         db, conversation, file=file, caption=caption, sender_name=sender_name, portal_user_id=user.id if user else None
@@ -2240,7 +2354,8 @@ async def portal_reply(
     sender_name: str = Depends(_sender_name),
     db: Session = Depends(get_db),
 ):
-    conversation = _detail(db, client, conversation_id)
+    lead = _detail(db, client, conversation_id, act=True)
+    conversation = lead_group.thread_in_group(db, lead, payload.via_conversation_id)
     _require_open_window(conversation)
     if conversation.channel in ("instagram", "messenger"):
         from ..services.social_delivery import queue_message
@@ -2291,13 +2406,17 @@ async def portal_react(
     client: Client = Depends(_portal_client),
     db: Session = Depends(get_db),
 ):
-    conversation = _detail(db, client, conversation_id)
-    target = db.scalar(select(Message).where(Message.id == message_id, Message.conversation_id == conversation.id))
-    if not target:
+    lead = _detail(db, client, conversation_id, act=True)
+    # The message may live on any thread of the lead; the reaction goes out on that thread.
+    target = db.scalar(
+        select(Message).where(Message.id == message_id, Message.conversation_id.in_(lead_group.group_ids(db, lead)))
+    )
+    if not target or (payload.via_conversation_id and target.conversation_id != payload.via_conversation_id):
         raise HTTPException(status_code=404, detail="Message not found")
     if target.role != "user":
         raise HTTPException(status_code=409, detail="Reactions go on the customer's messages")
     emoji = payload.emoji.strip()
+    conversation = lead if target.conversation_id == lead.id else db.get(Conversation, target.conversation_id)
     await deliver_reaction(db, conversation, target, emoji)
     target.reaction = emoji or None
     db.commit()

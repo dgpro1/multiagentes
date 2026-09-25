@@ -35,7 +35,7 @@ from ..services.operator_media import store_operator_media_reply
 from ..services.providers import resolve_agent_credentials
 from ..services.usage import record_usage
 from ..services.whatsapp import deliver_reaction, resolve_quote, send_channel_location, send_channel_message, signal_channel_read
-from ..services import channel_accounts
+from ..services import channel_accounts, lead_group, lead_view
 from ..services.text_search import folded_like
 from ..services.whatsapp_inbound import InboundMessage, resolve_inbound_content
 
@@ -47,7 +47,9 @@ client_router = APIRouter(prefix="/clients", tags=["Conversations"])
 MAX_MEDIA_BYTES = MAX_ATTACHMENT_BYTES
 
 
-def _conversation(db: Session, user: User, conversation_id: uuid.UUID) -> Conversation:
+def _conversation(db: Session, user: User, conversation_id: uuid.UUID, *, act: bool = False) -> Conversation:
+    """The conversation, inside the caller's agency. A thread merged into another
+    lead reads as that lead; acting through it (``act``) is refused."""
     query = (
         select(Conversation)
         .options(
@@ -64,7 +66,20 @@ def _conversation(db: Session, user: User, conversation_id: uuid.UUID) -> Conver
     conversation = db.scalar(query)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    if conversation.primary_conversation_id is not None:
+        if act:
+            raise HTTPException(status_code=409, detail=lead_group.ACT_ON_THE_LEAD)
+        return _conversation(db, user, conversation.primary_conversation_id)
     return conversation
+
+
+def _present(db: Session, conversation: Conversation) -> ConversationDetail:
+    """The detail of a lead: its own messages plus those of the threads merged into it."""
+    return lead_view.with_group(db, conversation, ConversationDetail.model_validate(conversation))
+
+
+def _respond(db: Session, user: User, conversation_id: uuid.UUID) -> ConversationDetail:
+    return _present(db, _conversation(db, user, conversation_id))
 
 
 @client_router.get(
@@ -86,7 +101,8 @@ def get_conversation_by_number(
     )
     if conversation_id is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return _conversation(db, user, conversation_id)
+    # A number absorbed by a merge is an alias of the lead it joined.
+    return _respond(db, user, conversation_id)
 
 
 @router.get("", response_model=list[ConversationOut], dependencies=[Depends(require(INBOX_READ))])
@@ -96,7 +112,9 @@ def list_conversations(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = select(Conversation).where(Conversation.agency_id == user.agency_id, Conversation.archived_at.is_(None))
+    query = select(Conversation).where(
+        Conversation.agency_id == user.agency_id, Conversation.archived_at.is_(None), lead_group.is_lead_row()
+    )
     if (only_client := confined_client_id(user)) is not None:
         query = query.where(Conversation.client_id == only_client, Conversation.channel == "playground")
     if agent_id:
@@ -105,9 +123,11 @@ def list_conversations(
         query = query.where(Conversation.client_id == client_id)
     # Same rule as the inbox: only a new visitor message moves a row up.
     last_inbound = (
-        select(Message.conversation_id.label("cid"), func.max(Message.created_at).label("at"))
+        select(lead_group.group_key().label("cid"), func.max(Message.created_at).label("at"))
+        .select_from(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
         .where(Message.kind == "message", Message.sender_type == "visitor")
-        .group_by(Message.conversation_id)
+        .group_by(lead_group.group_key())
         .subquery()
     )
     query = query.outerjoin(last_inbound, last_inbound.c.cid == Conversation.id).order_by(
@@ -115,7 +135,18 @@ def list_conversations(
     )
     items = db.scalars(query).all()
     channel_accounts.annotate(db, items)
-    return items
+    stats = lead_group.group_stats(db, items)
+    human_ids = set(
+        db.scalars(
+            select(Conversation.primary_conversation_id).where(
+                Conversation.primary_conversation_id.in_([row.id for row in items]), Conversation.mode == "human"
+            )
+        ).all()
+    )
+    return [
+        lead_view.list_item(ConversationOut.model_validate(row), row, stats[row.id], group_human=row.id in human_ids)
+        for row in items
+    ]
 
 
 @router.get("/inbox", response_model=list[ConversationInboxOut], dependencies=[Depends(require(INBOX_READ))])
@@ -132,51 +163,68 @@ def inbox(
 ):
     # Latest message per conversation, resolved in SQL so we never load full
     # message histories just to build the list.
+    # A lead merged from several conversations reads as one row: its threads'
+    # messages are grouped under the primary.
+    group_key = lead_group.group_key()
     ranked = (
         select(
-            Message.conversation_id.label("cid"),
+            group_key.label("cid"),
             Message.content.label("content"),
             Message.sender_type.label("sender_type"),
             Message.created_at.label("created_at"),
-            func.row_number().over(partition_by=Message.conversation_id, order_by=Message.created_at.desc()).label("rn"),
+            func.row_number().over(partition_by=group_key, order_by=Message.created_at.desc()).label("rn"),
         )
+        .select_from(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
         .where(Message.kind == "message")
         .subquery()
     )
     last = select(ranked).where(ranked.c.rn == 1).subquery()
     unread_counts = (
-        select(Message.conversation_id.label("cid"), func.count(Message.id).label("n"))
+        select(group_key.label("cid"), func.count(Message.id).label("n"))
+        .select_from(Message)
         .join(Conversation, Conversation.id == Message.conversation_id)
         .where(
             Message.sender_type == "visitor",
             Message.is_historical.is_(False),
             or_(Conversation.operator_read_at.is_(None), Message.created_at > Conversation.operator_read_at),
         )
-        .group_by(Message.conversation_id)
+        .group_by(group_key)
     ).subquery()
     unread_count = func.coalesce(unread_counts.c.n, 0)
     last_inbound = (
-        select(Message.conversation_id.label("cid"), func.max(Message.created_at).label("at"))
+        select(group_key.label("cid"), func.max(Message.created_at).label("at"))
+        .select_from(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
         .where(Message.kind == "message", Message.sender_type == "visitor")
-        .group_by(Message.conversation_id)
+        .group_by(group_key)
         .subquery()
     )
+    group_human = lead_group.has_human_thread()
+    lead_human = or_(Conversation.mode == "human", group_human)
 
     query = (
-        select(Conversation, Agent.name, last.c.content, unread_count.label("unread_count"), last_inbound.c.at.label("last_inbound_at"))
+        select(Conversation, Agent.name, last.c.content, unread_count.label("unread_count"), last_inbound.c.at.label("last_inbound_at"), group_human.label("group_human"))
         .join(Agent, Agent.id == Conversation.agent_id)
         .outerjoin(last, last.c.cid == Conversation.id)
         .outerjoin(unread_counts, unread_counts.c.cid == Conversation.id)
         .outerjoin(last_inbound, last_inbound.c.cid == Conversation.id)
         .outerjoin(Contact, Contact.id == Conversation.contact_id)
-        .where(Conversation.agency_id == user.agency_id, Conversation.archived_at.is_(None), Contact.blocked_at.is_(None))
+        .where(
+            Conversation.agency_id == user.agency_id,
+            Conversation.archived_at.is_(None),
+            Contact.blocked_at.is_(None),
+            lead_group.is_lead_row(),
+        )
     )
     if agent_id:
         query = query.where(Conversation.agent_id == agent_id)
     if channel:
         query = query.where(Conversation.channel == channel)
-    if mode in ("ai", "human"):
-        query = query.where(Conversation.mode == mode)
+    if mode == "human":
+        query = query.where(lead_human)
+    elif mode == "ai":
+        query = query.where(~lead_human)
     if unread:
         query = query.where(unread_count > 0)
     if search and search.strip():
@@ -194,6 +242,7 @@ def inbox(
         .offset(offset)
     ).all()
     channel_accounts.annotate(db, [conv for conv, *_rest in rows])
+    stats = lead_group.group_stats(db, [conv for conv, *_rest in rows])
     return [
         {
             "id": conv.id,
@@ -205,14 +254,16 @@ def inbox(
             "contact_name": conv.contact_name,
             "channel": conv.channel,
             "account_label": conv.account_label,
-            "mode": conv.mode,
+            "mode": "human" if row_group_human else conv.mode,
             "preview": (content or "")[:140].strip(),
             "unread": int(row_unread_count) > 0,
             "unread_count": int(row_unread_count),
-            "updated_at": conv.updated_at,
+            "updated_at": max(conv.updated_at, stats[conv.id].updated_at or conv.updated_at),
             "last_inbound_at": last_inbound_at,
+            "channels": stats[conv.id].channels,
+            "linked_count": stats[conv.id].linked_count,
         }
-        for conv, agent_name, content, row_unread_count, last_inbound_at in rows
+        for conv, agent_name, content, row_unread_count, last_inbound_at, row_group_human in rows
     ]
 
 
@@ -231,34 +282,39 @@ def create_conversation(payload: ConversationCreate, db: Session = Depends(get_d
     )
     db.add(conversation)
     db.commit()
-    return _conversation(db, user, conversation.id)
+    return _respond(db, user, conversation.id)
 
 
 @router.post("/{conversation_id}/read", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(INBOX_MANAGE))])
 async def mark_read(conversation_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     conversation = _conversation(db, user, conversation_id)
-    conversation.operator_read_at = now_utc()
+    # Reading a lead reads every thread merged into it.
+    threads = lead_group.group_of(db, conversation)
+    now = now_utc()
+    for thread in threads:
+        thread.operator_read_at = now
     db.commit()
     # Opening the thread is the operator reading it: blue-tick the latest
     # visitor message on WhatsApp too. Best-effort by design.
-    latest_external = db.scalar(
-        select(Message.external_message_id)
-        .where(
-            Message.conversation_id == conversation.id,
-            Message.role == "user",
-            Message.external_message_id.is_not(None),
+    for thread in threads:
+        latest_external = db.scalar(
+            select(Message.external_message_id)
+            .where(
+                Message.conversation_id == thread.id,
+                Message.role == "user",
+                Message.external_message_id.is_not(None),
+            )
+            .order_by(Message.created_at.desc())
+            .limit(1)
         )
-        .order_by(Message.created_at.desc())
-        .limit(1)
-    )
-    if latest_external:
-        await signal_channel_read(db, conversation, [latest_external], typing=False)
+        if latest_external:
+            await signal_channel_read(db, thread, [latest_external], typing=False)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_READ))])
 def get_conversation(conversation_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return _conversation(db, user, conversation_id)
+    return _respond(db, user, conversation_id)
 
 
 def _ready_agent(db: Session, conversation: Conversation) -> tuple[Agent, tuple[str, str]]:
@@ -317,7 +373,7 @@ async def _generate_reply(
         persist_reply_files(db, conversation, agent, completion.attachments)
     conversation.updated_at = now_utc()
     db.commit()
-    return _conversation(db, user, conversation.id)
+    return _respond(db, user, conversation.id)
 
 
 @router.post("/{conversation_id}/messages", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
@@ -327,7 +383,7 @@ async def send_message(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conversation = _conversation(db, user, conversation_id)
+    conversation = _conversation(db, user, conversation_id, act=True)
     agent, credentials = _ready_agent(db, conversation)
 
     content = payload.content.strip()
@@ -347,7 +403,7 @@ async def send_media_message(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conversation = _conversation(db, user, conversation_id)
+    conversation = _conversation(db, user, conversation_id, act=True)
     agent, credentials = _ready_agent(db, conversation)
 
     content_type = (file.content_type or "").lower() or "application/octet-stream"
@@ -393,7 +449,7 @@ async def send_media_message(
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_conversation(conversation_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Discard a playground rehearsal. Customer conversations are history and stay."""
-    conversation = _conversation(db, user, conversation_id)
+    conversation = _conversation(db, user, conversation_id, act=True)
     if conversation.channel != "playground":
         raise HTTPException(status_code=409, detail="Only playground conversations can be deleted")
     db.delete(conversation)
@@ -419,11 +475,11 @@ def set_conversation_mode(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conversation = _conversation(db, user, conversation_id)
+    conversation = _conversation(db, user, conversation_id, act=True)
     changed = set_mode(db, conversation, payload.mode, actor=user.name)
     if changed:
         db.commit()
-    return _conversation(db, user, conversation_id)
+    return _respond(db, user, conversation_id)
 
 
 @router.patch("/{conversation_id}/status", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_MANAGE))])
@@ -433,11 +489,11 @@ def set_conversation_status(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conversation = _conversation(db, user, conversation_id)
+    conversation = _conversation(db, user, conversation_id, act=True)
     changed = set_status(db, conversation, payload.status, actor=user.name)
     if changed:
         db.commit()
-    return _conversation(db, user, conversation_id)
+    return _respond(db, user, conversation_id)
 
 
 @router.patch("/{conversation_id}/pipeline", response_model=ConversationDetail, dependencies=[Depends(require(PIPELINE_MANAGE))])
@@ -447,12 +503,12 @@ def set_conversation_pipeline(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conversation = _conversation(db, user, conversation_id)
+    conversation = _conversation(db, user, conversation_id, act=True)
     from ..services import pipeline as pipeline_service
     pipeline_service.move_conversation(
         db, conversation.agent.client, conversation, payload.pipeline_stage_id, payload.deal_value, actor=user.name
     )
-    return _conversation(db, user, conversation_id)
+    return _respond(db, user, conversation_id)
 
 
 @router.post("/{conversation_id}/reply", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
@@ -462,7 +518,8 @@ async def reply_as_human(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conversation = _conversation(db, user, conversation_id)
+    lead = _conversation(db, user, conversation_id, act=True)
+    conversation = lead_group.thread_in_group(db, lead, payload.via_conversation_id)
     if conversation.channel in ("instagram", "messenger"):
         from ..services.social_delivery import queue_message
         if payload.quoted_message_id:
@@ -473,7 +530,7 @@ async def reply_as_human(
         queue_message(db, conversation, message)
         conversation.updated_at = now_utc()
         db.commit()
-        return _conversation(db, user, conversation_id)
+        return _respond(db, user, conversation_id)
     if conversation.phone_pause_until is not None:
         set_mode(db, conversation, "human")
         db.commit()
@@ -497,7 +554,7 @@ async def reply_as_human(
     note_reply(conversation)
     conversation.updated_at = now_utc()
     db.commit()
-    return _conversation(db, user, conversation_id)
+    return _respond(db, user, conversation_id)
 
 
 @router.post("/{conversation_id}/location", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
@@ -510,7 +567,8 @@ async def send_location(
     """Send a pin location as the operator (WhatsApp QR lines through the
     Evolution driver). The chat keeps a location attachment; the phone gets a
     real pin."""
-    conversation = _conversation(db, user, conversation_id)
+    lead = _conversation(db, user, conversation_id, act=True)
+    conversation = lead_group.thread_in_group(db, lead, payload.via_conversation_id)
     external_message_id = await send_channel_location(
         db,
         conversation,
@@ -547,7 +605,7 @@ async def send_location(
     note_reply(conversation)
     conversation.updated_at = now_utc()
     db.commit()
-    return _conversation(db, user, conversation_id)
+    return _respond(db, user, conversation_id)
 
 
 @router.post("/{conversation_id}/messages/{message_id}/reaction", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
@@ -558,17 +616,21 @@ async def react_to_message(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conversation = _conversation(db, user, conversation_id)
-    target = db.scalar(select(Message).where(Message.id == message_id, Message.conversation_id == conversation.id))
-    if not target:
+    lead = _conversation(db, user, conversation_id, act=True)
+    # The message may live on any thread of the lead; the reaction goes out on that thread.
+    target = db.scalar(
+        select(Message).where(Message.id == message_id, Message.conversation_id.in_(lead_group.group_ids(db, lead)))
+    )
+    if not target or (payload.via_conversation_id and target.conversation_id != payload.via_conversation_id):
         raise HTTPException(status_code=404, detail="Message not found")
     if target.role != "user":
         raise HTTPException(status_code=409, detail="Reactions go on the customer's messages")
     emoji = payload.emoji.strip()
+    conversation = lead if target.conversation_id == lead.id else db.get(Conversation, target.conversation_id)
     await deliver_reaction(db, conversation, target, emoji)
     target.reaction = emoji or None
     db.commit()
-    return _conversation(db, user, conversation_id)
+    return _respond(db, user, conversation_id)
 
 
 @router.post("/{conversation_id}/reply-media", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_REPLY))])
@@ -576,9 +638,11 @@ async def reply_media_as_human(
     conversation_id: uuid.UUID,
     file: UploadFile = File(...),
     caption: str = Form(default=""),
+    via_conversation_id: uuid.UUID | None = Form(default=None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conversation = _conversation(db, user, conversation_id)
+    lead = _conversation(db, user, conversation_id, act=True)
+    conversation = lead_group.thread_in_group(db, lead, via_conversation_id)
     await store_operator_media_reply(db, conversation, file=file, caption=caption, sender_name=user.name)
-    return _conversation(db, user, conversation_id)
+    return _respond(db, user, conversation_id)

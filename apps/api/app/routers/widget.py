@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..database import get_db
-from ..services.conversation_state import exchanged_only
+from ..services.conversation_state import exchanged_only, note_inbound
 from ..models import Agency, Agent, Client, Conversation, Message, MessageAttachment, WidgetChannel, now_utc
 from ..ratelimit import public_asset_rate_limit, widget_poll_rate_limit, widget_rate_limit
 from ..schemas import WidgetConfigOut, WidgetMessageIn, WidgetReply
@@ -99,11 +99,21 @@ def _session_messages(
     return list(reversed(rows))
 
 
+def _is_closed(conversation: Conversation) -> bool:
+    """Resolved for the visitor: a thread merged into another lead never is,
+    the visitor writing again reopens that lead."""
+    return conversation.status == "resolved" and conversation.primary_conversation_id is None
+
+
+def _shown_status(conversation: Conversation) -> str:
+    return "resolved" if _is_closed(conversation) else "open"
+
+
 def _open_case(db: Session, channel: WidgetChannel, session_id: str) -> Conversation | None:
     """The case the widget is talking in: the latest one, unless it was
     resolved, in which case the visitor starts fresh and it joins history."""
     conversation = _find_conversation(db, channel, session_id)
-    return conversation if conversation is not None and conversation.status != "resolved" else None
+    return conversation if conversation is not None and not _is_closed(conversation) else None
 
 
 def _previous_cases(db: Session, channel: WidgetChannel, session_id: str, current: Conversation | None) -> list[dict]:
@@ -131,8 +141,12 @@ def _conversation(db: Session, channel: WidgetChannel, session_id: str) -> Conve
     """The open case for this visitor, or a fresh one: like WhatsApp, a
     message after a resolution starts a new conversation."""
     conversation = _find_conversation(db, channel, session_id)
-    if conversation is not None and conversation.status == "resolved":
+    if conversation is not None and _is_closed(conversation):
         conversation = None
+    if conversation is not None and conversation.primary_conversation_id is not None:
+        # The visitor wrote on a thread merged into another lead: the lead
+        # reopens and waits for an answer, whatever state it was in.
+        note_inbound(db, conversation)
     if not conversation:
         conversation = Conversation(
             agency_id=channel.agency_id,
@@ -192,7 +206,7 @@ def widget_history(public_id: str, session_id: str, db: Session = Depends(get_db
         return {"mode": "ai", "status": "open", "reply": None, "messages": [], "previous": previous}
     return {
         "mode": conversation.mode,
-        "status": conversation.status,
+        "status": _shown_status(conversation),
         "conversation_id": conversation.id,
         "reply": None,
         "messages": [_message_out(item) for item in _session_messages(db, channel, session_id, conversation_id=conversation.id)],
@@ -233,11 +247,11 @@ def widget_updates(
     # A resolved latest case is reported as such, with nothing new: the widget
     # then starts a fresh chat and moves it to history. Its messages never
     # come back through here, or a fresh chat would fill up with them again.
-    if conversation.status == "resolved":
+    if _is_closed(conversation):
         return {"mode": conversation.mode, "status": "resolved", "conversation_id": conversation.id, "reply": None, "messages": []}
     return {
         "mode": conversation.mode,
-        "status": conversation.status,
+        "status": _shown_status(conversation),
         "conversation_id": conversation.id,
         "reply": None,
         "messages": [_message_out(item) for item in _session_messages(db, channel, session_id, after=after, conversation_id=conversation.id)],

@@ -293,6 +293,9 @@ GATED = [
     ("PATCH", "/conversations/{id}/team", ["inbox", "teams"]),
     ("POST", "/conversations/{id}/assignment", ["inbox"]),
     ("PATCH", "/conversations/{id}/status", ["inbox"]),
+    # Merging two leads into one (tests/test_lead_merge.py); merging also needs contacts.manage.
+    ("GET", "/leads/merge-candidates", ["inbox"]),
+    ("POST", "/leads/merge", ["inbox"]),
     # The lead card of the inbox and its custom fields (tests/test_lead_card.py).
     ("GET", "/conversations/{id}/lead", ["inbox"]),
     ("PATCH", "/conversations/{id}/lead", ["inbox"]),

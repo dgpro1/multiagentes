@@ -23,7 +23,7 @@ FORBIDDEN = {"detail": "Your role cannot do this"}
 ZERO = "00000000-0000-0000-0000-000000000000"
 CARD_KEYS = {
     "conversation_id", "number", "channel", "account_label", "stage", "deal_value", "currency", "responsible",
-    "owner_name", "custom_values", "fields", "contact",
+    "owner_name", "custom_values", "fields", "contact", "created_at", "linked_channels",
 }
 CONTACT_KEYS = {"id", "name", "whatsapp_name", "phone", "email", "company", "blocked", "tags"}
 

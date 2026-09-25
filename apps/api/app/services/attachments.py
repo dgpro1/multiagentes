@@ -81,11 +81,14 @@ def store_attachment(
 
 
 def conversation_attachment(db: Session, conversation: Conversation, attachment_id: uuid.UUID) -> MessageAttachment:
-    """Load an attachment ensuring it belongs to the given conversation."""
+    """Load an attachment ensuring it belongs to the given conversation, or to
+    any thread merged into the same lead."""
+    from .lead_group import group_ids
+
     attachment = db.scalar(
         select(MessageAttachment)
         .join(Message, Message.id == MessageAttachment.message_id)
-        .where(MessageAttachment.id == attachment_id, Message.conversation_id == conversation.id)
+        .where(MessageAttachment.id == attachment_id, Message.conversation_id.in_(group_ids(db, conversation)))
     )
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")

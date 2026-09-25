@@ -74,6 +74,7 @@ from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
 from ..services.contacts import find_contact, normalize_phone
 from ..services.text_search import folded_like
+from ..services import lead_group
 from ..services.conversation_state import note_reply, set_mode, set_status
 from ..services.idempotency import abandon, complete, owner_of, use_key
 from ..services.knowledge import build_system_prompt, embed_document_chunks, reindex_agent
@@ -194,10 +195,16 @@ def _agency_client(db: Session, user, client_id: uuid.UUID) -> Client:
     return client
 
 
-def _client_conversation(db: Session, client: Client, conversation_id: uuid.UUID) -> Conversation:
+def _client_conversation(db: Session, client: Client, conversation_id: uuid.UUID, *, act: bool = False) -> Conversation:
+    """The client's conversation. A thread merged into another lead reads as
+    that lead (its number is an alias); acting through it (``act``) is refused."""
     conversation = db.get(Conversation, conversation_id)
     if conversation is None or conversation.client_id != client.id:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    if conversation.primary_conversation_id is not None:
+        if act:
+            raise HTTPException(status_code=409, detail=lead_group.ACT_ON_THE_LEAD)
+        return lead_group.alias_target(db, conversation)
     return conversation
 
 
@@ -417,6 +424,8 @@ def v1_update_contact(
 
 class V1Reply(BaseModel):
     content: str = Field(min_length=1, max_length=50000)
+    # Which thread of a merged lead sends it; the lead's own by default.
+    via_conversation_id: uuid.UUID | None = None
 
 
 @router.get("/clients/{client_id}/conversations", dependencies=[Depends(require(INBOX_READ))])
@@ -431,7 +440,9 @@ def v1_list_conversations(
 ):
     client = _agency_client(db, user, client_id)
     page, limit = _parse_pagination(page, limit)
-    query = select(Conversation).where(Conversation.client_id == client.id, Conversation.archived_at.is_(None))
+    query = select(Conversation).where(
+        Conversation.client_id == client.id, Conversation.archived_at.is_(None), lead_group.is_lead_row()
+    )
     if status in ("open", "resolved"):
         query = query.where(Conversation.status == status)
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
@@ -457,9 +468,10 @@ async def v1_reply(
     """Answer as the operator, with the panel's own rules: the reply does not
     change who answers, and social lines queue through their durable outbox."""
     client = _agency_client(db, user, client_id)
-    conversation = _client_conversation(db, client, conversation_id)
+    lead = _client_conversation(db, client, conversation_id, act=True)
+    conversation = lead_group.thread_in_group(db, lead, payload.via_conversation_id)
     receipt = use_key(db, agency_id=user.agency_id, owner=owner_of(user), key=idempotency_key or "",
-                      endpoint="v1:reply", body={**payload.model_dump(), "conversation_id": str(conversation_id)})
+                      endpoint="v1:reply", body={**payload.model_dump(mode="json"), "conversation_id": str(conversation_id)})
     if receipt.replay is not None:
         replay = receipt.replay
         return JSONResponse(status_code=replay["status"], content=replay["body"])
@@ -474,7 +486,7 @@ async def v1_reply(
             queue_message(db, conversation, message)
             conversation.updated_at = now_utc()
             db.commit()
-            body = jsonable_encoder({**_conversation_out(conversation, request), "message_id": str(message.id)})
+            body = jsonable_encoder({**_conversation_out(lead, request), "message_id": str(message.id)})
             complete(db, receipt, status=200, body=body)
             return JSONResponse(status_code=200, content=body)
         external_message_id = await send_channel_message(db, conversation, content)
@@ -483,7 +495,7 @@ async def v1_reply(
         note_reply(conversation)
         conversation.updated_at = now_utc()
         db.commit()
-        body = jsonable_encoder(_conversation_out(conversation, request))
+        body = jsonable_encoder(_conversation_out(lead, request))
         complete(db, receipt, status=200, body=body)
         return JSONResponse(status_code=200, content=body)
     except HTTPException:
@@ -498,7 +510,7 @@ def v1_set_mode(
 ):
     """Take the case into human hands or give it back to the AI, leaving the panel's own trace in the thread."""
     client = _agency_client(db, user, client_id)
-    conversation = _client_conversation(db, client, conversation_id)
+    conversation = _client_conversation(db, client, conversation_id, act=True)
     changed = set_mode(db, conversation, payload.mode, actor=user.name)
     if changed:
         db.commit()
@@ -512,7 +524,7 @@ def v1_set_status(
 ):
     """Resolve or reopen the case, with the same trace the panel leaves."""
     client = _agency_client(db, user, client_id)
-    conversation = _client_conversation(db, client, conversation_id)
+    conversation = _client_conversation(db, client, conversation_id, act=True)
     changed = set_status(db, conversation, payload.status, actor=user.name)
     if changed:
         db.commit()
@@ -537,7 +549,7 @@ def v1_move_deal(
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     client = _agency_client(db, user, client_id)
-    conversation = _client_conversation(db, client, conversation_id)
+    conversation = _client_conversation(db, client, conversation_id, act=True)
     pipeline_service.move_conversation(db, client, conversation, payload.pipeline_stage_id, payload.deal_value, actor=user.name)
     card = pipeline_service.board(db, client)
     moved = next((item for item in card["cards"] if str(item["id"]) == str(conversation_id)), None)
@@ -949,10 +961,13 @@ def v1_list_messages(
     client = _agency_client(db, user, client_id)
     conversation = _client_conversation(db, client, conversation_id)
     page, limit = _parse_pagination(page, limit)
-    base = select(Message).where(Message.conversation_id == conversation.id)
+    # A merged lead's thread is the messages of all its threads, oldest first.
+    threads = lead_group.group_of(db, conversation)
+    channel_of = {row.id: row.channel for row in threads}
+    base = select(Message).where(Message.conversation_id.in_(list(channel_of)))
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
     rows = db.scalars(base.order_by(Message.created_at.asc()).offset((page - 1) * limit).limit(limit)).all()
-    data = [{**MessageOut.model_validate(row).model_dump(mode="json"),
+    data = [{**MessageOut.model_validate(row).model_copy(update={"channel": channel_of[row.conversation_id]}).model_dump(mode="json"),
              "_links": {"self": f"/api/v1/clients/{client.id}/conversations/{conversation.id}/messages/{row.id}"}}
             for row in rows]
     return _page(request, data, total, page, limit)
@@ -989,7 +1004,8 @@ def v1_report_costs(
     by_model = _fold(_grouped(db, filters, UsageRecord.model), 1, lambda key: (key[0], key[0]))
     replies = sum(entry["replies"] for entry in by_model)
     cost = sum((Decimal(str(entry["cost_usd"])) for entry in by_model), Decimal(0))
-    conversations = db.scalar(filters.apply(_joined(select(func.count(func.distinct(UsageRecord.conversation_id)))))) or 0
+    lead_of_reply = func.coalesce(Conversation.primary_conversation_id, UsageRecord.conversation_id)
+    conversations = db.scalar(filters.apply(_joined(select(func.count(func.distinct(lead_of_reply)))))) or 0
     days: dict = {}
     for row in _grouped(db, filters, cast(func.timezone(zone, UsageRecord.created_at), Date)):
         day, day_model, day_replies, _tokens_in, _tokens_out, metered, unpriced_in, unpriced_out = row

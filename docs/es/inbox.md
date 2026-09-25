@@ -44,3 +44,17 @@ Junto a una conversación, la ficha del lead la muestra como una oportunidad de 
 - Los **campos personalizados** se definen por cliente (hasta 30) como texto, número, fecha, selección o casilla. La clave y el tipo de un campo no cambian una vez creado; al eliminar un campo sus valores se ocultan sin borrarse.
 
 Cualquiera con la bandeja puede elegir el responsable y llenar los campos de un lead. Solo los administradores del portal (permiso `fields.manage`) y la agencia pueden crear, renombrar, reordenar o eliminar los campos. Los operadores de la agencia usan la misma ficha y las mismas rutas en `/api/conversations/{id}/lead` y `/api/clients/{id}/lead-fields`.
+
+
+## Unir leads
+
+Cuando la misma persona escribe desde dos lugares (WhatsApp e Instagram, o un número nuevo), los dos leads se pueden unir en uno. Desde la ficha del lead elige **Unir**, busca el otro lead por nombre, teléfono, correo o número (`#123`) y confirma. El lead en el que estás queda como **principal**; el otro es el **secundario**. La unión es definitiva: no se puede deshacer.
+
+- **Presupuesto:** el principal conserva el suyo. Solo si no tiene (o es 0) toma el del secundario.
+- **Campos personalizados:** los valores del principal nunca se sobrescriben; los campos que dejó vacíos se completan con los del secundario. Lo mismo aplica al responsable, al asignado y al equipo.
+- **Contacto:** dos contactos distintos se unen en el del principal (identidades, etiquetas y empresa incluidas); si solo el secundario tiene contacto, el principal lo adopta. Las etiquetas viven en el contacto, así que se combinan.
+- **Conversación:** no se borra nada. El secundario conserva su canal y sus mensajes y sigue recibiendo lo que ese canal entregue, pero ahora pertenece al principal: la bandeja muestra un solo lead con los mensajes de todos los canales en una misma línea de tiempo, cada uno marcado con su canal, y tú eliges por qué canal sale una respuesta. Tomar el control, asignar, mover a un equipo, resolver y archivar actúan sobre todo el lead. Si el contacto vuelve a escribir por el canal del secundario, el principal se reabre en lugar de crearse un lead nuevo.
+- **Número:** el número del secundario pasa a ser un alias del principal: abrir `#<número del secundario>` abre el principal.
+- **Historial:** la línea de tiempo del principal registra la unión con lo que tenía el secundario (su presupuesto y sus campos personalizados), así no se pierde nada.
+
+En el portal del cliente, unir requiere el permiso `contacts.manage` (administradores del portal) y la función de bandeja; buscar un lead para unir solo requiere la bandeja. Los operadores de la agencia usan `GET /api/clients/{id}/leads/merge-candidates` y `POST /api/clients/{id}/leads/merge`; el portal sirve lo mismo en `/api/portal/{slug}/leads/...`. Las respuestas aceptan un `via_conversation_id` opcional para elegir el canal de un lead unido.

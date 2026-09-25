@@ -1,13 +1,14 @@
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import Agent, Client, Conversation, Message, SocialChannel, UsageRecord, User, WhatsAppChannel, WhatsAppCloudChannel, now_utc
 from ..schemas import DashboardMetrics, DashboardOut
+from ..services import lead_group
 
 
 router = APIRouter(prefix="/dashboard", tags=["Inicio"])
@@ -25,7 +26,7 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_us
         select(func.count(Agent.id)).where(Agent.agency_id == agency_id, Agent.is_active.is_(True))
     ) or 0
     conversations = db.scalar(
-        select(func.count(Conversation.id)).where(Conversation.agency_id == agency_id)
+        select(func.count(Conversation.id)).where(Conversation.agency_id == agency_id, lead_group.is_lead_row())
     ) or 0
     channels = db.scalar(
         select(func.count(WhatsAppChannel.id)).where(WhatsAppChannel.agency_id == agency_id)
@@ -64,9 +65,10 @@ def dashboard_metrics(
     agency_id = user.agency_id
     start_date = (now_utc() - timedelta(days=days - 1)).date()
     since = now_utc() - timedelta(days=days)
-    active_case = or_(Conversation.social_channel_id.is_(None), exists(
+    # Leads count once: a conversation merged into another is not one of its own.
+    active_case = and_(lead_group.is_lead_row(), or_(Conversation.social_channel_id.is_(None), exists(
         select(Message.id).where(Message.conversation_id == Conversation.id,
-            Message.kind == "message", Message.is_historical.is_(False)).correlate(Conversation)))
+            Message.kind == "message", Message.is_historical.is_(False)).correlate(Conversation))))
 
     messages = db.scalar(
         select(func.count(Message.id))

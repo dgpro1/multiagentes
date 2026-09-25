@@ -86,19 +86,25 @@ def merge_contacts(db: Session, primary: Contact, merged: Contact) -> None:
     All channel identities move to the surviving contact, including phone
     aliases, so later messages find the same person.
     """
-    if not primary.name.strip() and merged.name.strip():
-        primary.name = merged.name.strip()[:180]
-    if not primary.phone and merged.phone:
-        primary.phone = merged.phone
-    if not primary.email and merged.email:
-        primary.email = merged.email
-    if merged.notes.strip() and merged.notes.strip() not in primary.notes:
-        primary.notes = f"{primary.notes.strip()}\n{merged.notes.strip()}".strip()
-    primary.updated_at = now_utc()
     # Contacts created manually before their first message have no identity yet.
     for contact in (primary, merged):
         if contact.phone:
             resolve_contact(db, contact.client_id, phone=contact.phone, name=contact.name)
+    if not primary.name.strip() and merged.name.strip():
+        primary.name = merged.name.strip()[:180]
+    if not primary.phone and merged.phone:
+        # One contact per (client, phone): release the number before the
+        # survivor takes it, so the unique index never sees it twice.
+        adopted, merged.phone = merged.phone, None
+        db.flush()
+        primary.phone = adopted
+    if not primary.email and merged.email:
+        primary.email = merged.email
+    if not (primary.company or "").strip() and (merged.company or "").strip():
+        primary.company = merged.company.strip()
+    if merged.notes.strip() and merged.notes.strip() not in primary.notes:
+        primary.notes = f"{primary.notes.strip()}\n{merged.notes.strip()}".strip()
+    primary.updated_at = now_utc()
     for tag in list(merged.tags):
         if tag not in primary.tags:
             primary.tags.append(tag)

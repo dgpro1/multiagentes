@@ -18,15 +18,28 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..models import Client, Contact, Conversation, PortalUser
 from ..schemas_lead_card import LeadUpdate
+from . import channel_accounts, lead_group
 from .contacts import phone_from_chat_id
 from .lead_fields import field_out, list_fields, merge_values, shown_values
 
 _WHATSAPP_CHANNELS = ("whatsapp", "whatsapp_cloud")
 
 
-def get_lead(db: Session, client: Client, conversation_id: uuid.UUID) -> Conversation:
-    """The conversation of this client, or 404: a lead of another client (or
-    agency) is never visible."""
+def get_lead(db: Session, client: Client, conversation_id: uuid.UUID, *, act: bool = False) -> Conversation:
+    """The lead of this client, or 404: a lead of another client (or agency) is
+    never visible. A thread merged into another lead reads as that lead; writing
+    through it (``act``) is refused, the change belongs to the lead."""
+    row = db.scalar(
+        select(Conversation.primary_conversation_id).where(
+            Conversation.id == conversation_id,
+            Conversation.client_id == client.id,
+            Conversation.agency_id == client.agency_id,
+        )
+    )
+    if row is not None:
+        if act:
+            raise HTTPException(status_code=409, detail=lead_group.ACT_ON_THE_LEAD)
+        conversation_id = row
     conversation = db.scalar(
         select(Conversation)
         .options(
@@ -78,11 +91,24 @@ def _contact(conversation: Conversation) -> dict:
 def lead_card(db: Session, client: Client, conversation: Conversation) -> dict:
     fields = list_fields(db, client)
     stage = conversation.pipeline_stage
+    group = lead_group.group_of(db, conversation)
+    channel_accounts.annotate(db, group)
     return {
         "conversation_id": conversation.id,
         "number": conversation.number,
+        "created_at": conversation.created_at,
         "channel": conversation.channel,
         "account_label": conversation.account_label,
+        "linked_channels": [
+            {
+                "conversation_id": row.id,
+                "channel": row.channel,
+                "label": lead_group.thread_label(row),
+                "account_label": row.account_label,
+                "is_primary": row.id == conversation.id,
+            }
+            for row in group
+        ],
         "stage": {"id": stage.id, "name": stage.name, "color": stage.color} if stage else None,
         "deal_value": float(conversation.deal_value) if conversation.deal_value is not None else None,
         "currency": client.currency or "USD",

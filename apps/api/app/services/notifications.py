@@ -46,6 +46,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import Conversation, PortalUser, PushDevice
+from .lead_group import primary_of
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +219,8 @@ async def notify_conversation(
     """
     if not push_enabled():
         return 0
+    # A message on a thread merged into another lead rings for that lead.
+    thread, conversation = conversation, primary_of(conversation)
     devices = devices_for_client(db, conversation.client_id)
     if conversation.assignee_id:
         # Someone owns this conversation: their phone rings, not everyone's.
@@ -229,7 +232,7 @@ async def notify_conversation(
     if not devices:
         return 0
     if title is None:
-        title = sender or conversation.contact_name or _channel_label(conversation.channel)
+        title = sender or thread.contact_name or _channel_label(thread.channel)
     return await notify_devices(
         Notification(
             title=title,

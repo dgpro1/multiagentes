@@ -26,7 +26,8 @@ def contact_stats():
             func.count(Conversation.id).filter(Conversation.status == "open").label("open"),
             func.max(Conversation.updated_at).label("last_activity_at"),
         )
-        .where(Conversation.contact_id.is_not(None))
+        # A thread merged into another lead is not a case of its own.
+        .where(Conversation.contact_id.is_not(None), Conversation.primary_conversation_id.is_(None))
         .group_by(Conversation.contact_id)
         .subquery()
     )

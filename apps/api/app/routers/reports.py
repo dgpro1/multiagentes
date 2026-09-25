@@ -169,7 +169,9 @@ def cost_report(
     by_model = _fold(_grouped(db, filters, UsageRecord.model), 1, lambda key: (key[0], key[0]))
     replies = sum(entry["replies"] for entry in by_model)
     cost = sum((Decimal(str(entry["cost_usd"])) for entry in by_model), Decimal(0))
-    conversations = db.scalar(filters.apply(_joined(select(func.count(func.distinct(UsageRecord.conversation_id)))))) or 0
+    # A lead merged from several conversations is one conversation.
+    lead_of_reply = func.coalesce(Conversation.primary_conversation_id, UsageRecord.conversation_id)
+    conversations = db.scalar(filters.apply(_joined(select(func.count(func.distinct(lead_of_reply)))))) or 0
 
     days: dict = {}
     for row in _grouped(db, filters, cast(func.timezone(zone, UsageRecord.created_at), Date)):

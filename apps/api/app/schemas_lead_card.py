@@ -1,6 +1,7 @@
 """The lead card of the inbox: what the client portal and the agency's panel send and read."""
 
 import uuid
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -92,11 +93,24 @@ class LeadContactOut(BaseModel):
     tags: list[LeadTagOut] = Field(default_factory=list)
 
 
+class LeadLinkedChannelOut(BaseModel):
+    """One thread of the lead: where its messages come and go."""
+
+    conversation_id: uuid.UUID
+    channel: str
+    label: str | None = None
+    account_label: str | None = None
+    is_primary: bool = False
+
+
 class LeadCardOut(BaseModel):
     conversation_id: uuid.UUID
     number: int
+    created_at: datetime
     channel: str
     account_label: str | None = None
+    # Every thread of the lead, the primary first: more than one after a merge.
+    linked_channels: list[LeadLinkedChannelOut] = Field(default_factory=list)
     stage: LeadStageOut | None = None
     deal_value: float | None = None
     currency: str = "USD"
@@ -105,3 +119,30 @@ class LeadCardOut(BaseModel):
     custom_values: dict[str, Any] = Field(default_factory=dict)
     fields: list[LeadFieldOut] = Field(default_factory=list)
     contact: LeadContactOut
+
+
+class LeadMergeRequest(BaseModel):
+    """Fold ``secondary_conversation_id`` into ``primary_conversation_id``."""
+
+    primary_conversation_id: uuid.UUID
+    secondary_conversation_id: uuid.UUID
+
+
+class LeadMergeCandidateOut(BaseModel):
+    """A lead the person could merge into the open one."""
+
+    conversation_id: uuid.UUID
+    number: int
+    contact_name: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    channel: str
+    channels: list[str] = Field(default_factory=list)
+    stage: LeadStageOut | None = None
+    deal_value: float | None = None
+    created_at: datetime
+
+
+class LeadMergeOut(BaseModel):
+    primary: LeadCardOut
+    secondary_number: int

@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from ..models import Conversation, Message, PortalUser, now_utc
+from . import lead_group
 
 
 STATUSES = ("open", "resolved")
@@ -44,6 +45,7 @@ _ACTIVITY_TEXT = {
     "unarchived": "{actor} restored the conversation from the archive",
     "blocked": "{actor} blocked the contact",
     "unblocked": "{actor} unblocked the contact; messages sent while blocked were not answered",
+    "entity_merged": "{actor} merged lead #{secondary_number} into lead #{primary_number}",
 }
 
 
@@ -66,6 +68,28 @@ def record_activity(
     return message
 
 
+def _threads(db: Session, conversation: Conversation) -> list[Conversation]:
+    """The threads linked to a lead, for state that acts on the whole lead. A
+    thread addressed directly (a channel event) acts on itself only."""
+    if lead_group.is_linked(conversation):
+        return []
+    return lead_group.linked_threads(db, conversation)
+
+
+def _mirror_status(db: Session, conversation: Conversation, status: str, now: datetime) -> None:
+    for thread in _threads(db, conversation):
+        thread.status = status
+        thread.status_changed_at = now
+        if status == "resolved":
+            from .phone_handover import cancel_phone_pause
+
+            cancel_phone_pause(thread)
+            thread.resolved_at = now
+            thread.waiting_since = None
+        else:
+            thread.resolved_at = None
+
+
 def set_status(db: Session, conversation: Conversation, status: str, *, actor: str | None = None) -> bool:
     """Move the conversation to ``status`` if it is not there already.
 
@@ -79,6 +103,7 @@ def set_status(db: Session, conversation: Conversation, status: str, *, actor: s
     now = now_utc()
     conversation.status = status
     conversation.status_changed_at = now
+    _mirror_status(db, conversation, status, now)
     if status == "resolved":
         from .phone_handover import cancel_phone_pause
 
@@ -110,13 +135,13 @@ def set_archived(db: Session, conversation: Conversation, archived: bool, *, act
     """
     if bool(conversation.archived_at) == archived:
         return False
+    stamp = now_utc() if archived else None
     if archived:
         set_status(db, conversation, "resolved", actor=actor)
-        conversation.archived_at = now_utc()
-        record_activity(db, conversation, "archived", actor=actor)
-    else:
-        conversation.archived_at = None
-        record_activity(db, conversation, "unarchived", actor=actor)
+    conversation.archived_at = stamp
+    for thread in _threads(db, conversation):
+        thread.archived_at = stamp
+    record_activity(db, conversation, "archived" if archived else "unarchived", actor=actor)
     return True
 
 
@@ -129,20 +154,23 @@ def set_mode(
     giving it back to the AI releases it, since nobody is handling it now.
     """
     from .phone_handover import cancel_phone_pause
-    timed = conversation.phone_pause_until is not None
-    if conversation.mode == mode and not timed:
+    threads = _threads(db, conversation)
+    rows = [conversation, *threads]
+    # A lead is answered by a person while its primary or any thread is.
+    if all(row.mode == mode and row.phone_pause_until is None for row in rows):
         return False
-    cancel_phone_pause(conversation)
-    conversation.mode = mode
     now = now_utc()
-    if mode == "human":
-        conversation.taken_over_at = now
-        if user:
-            conversation.assignee_id = user.id
-            conversation.assigned_at = now
-    else:
-        conversation.assignee_id = None
-        conversation.assigned_at = None
+    for row in rows:
+        cancel_phone_pause(row)
+        row.mode = mode
+        if mode == "human":
+            row.taken_over_at = now
+            if user:
+                row.assignee_id = user.id
+                row.assigned_at = now
+        else:
+            row.assignee_id = None
+            row.assigned_at = None
     record_activity(db, conversation, "taken_over" if mode == "human" else "returned_to_ai", actor=actor)
     return True
 
@@ -170,11 +198,12 @@ def assign(
         return False
     previous = conversation.assignee
     now = now_utc()
-    conversation.assignee_id = new_id
-    conversation.assigned_at = now if assignee else None
-    if assignee and conversation.mode != "human":
-        conversation.mode = "human"
-        conversation.taken_over_at = now
+    for row in (conversation, *_threads(db, conversation)):
+        row.assignee_id = new_id
+        row.assigned_at = now if assignee else None
+        if assignee and row.mode != "human":
+            row.mode = "human"
+            row.taken_over_at = now
     if assignee is None:
         event, details = "unassigned", None
     elif actor_user and assignee.id == actor_user.id:
@@ -207,6 +236,13 @@ def set_team(
     # Assign the relationship, not the id: callers keep reading
     # ``conversation.team`` in the same transaction (routing does).
     conversation.team = team
+    for thread in _threads(db, conversation):
+        thread.team = team
+        if team is not None and thread.assignee_id and thread.assignee_id not in {
+            member.portal_user_id for member in team.members
+        }:
+            thread.assignee_id = None
+            thread.assigned_at = None
     if team is None:
         record_activity(
             db, conversation, "team_removed", actor=actor, details={"team": previous.name if previous else ""}
@@ -275,23 +311,41 @@ def _emit_deal_moved(db, conversation: Conversation, stage, actor: str | None) -
 
 
 def note_inbound(db: Session, conversation: Conversation) -> None:
-    """A contact wrote: they are waiting, and a resolved case is open again."""
+    """A contact wrote: they are waiting, and a resolved case is open again.
+
+    A message on a thread that was merged into another lead lands on that lead:
+    it is the lead that waits, reopens and comes back from the archive."""
     now = now_utc()
     if conversation.waiting_since is None:
         conversation.waiting_since = now
-    if conversation.status == "resolved":
-        conversation.status = "open"
-        conversation.status_changed_at = now
-        conversation.resolved_at = None
-        record_activity(db, conversation, "reopened_by_contact")
+    if not lead_group.is_linked(conversation):
+        if conversation.status == "resolved":
+            conversation.status = "open"
+            conversation.status_changed_at = now
+            conversation.resolved_at = None
+            record_activity(db, conversation, "reopened_by_contact")
+        return
+    lead = lead_group.primary_of(conversation)
+    if lead.waiting_since is None:
+        lead.waiting_since = now
+    lead.updated_at = now
+    if lead.status == "resolved" or conversation.status == "resolved" or lead.archived_at is not None:
+        lead.archived_at = None
+        for row in (lead, *_threads(db, lead)):
+            row.archived_at = None
+            row.status = "open"
+            row.status_changed_at = now
+            row.resolved_at = None
+        record_activity(db, lead, "reopened_by_contact")
 
 
 def note_reply(conversation: Conversation) -> None:
     """Something answered the contact, whether the AI or a person."""
     now = now_utc()
-    if conversation.first_reply_at is None:
-        conversation.first_reply_at = now
-    conversation.waiting_since = None
+    for row in {id(item): item for item in (conversation, lead_group.primary_of(conversation))}.values():
+        if row.first_reply_at is None:
+            row.first_reply_at = now
+        row.waiting_since = None
 
 
 def resolve_idle_ai_conversations(db: Session, *, hours: float, now: datetime | None = None) -> int:
@@ -305,26 +359,35 @@ def resolve_idle_ai_conversations(db: Session, *, hours: float, now: datetime | 
     if hours <= 0:
         return 0
     cutoff = (now or now_utc()) - timedelta(hours=hours)
+    # A merged lead is idle only when every thread of it is.
+    thread = aliased(Conversation)
     last_message_at = (
         select(func.max(Message.created_at))
-        .where(Message.conversation_id == Conversation.id, Message.kind == "message")
+        .join(thread, thread.id == Message.conversation_id)
+        .where(
+            or_(thread.id == Conversation.id, thread.primary_conversation_id == Conversation.id),
+            Message.kind == "message",
+        )
         .correlate(Conversation)
         .scalar_subquery()
     )
     idle = db.scalars(
         select(Conversation).where(
+            lead_group.is_lead_row(),
             Conversation.status == "open",
             Conversation.mode == "ai",
+            ~lead_group.has_human_thread(),
             func.coalesce(last_message_at, Conversation.created_at) < cutoff,
         )
     ).all()
     shown = int(hours) if float(hours).is_integer() else hours
     for conversation in idle:
         stamp = now_utc()
-        conversation.status = "resolved"
-        conversation.status_changed_at = stamp
-        conversation.resolved_at = stamp
-        conversation.waiting_since = None
+        for row in (conversation, *_threads(db, conversation)):
+            row.status = "resolved"
+            row.status_changed_at = stamp
+            row.resolved_at = stamp
+            row.waiting_since = None
         record_activity(db, conversation, "auto_resolved", details={"hours": shown})
     if idle:
         db.commit()
