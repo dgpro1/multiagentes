@@ -68,6 +68,17 @@ def find_python(explicit):
     return sys.executable
 
 
+def find_bash():
+    """Git for Windows bash if present: the bash.exe in System32 or WindowsApps is the WSL launcher."""
+    for path in (r"C:\Program Files\Git\usr\bin\bash.exe", r"C:\Program Files\Git\bin\bash.exe"):
+        if Path(path).exists():
+            return path
+    found = shutil.which("bash")
+    if found and "system32" not in found.lower() and "windowsapps" not in found.lower():
+        return found
+    return None
+
+
 def split_url(url):
     match = re.match(r"^(.*://[^/]+/)([^?]+)(.*)$", url)
     if not match:
@@ -184,7 +195,7 @@ def main():
             report.add(name, "PASS" if code == 0 else "FAIL", seconds, tail(out, 25))
 
         # Coolify kit
-        bash = shutil.which("bash")
+        bash = find_bash()
         if bash:
             env_file = worktree / "audit.env"
             code, out, seconds = run([bash, "scripts/generate-coolify-env.sh", "app.example.com"], worktree, merge=False)
