@@ -5,8 +5,8 @@
 // storage key, cookie name and widget exclusion in step with lib/theme.tsx.
 export const THEME_INIT_SCRIPT = `(function(){try{
 if(location.pathname.indexOf('/widget/')===0)return;
-var p=null;try{p=localStorage.getItem('openlivery.theme')}catch(e){}
-if(p!=='system'&&p!=='light'&&p!=='dark'){var m=document.cookie.match(/(?:^|;\\s*)openlivery\\.theme=(system|light|dark)/);p=m?m[1]:'system'}
+var p=null;try{p=localStorage.getItem('hunterai.theme')||localStorage.getItem('openlivery.theme')}catch(e){}
+if(p!=='system'&&p!=='light'&&p!=='dark'){var m=document.cookie.match(/(?:^|;\\s*)(?:hunterai|openlivery)\\.theme=(system|light|dark)/);p=m?m[1]:'system'}
 if(p==='system'){p=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}
 document.documentElement.setAttribute('data-theme',p);
 }catch(e){}})();`;

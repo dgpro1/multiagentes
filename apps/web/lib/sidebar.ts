@@ -9,6 +9,11 @@ export type SidebarSurface = "agency" | "portal";
 // browser, so folding one must not move the other. Both stay on this browser
 // and never travel to the agency or to the client.
 const STORAGE_KEYS: Record<SidebarSurface, string> = {
+  agency: "hunterai.sidebar",
+  portal: "hunterai.portal-sidebar",
+};
+
+const LEGACY_STORAGE_KEYS: Record<SidebarSurface, string> = {
   agency: "openlivery.sidebar",
   portal: "openlivery.portal-sidebar",
 };
@@ -29,7 +34,8 @@ const EXPANDED = "expanded";
 function readStored(surface: SidebarSurface): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.localStorage.getItem(STORAGE_KEYS[surface]) === COLLAPSED;
+    const val = window.localStorage.getItem(STORAGE_KEYS[surface]) ?? window.localStorage.getItem(LEGACY_STORAGE_KEYS[surface]);
+    return val === COLLAPSED;
   } catch {
     // Storage can be unavailable (private mode, blocked site data).
     return false;

@@ -42,7 +42,7 @@ const en = {
   },
   integrations: {
     title: "API integrations",
-    copy: "Hand a third party its own credentials to operate this installation: automations, dashboards and tools outside OpenLivery. Pick a preset or individual scopes; tokens are shown once and then never again.",
+    copy: "Hand a third party its own credentials to operate this installation: automations, dashboards and tools outside HunterAI. Pick a preset or individual scopes; tokens are shown once and then never again.",
     clientCopy: "Credentials for {name} to operate through the API. Pick a preset or individual scopes; tokens are shown once and then never again.",
     new: "New integration",
     newTitle: "New API integration",
@@ -158,7 +158,7 @@ const es: typeof en = {
   },
   integrations: {
     title: "Integraciones API",
-    copy: "Dale a un tercero sus propias credenciales para operar esta instalación: automatizaciones, tableros y herramientas fuera de OpenLivery. Elige un preset o scopes individuales; los tokens se muestran una sola vez y nunca más.",
+    copy: "Dale a un tercero sus propias credenciales para operar esta instalación: automatizaciones, tableros y herramientas fuera de HunterAI. Elige un preset o scopes individuales; los tokens se muestran una sola vez y nunca más.",
     clientCopy: "Credenciales para que {name} opere por API. Elige un preset o scopes individuales; los tokens se muestran una sola vez y nunca más.",
     new: "Nueva integración",
     newTitle: "Nueva integración API",

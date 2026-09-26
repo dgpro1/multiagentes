@@ -86,7 +86,7 @@ type InboxPayload = { items: Conversation[]; total: number; summary: InboxSummar
 const ROW_FIELDS = ["status", "mode", "assignee_id", "assignee_name", "team_id", "team_name", "taken_over_at", "resolved_at", "archived_at", "phone_pause_until", "reply_window_until", "reply_window_open", "human_reply_window_open", "human_reply_window_until", "reply_block_reason", "updated_at", "channels", "linked_count"] as const;
 // The conversation list and the thread share the inbox width; the divider between
 // them slides, and the width is remembered per browser.
-const LIST_WIDTH = { key: "openlivery.portal-inbox-width", min: 240, max: 560, wide: 360, narrow: 260, narrowBelow: 900, threadMin: 380, step: 16 };
+const LIST_WIDTH = { key: "hunterai.portal-inbox-width", legacyKey: "openlivery.portal-inbox-width", min: 240, max: 560, wide: 360, narrow: 260, narrowBelow: 900, threadMin: 380, step: 16 };
 // The lead card takes this much of the inbox on its right while it is open beside the thread (see .has-lead in globals.css).
 const LEAD_PANEL_WIDTH = 360;
 // Narrow windows start with a slimmer list, as the layout always did.
@@ -95,7 +95,8 @@ function defaultListWidth(): number {
 }
 function readListWidth(): number {
   try {
-    const stored = Number(window.localStorage.getItem(LIST_WIDTH.key));
+    const raw = window.localStorage.getItem(LIST_WIDTH.key) ?? window.localStorage.getItem(LIST_WIDTH.legacyKey);
+    const stored = Number(raw);
     return Number.isFinite(stored) && stored >= LIST_WIDTH.min && stored <= LIST_WIDTH.max ? stored : defaultListWidth();
   } catch {
     return defaultListWidth();

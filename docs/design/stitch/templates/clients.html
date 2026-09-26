@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-[#F6F8F7]" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Directorio de Clientes | HunterAI</title>
+<!-- Google Fonts: Plus Jakarta Sans -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN with Forms & Container Queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration for Warm Bento / HunterAI Theme -->
+<script data-purpose="tailwind-config">
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+          },
+          colors: {
+            hunter: {
+              50: '#F0F9F6',
+              100: '#DCF1EA',
+              200: '#B8E3D5',
+              300: '#85CEB9',
+              400: '#4EB398',
+              500: '#0F766E', // Primary teal
+              600: '#0B5E58',
+              700: '#084B46',
+              800: '#063A36',
+              900: '#032624',
+              accent: '#138A7E',
+            },
+            surface: {
+              subtle: '#F6F8F7',
+              card: '#FFFFFF',
+              border: '#E8ECEB',
+            }
+          },
+          borderRadius: {
+            '2xl': '1rem',
+            '3xl': '1.5rem',
+          },
+          boxShadow: {
+            'soft': '0 2px 10px rgba(15, 23, 42, 0.03), 0 8px 30px rgba(15, 23, 42, 0.04)',
+            'bento': '0 4px 20px -2px rgba(15, 23, 42, 0.05)',
+            'focus-teal': '0 0 0 3px rgba(15, 118, 110, 0.18)',
+          }
+        }
+      }
+    }
+  </script>
+<style data-purpose="custom-scrollbars">
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #D1D5DB;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #9CA3AF;
+    }
+  </style>
+</head>
+<body class="h-full text-slate-800 antialiased flex overflow-hidden">
+<!-- BEGIN: MainSidebar -->
+<aside class="w-64 flex-shrink-0 bg-white border-r border-[#E7EBE9] flex flex-col justify-between h-full select-none z-20" data-purpose="sidebar-navigation">
+<div class="flex flex-col h-full overflow-y-auto">
+<!-- Top Brand & Organization Header -->
+<div class="p-4 border-b border-[#EEF2F0]">
+<!-- Brand Row -->
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center text-white shadow-sm">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewbox="0 0 24 24">
+<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+</svg>
+</div>
+<span class="font-bold text-slate-900 tracking-tight text-base">HunterAI</span>
+</div>
+<!-- Collapse / Switcher button -->
+<button aria-label="Colapsar menú" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M11 19l-7-7 7-7m8 14l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+<!-- Current Workspace Badge/Dropdown -->
+<button class="w-full flex items-center justify-between p-2.5 rounded-xl bg-[#F4F7F6] hover:bg-[#EDF2F0] border border-[#E4EAE7] transition group text-left">
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-7 h-7 rounded-lg bg-teal-800 text-teal-100 flex items-center justify-center font-bold text-xs flex-shrink-0">
+              BE
+            </div>
+<div class="truncate">
+<p class="text-xs font-bold text-slate-900 truncate">Beauty Agency</p>
+<p class="text-[10px] text-teal-700 font-medium">Plan Agencia Pro</p>
+</div>
+</div>
+<svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 flex-shrink-0 ml-1" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+<!-- Navigation Section -->
+<nav class="flex-1 px-3 py-4 space-y-1">
+<p class="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Plataforma</p>
+<!-- Link: Inicio -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-[#F3F7F5] hover:text-slate-900 text-xs font-semibold transition" href="#">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+          Inicio
+        </a>
+<!-- Link: Clientes (Active) -->
+<a class="flex items-center justify-between px-3 py-2 rounded-xl bg-hunter-100/70 text-hunter-700 text-xs font-bold transition shadow-sm" href="#">
+<div class="flex items-center gap-3">
+<svg class="w-4 h-4 text-hunter-600" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+            Clientes
+          </div>
+<span class="w-1.5 h-1.5 rounded-full bg-hunter-500"></span>
+</a>
+<!-- Link: Agentes -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-[#F3F7F5] hover:text-slate-900 text-xs font-semibold transition" href="#">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+          Agentes
+        </a>
+<!-- Link: Inbox -->
+<a class="flex items-center justify-between px-3 py-2 rounded-xl text-slate-600 hover:bg-[#F3F7F5] hover:text-slate-900 text-xs font-semibold transition" href="#">
+<div class="flex items-center gap-3">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+            Inbox
+          </div>
+<span class="text-[10px] font-bold text-hunter-700 bg-hunter-100 px-1.5 py-0.5 rounded-full">12</span>
+</a>
+<!-- Link: Playground -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-[#F3F7F5] hover:text-slate-900 text-xs font-semibold transition" href="#">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+          Playground
+        </a>
+<!-- Link: Canales -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-[#F3F7F5] hover:text-slate-900 text-xs font-semibold transition" href="#">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+          Canales
+        </a>
+<!-- Link: Reportes -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-[#F3F7F5] hover:text-slate-900 text-xs font-semibold transition" href="#">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+          Reportes
+        </a>
+<!-- Link: Configuración -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-[#F3F7F5] hover:text-slate-900 text-xs font-semibold transition" href="#">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+<path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+          Configuración
+        </a>
+</nav>
+<!-- Bottom Widget: Assistant Status Card -->
+<div class="p-3">
+<div class="p-3 bg-gradient-to-br from-hunter-50 to-[#EAF5F1] border border-hunter-200/80 rounded-2xl">
+<div class="flex items-center gap-2 mb-1.5">
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+<p class="text-[11px] font-bold text-hunter-900 flex items-center gap-1">
+              Agente Asistente
+            </p>
+</div>
+<p class="text-[10px] text-hunter-700 leading-relaxed font-medium">
+            Agentes en producción y operando al 100% de capacidad.
+          </p>
+</div>
+</div>
+<!-- User Profile Row -->
+<div class="p-3 border-t border-[#EEF2F0] flex items-center justify-between">
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
+            N
+          </div>
+<div class="truncate">
+<p class="text-xs font-bold text-slate-800 truncate">Vicente</p>
+<p class="text-[10px] text-slate-400 truncate">agency@gmail.com</p>
+</div>
+</div>
+<button aria-label="Cerrar sesión" class="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg transition-colors">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+</div>
+</aside>
+<!-- END: MainSidebar -->
+<!-- BEGIN: MainContentArea -->
+<main class="flex-1 flex flex-col h-full overflow-hidden bg-[#F6F8F7]">
+<!-- Top Bar / Directory Header -->
+<header class="px-8 pt-7 pb-5 flex-shrink-0" data-purpose="top-header">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div>
+<span class="text-[11px] font-extrabold tracking-widest text-hunter-600 uppercase">Directorio</span>
+<h1 class="text-2xl lg:text-3xl font-extrabold text-slate-900 tracking-tight mt-0.5">Clientes</h1>
+<p class="text-xs lg:text-sm text-slate-500 font-medium mt-1">
+            Cada cliente reúne sus agentes, canales, conversaciones y acceso al portal.
+          </p>
+</div>
+<!-- Action Button -->
+<div class="flex items-center gap-3">
+<button class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-hunter-500 hover:bg-hunter-600 text-white font-semibold text-xs transition shadow-sm hover:shadow active:scale-[0.99]">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+            Nuevo cliente
+          </button>
+</div>
+</div>
+<!-- Filter and Search Toolbar -->
+<div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+<!-- Search Input with Keyboard shortcut -->
+<div class="relative w-full max-w-md">
+<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+<input class="w-full pl-9 pr-14 py-2 bg-white text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-hunter-500 focus:ring-2 focus:ring-hunter-100 transition shadow-sm placeholder-slate-400" placeholder="Buscar por nombre o industria..." type="text"/>
+<div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+<kbd class="px-1.5 py-0.5 text-[10px] font-semibold text-slate-400 bg-slate-100 border border-slate-200 rounded-md">⌘K</kbd>
+</div>
+</div>
+<!-- Quick Filters -->
+<div class="flex items-center gap-2 flex-wrap">
+<div class="relative">
+<button class="flex items-center gap-1.5 px-3 py-2 bg-white text-xs font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition shadow-sm">
+<span class="text-slate-400">Industria:</span>
+<span class="font-semibold text-slate-900">Todas</span>
+<svg class="w-3.5 h-3.5 text-slate-400 ml-1" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+<div class="relative">
+<button class="flex items-center gap-1.5 px-3 py-2 bg-white text-xs font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition shadow-sm">
+<span class="text-slate-400">Estado:</span>
+<span class="font-semibold text-emerald-700">Activo</span>
+<svg class="w-3.5 h-3.5 text-slate-400 ml-1" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+<div class="relative">
+<button class="flex items-center gap-1.5 px-3 py-2 bg-white text-xs font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition shadow-sm">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span>Actividad reciente</span>
+</button>
+</div>
+</div>
+</div>
+</header>
+<!-- Master-Detail Split Screen Container -->
+<div class="flex-1 px-8 pb-7 overflow-hidden">
+<div class="h-full grid grid-cols-12 gap-6">
+<!-- BEGIN: LeftColumnTable -->
+<!-- Master Table: ~62% width (col-span-7 or 8 on wide screens) -->
+<section class="col-span-12 lg:col-span-7 xl:col-span-7 flex flex-col bg-white border border-[#E6EBE8] rounded-3xl shadow-soft overflow-hidden" data-purpose="clients-table-container">
+<!-- Table Header Details -->
+<div class="px-5 py-4 border-b border-[#EDF2EF] flex items-center justify-between bg-white">
+<div class="flex items-center gap-2">
+<h2 class="text-sm font-bold text-slate-800">Listado de Clientes</h2>
+<span class="bg-hunter-50 text-hunter-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-hunter-100">3 Registros</span>
+</div>
+<button class="text-xs text-slate-400 hover:text-slate-600 transition flex items-center gap-1 font-medium">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+              Actualizar
+            </button>
+</div>
+<!-- Responsive Table Body -->
+<div class="flex-1 overflow-y-auto divide-y divide-[#EEF2F0]">
+<!-- Row 1: SELECTED CLIENT (Dental Marbella) -->
+<div class="group relative px-5 py-4 bg-[#F2F8F6] border-l-4 border-hunter-500 hover:bg-[#EDF6F3] transition cursor-pointer flex items-center justify-between gap-4" data-purpose="client-row-selected">
+<div class="flex items-center gap-3.5 min-w-0">
+<!-- Avatar DE -->
+<div class="w-10 h-10 rounded-2xl bg-teal-100 border border-teal-200 text-teal-800 font-bold text-xs flex items-center justify-center shadow-xs flex-shrink-0">
+                  DE
+                </div>
+<div class="min-w-0">
+<div class="flex items-center gap-2">
+<h3 class="font-bold text-xs sm:text-sm text-slate-900 truncate">Dental Marbella</h3>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>Activo
+                    </span>
+</div>
+<p class="text-[11px] text-slate-500 truncate mt-0.5">Odontología preventiva y estética</p>
+</div>
+</div>
+<!-- Metrics / Badges / Tags -->
+<div class="flex items-center gap-4 flex-shrink-0">
+<div class="hidden sm:flex flex-col items-end text-right">
+<span class="text-xs font-semibold text-slate-700">Salud y bienestar</span>
+<span class="text-[10px] text-slate-400">1 agente activo</span>
+</div>
+<div class="hidden md:block">
+<span class="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-medium bg-[#E6F3EF] text-hunter-700 border border-hunter-200/60">
+                    Publicado
+                  </span>
+</div>
+<!-- Selection arrow indicator -->
+<div class="w-7 h-7 rounded-xl bg-hunter-500 text-white flex items-center justify-center shadow-sm">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- Row 2: Clinica Aurora -->
+<div class="group px-5 py-4 bg-white hover:bg-[#FAFBFB] transition cursor-pointer flex items-center justify-between gap-4" data-purpose="client-row">
+<div class="flex items-center gap-3.5 min-w-0">
+<!-- Avatar CL -->
+<div class="w-10 h-10 rounded-2xl bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center flex-shrink-0">
+                  CL
+                </div>
+<div class="min-w-0">
+<div class="flex items-center gap-2">
+<h3 class="font-bold text-xs sm:text-sm text-slate-800 group-hover:text-hunter-600 transition truncate">Clinica Aurora</h3>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>Activo
+                    </span>
+</div>
+<p class="text-[11px] text-slate-500 truncate mt-0.5">Salón de belleza y spa</p>
+</div>
+</div>
+<!-- Metrics / Badges / Tags -->
+<div class="flex items-center gap-4 flex-shrink-0">
+<div class="hidden sm:flex flex-col items-end text-right">
+<span class="text-xs font-semibold text-slate-700">Belleza y cuidado</span>
+<span class="text-[10px] text-slate-400">2 agentes asignados</span>
+</div>
+<div class="hidden md:block">
+<span class="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
+                    Publicado
+                  </span>
+</div>
+<div class="w-7 h-7 rounded-xl text-slate-300 group-hover:text-slate-600 group-hover:bg-slate-100 flex items-center justify-center transition">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- Row 3: Nova Laser Studio (Borrador/En pausa) -->
+<div class="group px-5 py-4 bg-white hover:bg-[#FAFBFB] transition cursor-pointer flex items-center justify-between gap-4" data-purpose="client-row">
+<div class="flex items-center gap-3.5 min-w-0">
+<!-- Avatar NL -->
+<div class="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 font-bold text-xs flex items-center justify-center flex-shrink-0">
+                  NL
+                </div>
+<div class="min-w-0">
+<div class="flex items-center gap-2">
+<h3 class="font-bold text-xs sm:text-sm text-slate-800 group-hover:text-hunter-600 transition truncate">Nova Laser Studio</h3>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>En pausa
+                    </span>
+</div>
+<p class="text-[11px] text-slate-500 truncate mt-0.5">Dermatología clínica y láser</p>
+</div>
+</div>
+<!-- Metrics / Badges / Tags -->
+<div class="flex items-center gap-4 flex-shrink-0">
+<div class="hidden sm:flex flex-col items-end text-right">
+<span class="text-xs font-semibold text-slate-700">Medicina estética</span>
+<span class="text-[10px] text-slate-400">0 agentes (Borrador)</span>
+</div>
+<div class="hidden md:block">
+<span class="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                    No publicado
+                  </span>
+</div>
+<div class="w-7 h-7 rounded-xl text-slate-300 group-hover:text-slate-600 group-hover:bg-slate-100 flex items-center justify-center transition">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+</div>
+</div>
+<!-- Table Footer Pagination & Total Count -->
+<div class="p-3.5 bg-slate-50/70 border-t border-[#EDF2EF] flex items-center justify-between text-xs text-slate-500">
+<span class="font-medium">Mostrando 3 de 3 clientes</span>
+<div class="flex items-center gap-1">
+<button class="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-300 cursor-not-allowed" disabled="">Anterior</button>
+<button class="px-2.5 py-1 rounded-lg bg-hunter-500 text-white font-semibold">1</button>
+<button class="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-300 cursor-not-allowed" disabled="">Siguiente</button>
+</div>
+</div>
+</section>
+<!-- END: LeftColumnTable -->
+<!-- BEGIN: RightColumnDetailPanel -->
+<!-- Inspector Detail Panel: ~38% width (col-span-5 on wide screens) -->
+<section class="col-span-12 lg:col-span-5 xl:col-span-5 flex flex-col bg-white border border-[#E6EBE8] rounded-3xl shadow-soft overflow-hidden" data-purpose="client-detail-panel">
+<!-- Panel Header / Client Identity -->
+<div class="p-6 border-b border-[#EDF2EF] bg-gradient-to-b from-[#F9FBFA] to-white">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3">
+<div class="w-12 h-12 rounded-2xl bg-teal-600 text-white font-bold text-sm flex items-center justify-center shadow-md">
+                  DE
+                </div>
+<div>
+<div class="flex items-center gap-2">
+<h2 class="text-base font-bold text-slate-900 tracking-tight">Dental Marbella</h2>
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+</div>
+<p class="text-xs text-slate-500">Odontología preventiva y estética</p>
+</div>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition" title="Editar cliente">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+</div>
+<!-- Portal URL Box -->
+<div class="mt-4 p-2.5 bg-white border border-slate-200/80 rounded-xl flex items-center justify-between gap-2 shadow-xs">
+<div class="flex items-center gap-2 min-w-0">
+<svg class="w-4 h-4 text-hunter-500 flex-shrink-0" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="text-xs font-semibold text-slate-600 truncate">dentalmarbella.hunterai.app</span>
+</div>
+<button class="text-xs font-medium text-hunter-600 hover:text-hunter-700 bg-hunter-50 hover:bg-hunter-100 px-2.5 py-1 rounded-lg transition flex items-center gap-1 flex-shrink-0" title="Copiar enlace del portal">
+<svg class="w-3 h-3" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+                Copiar
+              </button>
+</div>
+</div>
+<!-- Panel Scrollable Body -->
+<div class="flex-1 overflow-y-auto p-6 space-y-5">
+<!-- Quick Bento KPI Tiles -->
+<div class="grid grid-cols-3 gap-2.5">
+<div class="p-3 rounded-2xl bg-[#F6FAF8] border border-[#E1ECE7] text-center">
+<span class="text-[10px] font-bold text-slate-400 block uppercase">Hoy</span>
+<span class="text-lg font-extrabold text-slate-800">8</span>
+<span class="text-[10px] text-hunter-700 font-medium block truncate">Conversaciones</span>
+</div>
+<div class="p-3 rounded-2xl bg-[#F6FAF8] border border-[#E1ECE7] text-center">
+<span class="text-[10px] font-bold text-slate-400 block uppercase">Agente</span>
+<span class="text-lg font-extrabold text-emerald-600">1 Online</span>
+<span class="text-[10px] text-slate-500 font-medium block truncate">Sol (Voz &amp; Chat)</span>
+</div>
+<div class="p-3 rounded-2xl bg-[#F6FAF8] border border-[#E1ECE7] text-center">
+<span class="text-[10px] font-bold text-slate-400 block uppercase">CSAT</span>
+<span class="text-lg font-extrabold text-slate-800">98%</span>
+<span class="text-[10px] text-emerald-600 font-medium block truncate">Satisfacción</span>
+</div>
+</div>
+<!-- Assigned AI Agent Card -->
+<div>
+<div class="flex items-center justify-between mb-2">
+<label class="text-xs font-bold uppercase tracking-wider text-slate-400">Agente Principal</label>
+<span class="text-[10px] font-semibold text-hunter-600 hover:underline cursor-pointer">Ver configuración</span>
+</div>
+<div class="p-3.5 bg-white border border-[#E3E9E6] rounded-2xl shadow-xs hover:border-hunter-200 transition">
+<div class="flex items-start justify-between gap-3">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-xl bg-hunter-50 border border-hunter-200 flex items-center justify-center text-hunter-700">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="9"></circle>
+<path d="M9 10h.01M15 10h.01"></path>
+<path d="M9.5 15a3.5 3.5 0 005 0"></path>
+</svg>
+</div>
+<div>
+<h4 class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        Sol Dental
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+</h4>
+<p class="text-[11px] text-slate-400">Recepcionista clínica &amp; reservas</p>
+</div>
+</div>
+<span class="text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">Operativo</span>
+</div>
+<p class="text-[11px] text-slate-600 mt-2.5 bg-slate-50 p-2 rounded-xl leading-relaxed border border-slate-100 italic">
+                  "Hola, soy Sol de Dental Marbella. ¿Te gustaría agendar una valoración o consultar sobre tu tratamiento?"
+                </p>
+</div>
+</div>
+<!-- Connected Channels Section -->
+<div>
+<label class="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-2">Canales Conectados</label>
+<div class="space-y-2">
+<!-- WhatsApp Channel -->
+<div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+<div class="flex items-center gap-2.5">
+<div class="w-6 h-6 rounded-lg bg-emerald-500 text-white flex items-center justify-center">
+<svg class="w-3.5 h-3.5" fill="currentColor" viewbox="0 0 24 24">
+<path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.007c.106.005.249-.04.39.299.144.347.491 1.2.534 1.288.043.088.072.19.014.306-.058.115-.087.187-.173.289l-.26.302c-.087.087-.177.181-.076.355.101.173.45 1.741 1.83 2.164.204.063.364.088.49.049.158-.049.491-.572.622-.768.13-.196.26-.164.433-.101.173.063 1.097.517 1.285.611.188.094.314.141.36.22.046.079.046.457-.098.862z"></path>
+</svg>
+</div>
+<div>
+<p class="text-xs font-semibold text-slate-800">WhatsApp Business</p>
+<p class="text-[10px] text-slate-400">+34 951 82 44 20</p>
+</div>
+</div>
+<span class="text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full">Activo</span>
+</div>
+<!-- Web Chat Widget -->
+<div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+<div class="flex items-center gap-2.5">
+<div class="w-6 h-6 rounded-lg bg-teal-600 text-white flex items-center justify-center">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+<div>
+<p class="text-xs font-semibold text-slate-800">Web Chat Widget</p>
+<p class="text-[10px] text-slate-400">Incrustado en WordPress</p>
+</div>
+</div>
+<span class="text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full">Activo</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Panel Footer Actions -->
+<div class="p-4 border-t border-[#EDF2EF] bg-white flex flex-col gap-2">
+<button class="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition shadow-sm">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+              Abrir Portal del Cliente
+            </button>
+<div class="grid grid-cols-2 gap-2">
+<button class="flex items-center justify-center gap-1.5 py-2 px-3 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-medium transition">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+                Configurar
+              </button>
+<button class="flex items-center justify-center gap-1.5 py-2 px-3 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-medium transition">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+                Estadísticas
+              </button>
+</div>
+</div>
+</section>
+<!-- END: RightColumnDetailPanel -->
+</div>
+</div>
+</main>
+<!-- END: MainContentArea -->
+</body></html>

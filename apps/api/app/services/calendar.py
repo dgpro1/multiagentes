@@ -367,7 +367,7 @@ async def sync_appointment_to_google(db: Session, client: Client, appointment: A
         f"Teléfono: {contact_phone}" if contact_phone else "",
         f"Motivo: {appointment.title}",
         f"Notas: {appointment.notes}" if appointment.notes else "",
-        "Agendado vía OpenLivery",
+        "Agendado vía HunterAI",
     ]
     description = "\n".join(filter(None, description_lines))
 

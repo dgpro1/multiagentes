@@ -503,5 +503,5 @@ async def ensure_webhook(user: User = Depends(get_current_user)):
     secret = get_settings().messaging_provider_webhook_secret.strip()
     if not secret:
         raise HTTPException(status_code=409, detail="Set MESSAGING_PROVIDER_WEBHOOK_SECRET first")
-    webhook = await provider.ensure_webhook("OpenLivery inbox", provider.webhook_url(), secret, provider.INBOX_EVENTS)
+    webhook = await provider.ensure_webhook("HunterAI inbox", provider.webhook_url(), secret, provider.INBOX_EVENTS)
     return {"url": webhook.get("url"), "events": webhook.get("events"), "active": webhook.get("isActive", True)}

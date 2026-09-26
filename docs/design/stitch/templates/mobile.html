@@ -1,0 +1,502 @@
+<!DOCTYPE html><html class="light" lang="es" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>OpenLivery - Resumen de Agencia</title>
+<!-- Google Fonts: Plus Jakarta Sans -->
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "error": "#ba1a1a",
+            "surface": "#faf9f5",
+            "tertiary-fixed": "#cbedad",
+            "surface-container-high": "#e9e8e4",
+            "surface-variant": "#e3e2df",
+            "secondary": "#615884",
+            "surface-tint": "#5f5e61",
+            "on-secondary": "#ffffff",
+            "on-error-container": "#93000a",
+            "on-error": "#ffffff",
+            "inverse-surface": "#30312e",
+            "on-primary-fixed": "#1b1b1e",
+            "secondary-container": "#d6cbfe",
+            "on-background": "#1b1c1a",
+            "surface-container-lowest": "#ffffff",
+            "primary": "#000000",
+            "on-secondary-container": "#5c547f",
+            "on-tertiary-fixed-variant": "#334e1e",
+            "primary-fixed-dim": "#c8c5ca",
+            "on-secondary-fixed": "#1d153d",
+            "surface-bright": "#faf9f5",
+            "outline-variant": "#c8c5cb",
+            "inverse-primary": "#c8c5ca",
+            "background": "#faf9f5",
+            "tertiary": "#000000",
+            "on-surface-variant": "#47464b",
+            "secondary-fixed": "#e6deff",
+            "primary-fixed": "#e4e1e6",
+            "on-primary-fixed-variant": "#47464a",
+            "on-primary-container": "#858387",
+            "on-secondary-fixed-variant": "#49416b",
+            "surface-container-highest": "#e3e2df",
+            "surface-container": "#efeeea",
+            "on-tertiary-fixed": "#0c2000",
+            "outline": "#77767b",
+            "surface-dim": "#dbdad6",
+            "tertiary-fixed-dim": "#b0d193",
+            "primary-container": "#1b1b1e",
+            "on-primary": "#ffffff",
+            "error-container": "#ffdad6",
+            "tertiary-container": "#0c2000",
+            "secondary-fixed-dim": "#cbc0f2",
+            "on-surface": "#1b1c1a",
+            "on-tertiary-container": "#6e8d55",
+            "inverse-on-surface": "#f2f1ed",
+            "on-tertiary": "#ffffff",
+            "surface-container-low": "#f5f4f0"
+          },
+          "borderRadius": {
+            "DEFAULT": "1rem",
+            "lg": "2rem",
+            "xl": "3rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-sm": "0.5rem",
+            "margin-mobile": "1rem",
+            "gutter-lg": "1.25rem",
+            "space-md": "1rem",
+            "space-lg": "1.5rem",
+            "space-xs": "0.25rem",
+            "space-xl": "2rem",
+            "gutter": "1rem",
+            "margin": "1.5rem"
+          },
+          "fontFamily": {
+            "body-md": ["Plus Jakarta Sans"],
+            "display-hero-mobile": ["Plus Jakarta Sans"],
+            "label-lg": ["Plus Jakarta Sans"],
+            "label-md": ["Plus Jakarta Sans"],
+            "stat-display": ["Plus Jakarta Sans"],
+            "headline-md": ["Plus Jakarta Sans"],
+            "headline-lg": ["Plus Jakarta Sans"],
+            "body-lg": ["Plus Jakarta Sans"],
+            "body-sm": ["Plus Jakarta Sans"],
+            "display-hero": ["Plus Jakarta Sans"],
+            "headline-sm": ["Plus Jakarta Sans"]
+          },
+          "fontSize": {
+            "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+            "display-hero-mobile": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+            "label-lg": ["13px", { "lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+            "label-md": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "600" }],
+            "stat-display": ["34px", { "lineHeight": "40px", "letterSpacing": "-0.03em", "fontWeight": "600" }],
+            "headline-md": ["22px", { "lineHeight": "28px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "headline-lg": ["28px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+            "body-lg": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.005em", "fontWeight": "400" }],
+            "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "display-hero": ["44px", { "lineHeight": "52px", "letterSpacing": "-0.03em", "fontWeight": "400" }],
+            "headline-sm": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .bento-card-shadow {
+      box-shadow: 0 4px 20px -2px rgba(24, 24, 27, 0.03), 0 2px 6px -1px rgba(24, 24, 27, 0.02);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-body-md antialiased min-h-screen pb-28 select-none">
+<!-- 1. TopAppBar (Shared Component Implementation) -->
+<header class="sticky top-0 z-40 bg-surface w-full px-margin-mobile py-space-sm flex justify-between items-center transition-colors">
+<!-- Brand / Workspace Switcher -->
+<div class="flex items-center gap-space-sm">
+<div class="w-9 h-9 rounded-full bg-secondary-fixed flex items-center justify-center text-on-secondary-fixed font-bold font-headline-sm text-headline-sm shadow-xs">
+        OL
+      </div>
+<div>
+<div class="flex items-center gap-1 cursor-pointer active:scale-95 transition-transform duration-150">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface tracking-tight">Multiagentes</span>
+<span class="material-symbols-outlined text-outline text-base" data-icon="unfold_more">unfold_more</span>
+</div>
+<div class="flex items-center gap-1 text-on-surface-variant font-label-md text-label-md">
+<span class="">Beauty Agency</span>
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-tertiary-fixed-dim"></span>
+<span class="text-tertiary-container font-medium">Online</span>
+</div>
+</div>
+</div>
+<!-- Actions & Avatar -->
+<div class="flex items-center gap-2">
+<button class="w-9 h-9 rounded-full bg-surface-container flex items-center justify-center text-on-surface hover:bg-surface-container-high transition-colors active:scale-95" title="Buscar">
+<span class="material-symbols-outlined text-[19px]" data-icon="search">search</span>
+</button>
+<button class="w-9 h-9 rounded-full bg-surface-container flex items-center justify-center text-on-surface hover:bg-surface-container-high transition-colors active:scale-95 relative" title="Notificaciones">
+<span class="material-symbols-outlined text-[19px]" data-icon="notifications">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 rounded-full bg-secondary ring-2 ring-surface"></span>
+</button>
+<div class="w-9 h-9 rounded-full ring-1 ring-outline-variant overflow-hidden cursor-pointer active:scale-95 transition-transform">
+<img class="w-full h-full object-cover" data-alt="Close up professional portrait of Vicente, a young creative tech founder with a relaxed and warm expression, soft natural studio lighting with warm neutral tones, modern minimalist aesthetic, elegant look." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB_SiAvo0qXQJ-484EQh9GouGmIsv6uXKHKS2LOXYLaqdh1gCU3oXqIU-77WVswIgQg49741PL3sgv8D_vEEGVevCEx-pHV47WZvYHX2WG7PmcudtVrGVNBQvumJEwQNXghY6PQDT4x0YvXQW03F_3AOpqwEzfrQ6Dkmzbei3vNROtVqlqcuqPqSxG0TTRutwGHVIkZY6bdVYHKRlP9tBzn4FKXK-RPs1tFKqMjk6TjudxURQouNhKq">
+</div>
+</div>
+</header>
+<!-- Main Canvas Container -->
+<main class="px-margin-mobile mt-3 space-y-4 max-w-md mx-auto">
+<!-- 2. Header & Saludo -->
+<section class="space-y-1 pt-1">
+<div class="flex items-center justify-between">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface-container font-label-md text-label-md text-on-surface-variant tracking-wider">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+          RESUMEN DE AGENCIA
+        </span>
+<button class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-surface-container-lowest bento-card-shadow font-label-md text-label-md text-on-surface hover:bg-surface-container transition-colors active:scale-95">
+<span class="">Últimos 14 días</span>
+<span class="material-symbols-outlined text-sm text-outline" data-icon="keyboard_arrow_down">keyboard_arrow_down</span>
+</button>
+</div>
+<h1 class="font-display-hero-mobile text-display-hero-mobile text-on-surface tracking-tight font-medium pt-1">
+        Hola, Vicente <span class="inline-block animate-pulse">👋</span>
+</h1>
+<p class="font-body-md text-body-md text-on-surface-variant leading-snug">
+        Todo lo que ocurre con tus clientes y agentes, en un solo lugar.
+      </p>
+</section>
+<!-- 3. Hero Bento Card Principal (Lavender Pastel #E8E2FE / #D6CBFE) -->
+<section class="rounded-3xl bg-secondary-container p-space-lg relative overflow-hidden transition-all duration-200">
+<!-- Ambient subtle glow -->
+<div class="absolute -right-8 -top-8 w-36 h-36 rounded-full bg-surface-container-lowest/30 blur-2xl pointer-events-none"></div>
+<div class="flex items-start justify-between relative z-10">
+<div>
+<span class="font-body-md text-body-md text-on-secondary-container font-medium block">Hoy en Beauty Agency</span>
+<h2 class="font-headline-lg text-headline-lg text-on-surface font-semibold tracking-tight mt-0.5">
+            Agentes en acción
+          </h2>
+</div>
+<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-surface-container-lowest/70 backdrop-blur-sm text-on-surface font-label-md text-label-md">
+<span class="w-2 h-2 rounded-full bg-tertiary-fixed-variant animate-ping"></span>
+          En vivo
+        </span>
+</div>
+<!-- Main Counter Display -->
+<div class="my-5 relative z-10">
+<div class="flex items-baseline gap-2">
+<span class="font-stat-display text-stat-display text-on-surface font-bold tracking-tight">19</span>
+<span class="font-headline-md text-headline-md text-on-surface font-medium">conversaciones</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-secondary-container mt-1">
+<span class="font-semibold text-on-surface">18 automáticas</span> · 1 asistida por humano
+        </p>
+</div>
+<!-- Floating Micro-state Tags -->
+<div class="flex flex-wrap gap-2 pt-1 pb-4 relative z-10">
+<span class="px-3 py-1 rounded-full bg-surface-container-lowest text-on-surface font-label-md text-label-md shadow-xs flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+          Sol (Top)
+        </span>
+<span class="px-3 py-1 rounded-full bg-surface-container-lowest text-on-surface font-label-md text-label-md shadow-xs">
+          BeautyBot
+        </span>
+<span class="px-3 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-md text-label-md flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]" data-icon="check_circle" data-weight="fill" style="font-variation-settings: &quot;FILL&quot; 1;">check_circle</span>
+          WhatsApp activo
+        </span>
+<span class="px-3 py-1 rounded-full bg-surface-container-lowest/80 text-on-surface font-label-md text-label-md">
+          Instagram Direct
+        </span>
+</div>
+<!-- CTA Dark Pill Button -->
+<div class="pt-2 relative z-10 flex gap-2">
+<button class="flex-1 bg-primary-container text-on-primary font-label-lg text-label-lg py-3 px-4 rounded-full flex items-center justify-center gap-2 active:scale-95 transition-transform duration-150 shadow-sm">
+<span class="material-symbols-outlined text-lg" data-icon="add">add</span>
+<span class="">Nuevo Cliente<br></span>
+</button>
+<button class="w-12 h-12 rounded-full bg-surface-container-lowest flex items-center justify-center text-on-surface active:scale-95 transition-transform duration-150" title="Playground">
+<span class="material-symbols-outlined text-xl" data-icon="play_arrow">play_arrow</span>
+</button>
+</div>
+</section>
+<!-- 4. Cuadrícula Bento de Métricas Rápidas (2x2 Grid) -->
+<section class="grid grid-cols-2 gap-3">
+<!-- Tarjeta 1: Clientes -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 bento-card-shadow border border-outline-variant/20 flex flex-col justify-between active:scale-[0.99] transition-transform">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface-variant">Clientes</span>
+<div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface">
+<span class="material-symbols-outlined text-base" data-icon="group">group</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="font-headline-lg text-headline-lg font-bold text-on-surface">12</div>
+<div class="inline-flex items-center gap-1 mt-1 font-label-md text-label-md text-tertiary-fixed-variant bg-tertiary-fixed/30 px-2 py-0.5 rounded-full">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-fixed-variant"></span>
+            4 activos hoy
+          </div>
+</div>
+</div>
+<!-- Tarjeta 2: Agentes -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 bento-card-shadow border border-outline-variant/20 flex flex-col justify-between active:scale-[0.99] transition-transform">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface-variant">Agentes</span>
+<div class="w-8 h-8 rounded-full bg-secondary-fixed flex items-center justify-center text-on-secondary-fixed">
+<span class="material-symbols-outlined text-base" data-icon="smart_toy">smart_toy</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="font-headline-lg text-headline-lg font-bold text-on-surface">4</div>
+<div class="inline-flex items-center gap-1 mt-1 font-label-md text-label-md text-on-secondary-container bg-secondary-fixed/50 px-2 py-0.5 rounded-full">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+            3 activos
+          </div>
+</div>
+</div>
+<!-- Tarjeta 3: Conversaciones -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 bento-card-shadow border border-outline-variant/20 flex flex-col justify-between active:scale-[0.99] transition-transform">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface-variant">Conversaciones</span>
+<div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface">
+<span class="material-symbols-outlined text-base" data-icon="forum">forum</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="font-headline-lg text-headline-lg font-bold text-on-surface">19</div>
+<div class="inline-flex items-center gap-0.5 mt-1 font-label-md text-label-md text-on-surface">
+<span class="material-symbols-outlined text-xs text-tertiary-fixed-variant" data-icon="trending_up">trending_up</span>
+<span class="text-on-surface font-semibold">+12%</span>
+<span class="text-outline text-[10px]">vs prev</span>
+</div>
+</div>
+</div>
+<!-- Tarjeta 4: Canales -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 bento-card-shadow border border-outline-variant/20 flex flex-col justify-between active:scale-[0.99] transition-transform">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface-variant">Canales</span>
+<div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface">
+<span class="material-symbols-outlined text-base" data-icon="hub">hub</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="font-headline-lg text-headline-lg font-bold text-on-surface">3</div>
+<div class="font-label-md text-label-md text-outline truncate mt-1">
+            WhatsApp, Web, IG
+          </div>
+</div>
+</div>
+</section>
+<!-- 5. Tarjeta Bento: Actividad de Mensajes (Últimos 14 días) -->
+<section class="bg-surface-container-lowest rounded-3xl p-space-lg bento-card-shadow border border-outline-variant/20">
+<div class="flex items-start justify-between">
+<div>
+<h3 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Actividad de mensajes</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Flujo diario de interacción</p>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="px-2 py-0.5 rounded-full bg-surface-container font-label-md text-label-md text-on-surface">
+            19 msgs
+          </span>
+<span class="px-2 py-0.5 rounded-full bg-secondary-fixed/50 font-label-md text-label-md text-on-secondary-fixed">
+            1 humano
+          </span>
+</div>
+</div>
+<!-- Minimal Bar Visualization -->
+<div class="mt-6 pt-2">
+<div class="h-28 flex items-end justify-between gap-1.5 px-1 border-b border-surface-container pb-2">
+<!-- Day 1 (10s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-surface-container rounded-t-md h-6"></div>
+</div>
+<!-- Day 2 (11s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-surface-container rounded-t-md h-8"></div>
+</div>
+<!-- Day 3 (12s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-surface-container rounded-t-md h-12"></div>
+</div>
+<!-- Day 4 (13s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-secondary-container rounded-t-md h-16"></div>
+</div>
+<!-- Day 5 (14s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-surface-container rounded-t-md h-10"></div>
+</div>
+<!-- Day 6 (15s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-surface-container rounded-t-md h-14"></div>
+</div>
+<!-- Day 7 (16s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-secondary-container rounded-t-md h-20"></div>
+</div>
+<!-- Day 8 (17s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-surface-container rounded-t-md h-11"></div>
+</div>
+<!-- Day 9 (18s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-surface-container rounded-t-md h-9"></div>
+</div>
+<!-- Day 10 (19s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-primary-container rounded-t-md h-24 relative">
+<span class="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-bold text-on-surface">5</span>
+</div>
+</div>
+<!-- Day 11 (20s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-surface-container rounded-t-md h-14"></div>
+</div>
+<!-- Day 12 (21s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-secondary-container rounded-t-md h-18"></div>
+</div>
+<!-- Day 13 (22s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-surface-container rounded-t-md h-12"></div>
+</div>
+<!-- Day 14 (Hoy 23s) -->
+<div class="flex-1 flex flex-col items-center gap-1">
+<div class="w-full bg-primary-container rounded-t-md h-22 relative">
+<span class="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-bold text-on-surface">4</span>
+</div>
+</div>
+</div>
+<div class="flex justify-between items-center pt-2 font-label-md text-label-md text-outline">
+<span class="">10 sept</span>
+<span class="">16 sept</span>
+<span class="font-bold text-on-surface">Hoy (23 sept)</span>
+</div>
+</div>
+</section>
+<!-- 6. Tarjeta Bento: Consumo de Tokens por Modelo -->
+<section class="bg-surface-container-lowest rounded-3xl p-space-lg bento-card-shadow border border-outline-variant/20">
+<div class="flex items-start justify-between">
+<div>
+<h3 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Tokens por modelo</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Consumo acumulado del período</p>
+</div>
+<div class="flex items-center gap-1 font-label-md text-label-md">
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface">↓ 2,916 in</span>
+<span class="px-2 py-0.5 rounded-full bg-tertiary-fixed/50 text-on-tertiary-fixed font-semibold">↑ 352 out</span>
+</div>
+</div>
+<div class="space-y-4 mt-5">
+<!-- Model 1 -->
+<div>
+<div class="flex justify-between items-center text-body-sm font-body-sm mb-1.5">
+<span class="font-medium text-on-surface truncate pr-2">z-ai/glm-5.2:free</span>
+<span class="font-semibold text-on-surface">2,118 tok</span>
+</div>
+<div class="w-full h-3 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-primary-container rounded-full" style="width: 72%;"></div>
+</div>
+</div>
+<!-- Model 2 -->
+<div>
+<div class="flex justify-between items-center text-body-sm font-body-sm mb-1.5">
+<span class="font-medium text-on-surface truncate pr-2">dots-studio/dots-3-note...</span>
+<span class="font-semibold text-on-surface">1,150 tok</span>
+</div>
+<div class="w-full h-3 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-secondary-container rounded-full" style="width: 39%;"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- 7. Tarjeta Bento: Agentes Destacados -->
+<section class="bg-surface-container-lowest rounded-3xl p-space-lg bento-card-shadow border border-outline-variant/20">
+<div class="flex items-center justify-between mb-4">
+<div>
+<h3 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Agentes destacados</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Rendimiento y conversión</p>
+</div>
+<span class="material-symbols-outlined text-outline" data-icon="leaderboard">leaderboard</span>
+</div>
+<!-- Agent Item -->
+<div class="p-3.5 rounded-2xl bg-surface-container-low border border-surface-container flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-11 h-11 rounded-2xl overflow-hidden ring-1 ring-outline-variant/30 flex-shrink-0">
+<img class="w-full h-full object-cover" data-alt="Aesthetic 3D stylized avatar representing an intelligent female beauty concierge agent named Sol, pastel lavender background, soft studio lighting, ultra modern chic interface design style, minimal and welcoming." src="https://lh3.googleusercontent.com/aida-public/AB6AXuARkOU7ArGYrjTmWqjGZeRPgxhLc9MOn0ad-Bekqj0cvoV5DFc9cvu2lxelEbRYnn3zlKeJ2OPyryAIR-9dPVGaUwt0_zVcgrx7f9cxBKpG3Zo_2q2MGgekWjHK4RaL8KTG7LzShjrRARQgHzwqvOLyhe9NZwPMy8RiZlt1mqfMbIPNrml9paKGArS7Nh8QisV-Aq7l8xL2C15yPo5kAOJDjVHnMBxOAZ6B410TIGRzL9e5uXAEyW2p">
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<span class="font-label-lg text-label-lg font-bold text-on-surface">Sol</span>
+<span class="px-2 py-0.2 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-md text-label-md">98% éxito</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">3 conversaciones · WhatsApp</p>
+</div>
+</div>
+<div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-base" data-icon="chevron_right">chevron_right</span>
+</div>
+</div>
+<!-- Bottom action link -->
+<button class="w-full mt-3 py-2.5 rounded-full text-center font-label-lg text-label-lg text-on-surface hover:bg-surface-container transition-colors flex items-center justify-center gap-1">
+<span class="">Ver todos los agentes</span>
+<span class="material-symbols-outlined text-sm" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</section>
+</main>
+<!-- 8. BottomNavBar (Shared Component Implementation) -->
+<!-- Contextual Active: 'Overview' (Inicio) as requested in the task -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-space-sm py-space-xs bg-surface-container-lowest shadow-sm rounded-t-lg">
+<!-- Tab 1: Overview (ACTIVE) -->
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-full px-space-md py-space-xs active:scale-95 transition-transform duration-150" href="#overview">
+<span class="material-symbols-outlined text-xl" data-icon="dashboard">dashboard</span>
+<span class="text-label-md font-label-md font-semibold mt-0.5">Overview</span>
+</a>
+<!-- Tab 2: Agentes -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-space-xs py-space-xs hover:bg-surface-container-high transition-colors active:scale-95 duration-150" href="#agentes">
+<span class="material-symbols-outlined text-xl" data-icon="smart_toy">smart_toy</span>
+<span class="text-label-md font-label-md mt-0.5">Agentes</span>
+</a>
+<!-- Tab 3: Chats -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-space-xs py-space-xs hover:bg-surface-container-high transition-colors active:scale-95 duration-150 relative" href="#chats">
+<span class="material-symbols-outlined text-xl" data-icon="forum">forum</span>
+<span class="text-label-md font-label-md mt-0.5">Chats</span>
+<span class="absolute top-1 right-2 w-2 h-2 rounded-full bg-secondary"></span>
+</a>
+<!-- Tab 4: Analítica -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-space-xs py-space-xs hover:bg-surface-container-high transition-colors active:scale-95 duration-150" href="#analitica">
+<span class="material-symbols-outlined text-xl" data-icon="bar_chart">bar_chart</span>
+<span class="text-label-md font-label-md mt-0.5">Analítica</span>
+</a>
+<!-- Tab 5: Ajustes -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-space-xs py-space-xs hover:bg-surface-container-high transition-colors active:scale-95 duration-150" href="#ajustes">
+<span class="material-symbols-outlined text-xl" data-icon="settings">settings</span>
+<span class="text-label-md font-label-md mt-0.5">Ajustes</span>
+</a>
+</nav>
+<!-- Interactive micro-feedback script -->
+<script>
+    document.querySelectorAll('button, a').forEach(el => {
+      el.addEventListener('click', (e) => {
+        // Subtle micro-haptic simulation
+        if (window.navigator && window.navigator.vibrate) {
+          window.navigator.vibrate(10);
+        }
+      });
+    });
+  </script>
+
+
+</body></html>

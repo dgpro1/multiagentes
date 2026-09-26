@@ -91,7 +91,7 @@ async def _ensure_messaging_webhook() -> None:
         if not secret:
             logger.warning("Messaging webhook secret is missing; event deliveries stay unverified")
             return
-        await provider.ensure_webhook("OpenLivery inbox", provider.webhook_url(), secret, provider.INBOX_EVENTS)
+        await provider.ensure_webhook("HunterAI inbox", provider.webhook_url(), secret, provider.INBOX_EVENTS)
     except Exception:
         logger.exception("Messaging webhook registration failed")
 
@@ -126,7 +126,7 @@ async def _restore_evolution_channels() -> None:
 
 
 app = FastAPI(
-    title="OpenLivery API",
+    title="HunterAI API",
     description=(
         "API to manage agencies, clients and AI agents. Third parties build "
         "on the versioned public API under /api/v1 (see docs/en/api.md); "

@@ -96,21 +96,65 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   if (isBare) return <>{children}</>;
-  if (loading || !user) return <div className="app-loader"><span className="openlivery-icon"><img src="/brand/openlivery-logo-original.png" alt="" /></span><span>{t("shell.loading")}</span></div>;
+  if (loading || !user) return <div className="app-loader"><span className="hunterai-icon"><img src="/brand/hunterai-icon.png" alt="" /></span><span>{t("shell.loading")}</span></div>;
+
+  const mobileNav = [
+    { href: "/", labelKey: "nav.home" as const, icon: LayoutDashboard },
+    { href: "/clients", labelKey: "nav.clients" as const, icon: Building2 },
+    { href: "/agents", labelKey: "nav.agents" as const, icon: Bot },
+    { href: "/inbox", labelKey: "nav.inbox" as const, icon: Inbox },
+    { href: "/settings", labelKey: "nav.settings" as const, icon: Settings },
+  ];
 
   return (
     <div className={`app-layout ${collapsed ? NAV_COLLAPSED_CLASS : ""}`}>
-      <button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label={t("shell.openMenu")}><Menu /></button>
+      {/* Stitch Mobile TopAppBar */}
+      <header className="stitch-mobile-topbar">
+        <Link href="/" className="stitch-mobile-topbar-brand">
+          <span className="hunterai-icon">
+            <img src="/brand/hunterai-icon.png" alt="HunterAI" />
+          </span>
+          <div className="stitch-mobile-topbar-meta">
+            <span className="stitch-mobile-topbar-name">HunterAI</span>
+            <span className="stitch-mobile-topbar-agency">
+              {user.agency.name}
+              <span className="stitch-online-dot" />
+            </span>
+          </div>
+        </Link>
+        <button
+          type="button"
+          className="stitch-mobile-menu-btn"
+          onClick={() => setMobileOpen(true)}
+          aria-label={t("shell.openMenu")}
+        >
+          <Menu size={20} />
+        </button>
+      </header>
+
       {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
       <aside id="app-sidebar" className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}>
         <div className="brand-row">
-          <Link href="/" className="brand"><span className="openlivery-icon"><img src="/brand/openlivery-logo-original.png" alt="" /></span><span>OpenLivery</span></Link>
+          <Link href="/" className="brand">
+            <span className="hunterai-icon">
+              <img src="/brand/hunterai-icon.png" alt="HunterAI" />
+            </span>
+            <span>HunterAI</span>
+          </Link>
           <button className="sidebar-close" onClick={() => setMobileOpen(false)} aria-label={t("shell.closeMenu")}><X /></button>
           {/* Folds the column into the icon rail. Hidden below 901px, where the
               drawer and its own close button take over. */}
           <button type="button" className="icon-button inverse sidebar-toggle" onClick={toggle} aria-expanded={!collapsed} aria-controls="app-sidebar" title={t(collapsed ? "shell.expandSidebar" : "shell.collapseSidebar")} aria-label={t(collapsed ? "shell.expandSidebar" : "shell.collapseSidebar")}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
         </div>
-        <div className="sidebar-workspace" title={collapsed ? user.agency.name : undefined}><Building2 size={14} /><span>{user.agency.name}</span></div>
+        <div className="sidebar-workspace" title={collapsed ? user.agency.name : undefined}>
+          <div className="sidebar-workspace-avatar">{user.agency.name.slice(0, 2).toUpperCase()}</div>
+          {!collapsed && (
+            <div className="sidebar-workspace-meta">
+              <p className="sidebar-workspace-name">{user.agency.name}</p>
+              <p className="sidebar-workspace-plan">Plan Agencia Pro</p>
+            </div>
+          )}
+        </div>
         <nav>
           <span className="nav-label">{t("nav.section")}</span>
           {navigation.map((item) => {
@@ -118,15 +162,51 @@ export function AppShell({ children }: { children: ReactNode }) {
             const label = t(item.labelKey);
             // Folded, the label is hidden by the stylesheet, so the icon carries
             // it as both the accessible name and the tooltip.
-            return <Link key={item.href} href={item.href} className={active ? "active" : ""} title={collapsed ? label : undefined} aria-label={collapsed ? label : undefined} onClick={() => setMobileOpen(false)}><item.icon size={18} /><span>{label}</span></Link>;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={active ? "active" : ""}
+                title={collapsed ? label : undefined}
+                aria-label={collapsed ? label : undefined}
+                onClick={() => setMobileOpen(false)}
+              >
+                <item.icon size={18} />
+                <span>{label}</span>
+                {active && <span className="sidebar-active-dot" />}
+              </Link>
+            );
           })}
           {EXTRA_NAV.map((item) => {
             const Icon = item.icon;
             const active = pathname.startsWith(item.href);
-            return <Link key={item.href} href={item.href} className={active ? "active" : ""} title={collapsed ? item.label : undefined} aria-label={collapsed ? item.label : undefined} onClick={() => setMobileOpen(false)}><Icon size={18} /><span>{item.label}</span></Link>;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={active ? "active" : ""}
+                title={collapsed ? item.label : undefined}
+                aria-label={collapsed ? item.label : undefined}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon size={18} />
+                <span>{item.label}</span>
+              </Link>
+            );
           })}
         </nav>
         <div className="sidebar-bottom">
+          {!collapsed && (
+            <div className="sidebar-assist-card">
+              <div className="sidebar-assist-head">
+                <Sparkles size={14} className="text-teal-600" />
+                <span>Agente Asistente</span>
+              </div>
+              <p className="sidebar-assist-desc">
+                Agentes en producción y operando al 100%.
+              </p>
+            </div>
+          )}
           <div className="sidebar-foot">
             <div className="user-avatar">{user.name.slice(0, 1).toUpperCase()}</div>
             <div className="user-meta"><strong>{user.name}</strong><span>{user.email}</span></div>
@@ -135,6 +215,25 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <main className="main-content">{children}</main>
+
+      {/* Stitch Mobile BottomNavBar */}
+      <nav className="stitch-mobile-bottombar" aria-label="Mobile Navigation">
+        {mobileNav.map((item) => {
+          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          const label = t(item.labelKey);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`stitch-bottombar-tab ${active ? "active" : ""}`}
+              aria-current={active ? "page" : undefined}
+            >
+              <item.icon size={18} />
+              <span>{label}</span>
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }

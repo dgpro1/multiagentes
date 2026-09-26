@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const STORAGE_KEY = "openlivery.lead-panel";
+const STORAGE_KEY = "hunterai.lead-panel";
+const LEGACY_STORAGE_KEY = "openlivery.lead-panel";
 /** Below this width of the inbox itself there is no room for list, thread and panel side by side (list 240 + thread 380 + panel 360), so the panel takes the whole screen instead. */
 export const LEAD_OVERLAY_BELOW = 1000;
 
 function readStored(): boolean {
-  try { return window.localStorage.getItem(STORAGE_KEY) === "1"; } catch { return false; }
+  try { return (window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY)) === "1"; } catch { return false; }
 }
 
 /** Whether the lead card is open next to the thread.
