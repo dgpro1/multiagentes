@@ -32,3 +32,4 @@ internal/
 
 # Local-only Claude context (never committed)
 CLAUDE.local.md
+.freebuff/

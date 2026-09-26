@@ -49,6 +49,7 @@ _ACTIVITY_TEXT = {
     "appointment_created": "{actor} scheduled {title} on {date}",
     "appointment_rescheduled": "{actor} rescheduled {title} to {date}",
     "appointment_cancelled": "{actor} cancelled appointment {title}",
+    "contact_updated": "{actor} updated contact: {fields}",
 }
 
 
@@ -56,7 +57,11 @@ def record_activity(
     db: Session, conversation: Conversation, event: str, *, actor: str | None = None, details: dict | None = None
 ) -> Message:
     """Append an activity event to the thread. Never sent out, never fed to the model."""
-    text = _ACTIVITY_TEXT[event].format(actor=actor or "Someone", **(details or {}))
+    template = _ACTIVITY_TEXT.get(event, "{actor} updated {event}")
+    try:
+        text = template.format(actor=actor or "Someone", **(details or {}))
+    except Exception:
+        text = f"{actor or 'Someone'}: {event}"
     message = Message(
         conversation_id=conversation.id,
         role="system",

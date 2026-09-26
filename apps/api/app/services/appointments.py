@@ -350,6 +350,11 @@ def create_appointment(
 
     db.commit()
     db.refresh(appointment)
+    try:
+        from .calendar import dispatch_sync_appointment_to_google
+        dispatch_sync_appointment_to_google(db, client, appointment)
+    except Exception:
+        pass
     return appointment
 
 

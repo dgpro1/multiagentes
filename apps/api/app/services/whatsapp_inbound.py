@@ -39,6 +39,8 @@ from .escalation import (
     escalation_prompt,
 )
 from .pipeline import build_pipeline_spec, list_stages as pipeline_stages, pipeline_enabled, pipeline_prompt
+from .crm_prompt_hydrator import build_agent_context, has_declarative_tools
+from .tools.commercial_tools import apply_commercial_effects
 from .whatsapp import deliver_reaction, send_channel_media, send_channel_message, signal_channel_read
 from .whatsapp_format import parse_reply_directives
 from .whatsapp_identity import resolve_peer_contact
@@ -480,30 +482,38 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
     history = list(reversed(history))
     burst = _trailing_visitor_burst(history)
     system_content = build_system_prompt(agent, knowledge.text)
-    # Who is on the other end, so forms, e-mails and tools get the phone and
-    # e-mail the conversation already knows instead of "not specified".
-    contact_block = contact_context(conversation, agent.prompt_language)
-    if contact_block:
-        system_content += "\n\n" + contact_block
-    recap = previous_conversation_recap(db, conversation)
-    if recap:
-        system_content += "\n\n" + recap
     extra_specs: list = []
     escalation_holder: list = []
     pipeline_holder: list = []
-    if conversation.channel in ("whatsapp", "whatsapp_cloud"):
-        system_content += "\n\n" + _gesture_rules(burst)
-    if conversation.channel in ("whatsapp", "whatsapp_cloud", "instagram", "messenger"):
-        rules = escalation_active_rules(db, agent)
-        if escalation_enabled(db, agent, rules):
-            system_content += "\n\n" + escalation_prompt(rules, builtin_enabled=agent.escalation_builtin_enabled)
-            extra_specs.append(
-                build_escalation_spec(rules, escalation_holder, builtin_enabled=agent.escalation_builtin_enabled)
-            )
-        stages = pipeline_stages(db, agent.client)
-        if pipeline_enabled(stages):
-            system_content += "\n\n" + pipeline_prompt(stages)
-            extra_specs.append(build_pipeline_spec(stages, pipeline_holder))
+    commercial_effects = None
+
+    if has_declarative_tools(agent.instructions):
+        ctx_res = build_agent_context(db, agent, conversation, system_content, conversation.channel)
+        system_content = ctx_res.system_content
+        extra_specs.extend(ctx_res.extra_specs)
+        commercial_effects = ctx_res.effects
+    else:
+        # Who is on the other end, so forms, e-mails and tools get the phone and
+        # e-mail the conversation already knows instead of "not specified".
+        contact_block = contact_context(conversation, agent.prompt_language)
+        if contact_block:
+            system_content += "\n\n" + contact_block
+        recap = previous_conversation_recap(db, conversation)
+        if recap:
+            system_content += "\n\n" + recap
+        if conversation.channel in ("whatsapp", "whatsapp_cloud"):
+            system_content += "\n\n" + _gesture_rules(burst)
+        if conversation.channel in ("whatsapp", "whatsapp_cloud", "instagram", "messenger"):
+            rules = escalation_active_rules(db, agent)
+            if escalation_enabled(db, agent, rules):
+                system_content += "\n\n" + escalation_prompt(rules, builtin_enabled=agent.escalation_builtin_enabled)
+                extra_specs.append(
+                    build_escalation_spec(rules, escalation_holder, builtin_enabled=agent.escalation_builtin_enabled)
+                )
+            stages = pipeline_stages(db, agent.client)
+            if pipeline_enabled(stages):
+                system_content += "\n\n" + pipeline_prompt(stages)
+                extra_specs.append(build_pipeline_spec(stages, pipeline_holder))
     messages = [
         {"role": "system", "content": system_content},
         *llm_turns(history, agent.prompt_language),
@@ -561,7 +571,17 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
             return InboundResult(accepted=True, conversation_id=conversation.id, mode=conversation.mode)
     quoted_message_id: uuid.UUID | None = None
     quote_external_id: str | None = None
-    if conversation.channel in ("whatsapp", "whatsapp_cloud"):
+    is_deliberate_silent = False
+    if commercial_effects:
+        if commercial_effects.is_silent or (completion.text and "[SILENCIO]" in completion.text):
+            reply_text = ""
+            is_deliberate_silent = True
+        if commercial_effects.escalation:
+            escalation_holder.extend(commercial_effects.escalation)
+        if commercial_effects.pipeline_stage:
+            pipeline_holder.extend(commercial_effects.pipeline_stage)
+
+    if conversation.channel in ("whatsapp", "whatsapp_cloud") and not is_deliberate_silent:
         reply_text, quoted_message_id, quote_external_id = await _apply_gestures(
             db, conversation, completion.text, burst
         )
@@ -599,6 +619,8 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
     record_usage(db, agent.agency_id, agent.id, agent.provider, agent.model.strip(), completion, conversation=conversation, message=outbound)
     conversation.updated_at = now_utc()
     channel.last_error = None
+    if commercial_effects:
+        apply_commercial_effects(db, conversation, agent, commercial_effects)
     if pipeline_holder:
         # The deal belongs to the lead, whichever of its threads the agent answered on.
         set_pipeline_stage(db, lead_group.primary_of(conversation), pipeline_holder[-1], actor=agent.name)
@@ -614,7 +636,7 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
         # After the farewell is stored, so the thread reads chronologically:
         # the AI says goodbye, then the hand-over happens.
         await apply_escalation(db, conversation, agent, escalation_holder[-1])
-    elif not reply_text and not escalation_holder and conversation.channel in ("instagram", "messenger"):
+    elif not reply_text and not escalation_holder and not is_deliberate_silent and conversation.channel in ("instagram", "messenger"):
         from .social_worker import hand_over_failed_reply
         await hand_over_failed_reply(db, conversation,
             "The agent returned no reply. A person must continue this conversation.")

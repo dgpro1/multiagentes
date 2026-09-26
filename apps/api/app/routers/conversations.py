@@ -32,6 +32,9 @@ from ..services.attachments import (
 )
 from ..services.tools import run_completion
 from ..services.knowledge import build_system_prompt, llm_turns, retrieve_knowledge
+from ..services.crm_prompt_hydrator import build_agent_context
+from ..services.tools.commercial_tools import apply_commercial_effects
+from ..services.escalation import apply_escalation
 from ..services.operator_media import store_operator_media_reply
 from ..services.providers import resolve_agent_credentials
 from ..services.usage import record_usage
@@ -356,22 +359,34 @@ async def _generate_reply(
     exchanged = [item for item in refreshed.messages if item.kind == "message"]
     recent = exchanged[-agent.memory_limit:] if agent.memory_limit else []
     history = llm_turns(recent, agent.prompt_language)
-    messages = [{"role": "system", "content": build_system_prompt(agent, knowledge.text)}, *history]
+    base_system = build_system_prompt(agent, knowledge.text)
+    ctx_res = build_agent_context(db, agent, conversation, base_system, conversation.channel)
+    messages = [{"role": "system", "content": ctx_res.system_content}, *history]
     base_url, api_key = credentials
     completion = await run_completion(
-        db, agent, base_url, api_key, messages, temperature=agent.temperature, max_tokens=agent.max_tokens
+        db, agent, base_url, api_key, messages,
+        temperature=agent.temperature, max_tokens=agent.max_tokens,
+        extra_specs=ctx_res.extra_specs or None,
     )
+    reply_text = completion.text
+    if ctx_res.effects:
+        if ctx_res.effects.is_silent or (reply_text and "[SILENCIO]" in reply_text):
+            reply_text = "[SILENCIO]"
     note_reply(conversation)
     reply = Message(
         conversation_id=conversation.id,
         role="assistant",
-        content=completion.text,
+        content=reply_text,
         sources=knowledge.sources,
         tool_calls=completion.tool_calls,
         sender_type="ai",
         sender_name=agent.name,
     )
     db.add(reply)
+    if ctx_res.effects:
+        apply_commercial_effects(db, conversation, agent, ctx_res.effects)
+        if ctx_res.effects.escalation:
+            await apply_escalation(db, conversation, agent, ctx_res.effects.escalation[-1])
     record_usage(db, agent.agency_id, agent.id, agent.provider, agent.model.strip(), completion, conversation=conversation, message=reply)
     if completion.attachments:
         # Files a tool returned are stored as their own assistant messages so the

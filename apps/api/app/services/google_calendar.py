@@ -154,3 +154,36 @@ async def list_events(access_token: str, calendar_id: str, start: datetime, end:
     except httpx.HTTPError as exc:
         raise GoogleError("Google could not be reached. Try again in a moment") from exc
     return items
+
+
+async def create_event(access_token: str, calendar_id: str, event_data: dict) -> dict:
+    """Create a new event on the specified Google Calendar."""
+    url = f"{CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(
+                url,
+                json=event_data,
+                headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            )
+            if response.status_code == 401:
+                raise GoogleError("Google rejected the calendar access", revoked=True)
+            if response.status_code >= 400:
+                raise GoogleError(response.json().get("error", {}).get("message") or "Google could not create the event")
+            return response.json()
+    except httpx.HTTPError as exc:
+        raise GoogleError("Google could not be reached. Try again in a moment") from exc
+
+
+async def delete_event(access_token: str, calendar_id: str, event_id: str) -> None:
+    """Delete an event from the specified Google Calendar."""
+    url = f"{CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.delete(url, headers={"Authorization": f"Bearer {access_token}"})
+            if response.status_code == 401:
+                raise GoogleError("Google rejected the calendar access", revoked=True)
+            if response.status_code not in (200, 204, 404):
+                raise GoogleError(response.json().get("error", {}).get("message") or "Google could not delete the event")
+    except httpx.HTTPError as exc:
+        raise GoogleError("Google could not be reached. Try again in a moment") from exc

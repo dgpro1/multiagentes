@@ -20,9 +20,10 @@ import { AgentToolsTab } from "@/components/agent-tools/agent-tools-tab";
 import { agentToolsExtensions } from "@/lib/extensions/agent-tools";
 import { EscalationRulesEditor } from "@/components/escalation-rules";
 import { Combobox } from "@/components/combobox";
+import { AgentPromptEditor } from "./agent-prompt-editor";
 import { DEFAULT_PROVIDER, DEFAULT_AUDIO_MODEL, DEFAULT_EMBEDDING_MODEL, DEFAULT_IMAGE_MODEL, modelsFor, modelOptionsFor, estimateTokens, modelContextWindow, AUDIO_MODELS, EMBEDDING_MODELS, IMAGE_MODELS } from "@/lib/providers";
 import { narrowModels, useAvailableModels } from "@/lib/use-available-models";
-import type { Agent, AgentTool, KnowledgeDocument, QAPair, EmbeddingModelInfo } from "@/types";
+import type { Agent, AgentTool, KnowledgeDocument, QAPair, EmbeddingModelInfo, PipelineStage } from "@/types";
 
 type Tab = AgentTab;
 // Older links (and other screens) used ?tab= with these names; they still land on the right tab.
@@ -87,6 +88,15 @@ function AgentDetail({ id, segments }: { id: string; segments?: string[] }) {
   const contextPct = Math.min(100, Math.round(((promptTokens ?? 0) / contextWindow) * 100));
   useEffect(() => { load(); }, [id]);
   useEffect(() => { api<EmbeddingModelInfo[]>("/catalog/embedding-models").then(setEmbeddingModels).catch(() => {}); }, [api]);
+
+  const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
+  useEffect(() => {
+    if (!agent) return;
+    const stagesUrl = portal && agent.client.portal_slug
+      ? `/portal/${agent.client.portal_slug}/pipeline/stages`
+      : `/clients/${agent.client_id}/pipeline/stages`;
+    api<PipelineStage[]>(stagesUrl).then(setPipelineStages).catch(() => {});
+  }, [agent?.client_id, agent?.client?.portal_slug, portal, api]);
 
   // Mirrors MAX_FULL_CONTEXT_CHARS in the backend: at or below this the whole
   // knowledge base is sent in full and embeddings are not used.
@@ -237,7 +247,15 @@ function AgentDetail({ id, segments }: { id: string; segments?: string[] }) {
     {tab === "basics" && <form className="settings-form" onSubmit={saveConfig}>
       <section className="settings-section"><div className="settings-copy"><h3>{t("agents.detail.generalHeading")} <AiHint text={t("aiContext.agentName")} /></h3><p>{t("agents.detail.generalCopy")}</p></div><div className="settings-fields"><div className="form-grid"><label>{t("agents.detail.nameLabel")}<input value={name} required onChange={(e) => setName(e.target.value)} /></label><label>{t("agents.detail.clientLabel")}<input value={agent.client.name} readOnly /></label></div><p className="greeting-preview">{t("agents.detail.greetingPreview", { name: name.trim() || agent.name, client: agent.client.name })}</p></div></section>
       <section className="settings-section"><div className="settings-copy"><h3>{t("agents.detail.promptHeading")} <AiHint text={t("aiContext.agentPrompt")} /></h3><p>{t("agents.detail.promptCopy")}</p></div><div className="settings-fields">
-        <label>{t("agents.detail.promptLabel")}<textarea name="instructions" rows={18} defaultValue={agent.instructions} placeholder={t("agents.detail.promptPlaceholder")} /><span className="field-help">{t("agents.detail.promptHelp")}</span></label>
+        <AgentPromptEditor
+          defaultValue={agent.instructions}
+          placeholder={t("agents.detail.promptPlaceholder")}
+          pipelineStages={pipelineStages}
+          clientTimezone={agent.client.timezone}
+          onChange={(val) => {
+            setPromptTokens(estimateTokens(val));
+          }}
+        />
       </div></section>
       <EscalationRulesEditor agentId={agent.id} clientId={agent.client_id} />
       <section className="settings-section"><div className="settings-copy"><h3>{t("agents.detail.aiModelHeading")}</h3><p>{t("agents.detail.aiModelCopy")}</p></div><div className="settings-fields">

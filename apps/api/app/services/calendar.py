@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import secrets
 import uuid
+import logging
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
@@ -18,10 +19,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import Agency, CalendarMember, CalendarOAuthState, Client, new_public_id, now_utc
+from ..models import Agency, Appointment, CalendarMember, CalendarOAuthState, Client, new_public_id, now_utc
 from ..schemas_calendar import CalendarMemberCreate, CalendarMemberUpdate
 from ..security import decrypt_secret, encrypt_secret
 from . import google_calendar as google
+
+logger = logging.getLogger(__name__)
 
 # Distinct on both themes, in the order new members take them.
 PALETTE = ("#2f6df0", "#00a67d", "#7c5cff", "#d4932f", "#c83b82", "#0891b2", "#c43d4b", "#65a30d")
@@ -329,3 +332,78 @@ async def finish_connection(db: Session, raw_state: str, code: str | None, error
     if previous:
         await google.revoke(previous)
     return f"{back}?result=connected"
+
+
+async def sync_appointment_to_google(db: Session, client: Client, appointment: Appointment) -> dict | None:
+    """Push a confirmed appointment to the client's connected Google Calendar member."""
+    if not google.configured():
+        return None
+
+    members = [m for m in list_members(db, client) if m.status == "connected"]
+    if not members:
+        return None
+
+    target_member = members[0]
+    if appointment.professional:
+        p_name = appointment.professional.name.lower()
+        p_role = (appointment.professional.role or "").lower()
+        for m in members:
+            if m.name.lower() in p_name or p_name in m.name.lower() or (m.role and m.role.lower() in p_role):
+                target_member = m
+                break
+
+    try:
+        token = await access_token(db, target_member)
+    except Exception as exc:
+        logger.warning(f"Could not get Google access token for member {target_member.name}: {exc}")
+        return None
+
+    tz_str = client.timezone or "America/Santiago"
+    contact_name = (appointment.contact.name if appointment.contact and appointment.contact.name else "").strip() or "Paciente"
+    contact_phone = appointment.contact.phone if appointment.contact else ""
+    summary = f"{appointment.title} - {contact_name}" if contact_name != "Paciente" else appointment.title
+    description_lines = [
+        f"Paciente: {contact_name}",
+        f"Teléfono: {contact_phone}" if contact_phone else "",
+        f"Motivo: {appointment.title}",
+        f"Notas: {appointment.notes}" if appointment.notes else "",
+        "Agendado vía OpenLivery",
+    ]
+    description = "\n".join(filter(None, description_lines))
+
+    start_dt = appointment.start_time.isoformat()
+    end_dt = appointment.end_time.isoformat()
+
+    event_payload = {
+        "summary": summary,
+        "description": description,
+        "start": {
+            "dateTime": start_dt,
+            "timeZone": tz_str,
+        },
+        "end": {
+            "dateTime": end_dt,
+            "timeZone": tz_str,
+        },
+    }
+
+    try:
+        created = await google.create_event(token, target_member.calendar_id, event_payload)
+        logger.info(f"Created Google Calendar event for appointment {appointment.id}: {created.get('id')}")
+        return created
+    except Exception as exc:
+        logger.warning(f"Failed to create Google Calendar event for appointment {appointment.id}: {exc}")
+        return None
+
+
+def dispatch_sync_appointment_to_google(db: Session, client: Client, appointment: Appointment) -> None:
+    """Best-effort fire-and-forget sync to Google Calendar from synchronous contexts."""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(sync_appointment_to_google(db, client, appointment))
+    except RuntimeError:
+        try:
+            asyncio.run(sync_appointment_to_google(db, client, appointment))
+        except Exception as exc:
+            logger.warning(f"Sync to Google Calendar failed in sync context: {exc}")
+

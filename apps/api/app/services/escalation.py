@@ -179,7 +179,7 @@ def resolve_destination(
             team = db.get(Team, request.rule.team_id)
             if team:
                 return team, None
-    if request.trigger is not None or request.rule is not None:
+    if request.trigger is not None or request.rule is not None or request.reason:
         if agent.escalation_assignee_id:
             person = db.get(PortalUser, agent.escalation_assignee_id)
             if person and person.is_active:

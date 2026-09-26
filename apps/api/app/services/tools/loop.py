@@ -6,6 +6,7 @@ module never routes them through the plain-completion text extractor until
 the loop ends.
 """
 
+import asyncio
 import json
 
 from ..ai import Completion, Usage, _post_json, auth_headers, chat_message, chat_url, completion_from, extract_chat_text, read_usage, sampling_params
@@ -21,7 +22,10 @@ RESULT_PREVIEW_CHARS = 500
 async def _execute(spec: ToolSpec, args: dict) -> tuple[str, bool, list]:
     files: list = []
     if spec.handler is not None:
-        result, is_error = spec.handler(args)
+        if asyncio.iscoroutinefunction(spec.handler):
+            result, is_error = await spec.handler(args)
+        else:
+            result, is_error = spec.handler(args)
     elif spec.mcp_tool_name is not None:
         result, is_error = await call_mcp_tool(spec.tool, spec.mcp_tool_name, args)
     else:
