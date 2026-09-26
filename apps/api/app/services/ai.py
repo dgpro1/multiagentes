@@ -12,7 +12,7 @@ from fastapi import HTTPException
 
 
 # Attribution headers OpenRouter reads to label the app in its logs.
-APP_HEADERS = {"HTTP-Referer": "https://github.com/sarrazola/openlivery", "X-Title": "OpenLivery"}
+APP_HEADERS = {"HTTP-Referer": "https://github.com/sarrazola/openlivery", "X-Title": "HunterAI"}
 
 
 @dataclass

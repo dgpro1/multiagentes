@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Appointment, Client, Contact, Conversation, Message, Service, now_utc
+from ..models import Agent, Appointment, Client, Contact, Conversation, Message, Service, now_utc
 from .appointments import get_client_timezone
 
 DECLARATIVE_TOOL_RE = re.compile(r"\[Herramienta:\s*([a-zA-Z0-9_-]+)\]", re.IGNORECASE)

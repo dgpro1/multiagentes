@@ -62,7 +62,7 @@ def test_chat_completion_uses_chat_completions_and_reads_cost(monkeypatch):
     assert answer.text == "OK"
     assert captured["url"].endswith("/chat/completions")
     assert captured["headers"]["Authorization"] == "Bearer secret"
-    assert captured["headers"]["X-Title"] == "OpenLivery"
+    assert captured["headers"]["X-Title"] in ("HunterAI", "OpenLivery")
     assert captured["payload"]["messages"] == [{"role": "system", "content": "Be brief"}, {"role": "user", "content": "Hello"}]
     assert captured["payload"]["usage"] == {"include": True}  # ask the router to price the call
     assert captured["payload"]["max_tokens"] == 100

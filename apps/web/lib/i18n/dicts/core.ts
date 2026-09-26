@@ -65,7 +65,7 @@ const en = {
     settings: "Settings",
   },
   shell: {
-    loading: "Loading OpenLivery…",
+    loading: "Loading HunterAI…",
     openMenu: "Open menu",
     closeMenu: "Close menu",
     collapseSidebar: "Collapse sidebar",
@@ -186,7 +186,7 @@ const es: typeof en = {
     settings: "Configuración",
   },
   shell: {
-    loading: "Cargando OpenLivery…",
+    loading: "Cargando HunterAI…",
     openMenu: "Abrir menú",
     closeMenu: "Cerrar menú",
     collapseSidebar: "Contraer barra lateral",

@@ -137,7 +137,7 @@ def _media(payload: dict) -> tuple[str | None, bytes | None, str]:
         return None, None, ""
 
 
-MENTION_TOKEN = "@openlivery"
+MENTION_TOKENS = ("@hunterai", "@openlivery")
 
 
 def _is_group(chat_jid: str) -> bool:
@@ -157,7 +157,7 @@ def _mentioned_bot(payload: dict) -> bool:
     if not isinstance(nodes, dict):
         return False
     extended = nodes.get("extendedTextMessage")
-    if isinstance(extended, dict) and MENTION_TOKEN in str(extended.get("text") or ""):
+    if isinstance(extended, dict) and any(tok in str(extended.get("text") or "").lower() for tok in MENTION_TOKENS):
         return True
     for node in nodes.values():
         if isinstance(node, dict):

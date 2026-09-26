@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Manrope } from "next/font/google";
+import { Inter, Manrope, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 import { ToastProvider } from "@/components/toast";
@@ -7,16 +7,13 @@ import { LanguageProvider } from "@/lib/i18n";
 import { ThemeProvider } from "@/lib/theme";
 import { THEME_INIT_SCRIPT } from "@/lib/theme-script";
 
-// Two families, as the stylesheet has always asked for: Inter carries the
-// interface text, where it stays legible down to the smallest label, and Manrope
-// carries headings and the wordmark. Both are loaded as variable fonts so the
-// weight range costs a single file each.
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 const manrope = Manrope({ subsets: ["latin"], variable: "--font-manrope", display: "swap" });
+const plusJakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-plus-jakarta", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "OpenLivery — AI agents for your agency",
-  description: "Open source platform to build and manage AI agents.",
+  title: "HunterAI — AI agents for your agency",
+  description: "Platform to build and manage AI agents for your agency.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -27,7 +24,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   // it stamps on <html> is meant to differ from the server markup.
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${manrope.variable}`}>
+      <body className={`${plusJakarta.variable} ${inter.variable} ${manrope.variable}`}>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <ThemeProvider>
           <LanguageProvider>

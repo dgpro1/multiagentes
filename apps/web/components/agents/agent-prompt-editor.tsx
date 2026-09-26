@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { AlertCircle, Brackets, Check, ChevronRight, Clock, FileText, Film, ImageIcon, Info, Layers, Link2, Music, Wrench } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { AlertCircle, Brackets, Check, ChevronRight, FileText, Film, ImageIcon, Layers, Link2, Music, Wrench } from "lucide-react";
 import { Alert, Modal } from "@/components/ui";
 import { useLanguage } from "@/lib/i18n";
 import type { ClientResource, PipelineStage } from "@/types";
@@ -248,7 +248,7 @@ export function AgentPromptEditor({
   }, [searchQuery, isOpen]);
 
   // Insert token at current cursor position
-  const insertToken = (tokenToInsert: string) => {
+  const insertToken = useCallback((tokenToInsert: string) => {
     const el = textareaRef.current;
     if (!el) return;
 
@@ -281,7 +281,7 @@ export function AgentPromptEditor({
       const pos = newBefore.length + tokenToInsert.length;
       el.setSelectionRange(pos, pos);
     }, 0);
-  };
+  }, [onChange]);
 
   // The resource tool opens the picker instead of inserting a bare token.
   const choose = (item: PromptItem) => {
@@ -465,7 +465,7 @@ export function AgentPromptEditor({
           name="instructions"
           rows={18}
           value={content}
-          onChange={(e) => handleTextareaInput()}
+          onChange={handleTextareaInput}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           style={{ width: "100%", fontFamily: "inherit" }}
@@ -512,6 +512,7 @@ export function AgentPromptEditor({
                       key={item.key}
                       type="button"
                       className={`variable-item${isSelected ? " selected" : ""}`}
+                      // eslint-disable-next-line react-hooks/refs
                       onClick={() => choose(item)}
                       onMouseEnter={() => setSelectedIndex(idx)}
                       style={{

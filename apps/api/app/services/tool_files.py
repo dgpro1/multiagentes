@@ -140,7 +140,7 @@ def _is_textual(content_type: str) -> bool:
 def _note(files: list[ToolFile]) -> str:
     names = ", ".join(f"{f.filename} ({f.mime}, {len(f.data)} bytes)" for f in files)
     plural = "files were" if len(files) > 1 else "file was"
-    return (f" [OpenLivery: {len(files)} {plural} delivered to the user as an attachment on this channel: "
+    return (f" [HunterAI: {len(files)} {plural} delivered to the user as an attachment on this channel: "
             f"{names}. The bytes were removed from this result. Confirm the file was sent; do not try to "
             f"read or reproduce its contents.]")
 
