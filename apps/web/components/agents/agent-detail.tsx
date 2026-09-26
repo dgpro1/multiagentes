@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, AudioLines, Bot, CheckCircle2, FileText, ImageIcon, LoaderCircle, MessageSquareText, Plug, Plus, Power, PowerOff, RefreshCw, Save, Settings2, Sparkles, Trash2, UploadCloud, XCircle } from "lucide-react";
 import { SectionTabs } from "@/components/section-tabs";
-import { messageFrom } from "@/lib/api";
+import { apiUrl, messageFrom } from "@/lib/api";
 import { AGENT_TABS, tabFromSegments, type AgentTab } from "@/lib/routes";
 import { AgentsScopeProvider, useAgentsApi, useAgentsScope, type AgentHrefs } from "./scope";
 import { useLanguage } from "@/lib/i18n";
@@ -23,7 +23,7 @@ import { Combobox } from "@/components/combobox";
 import { AgentPromptEditor } from "./agent-prompt-editor";
 import { DEFAULT_PROVIDER, DEFAULT_AUDIO_MODEL, DEFAULT_EMBEDDING_MODEL, DEFAULT_IMAGE_MODEL, modelsFor, modelOptionsFor, estimateTokens, modelContextWindow, AUDIO_MODELS, EMBEDDING_MODELS, IMAGE_MODELS } from "@/lib/providers";
 import { narrowModels, useAvailableModels } from "@/lib/use-available-models";
-import type { Agent, AgentTool, KnowledgeDocument, QAPair, EmbeddingModelInfo, PipelineStage } from "@/types";
+import type { Agent, AgentTool, ClientResource, KnowledgeDocument, QAPair, EmbeddingModelInfo, PipelineStage } from "@/types";
 
 type Tab = AgentTab;
 // Older links (and other screens) used ?tab= with these names; they still land on the right tab.
@@ -97,6 +97,14 @@ function AgentDetail({ id, segments }: { id: string; segments?: string[] }) {
       : `/clients/${agent.client_id}/pipeline/stages`;
     api<PipelineStage[]>(stagesUrl).then(setPipelineStages).catch(() => {});
   }, [agent?.client_id, agent?.client?.portal_slug, portal, api]);
+
+  // The client's library, for the enviar_recurso picker in the prompt editor.
+  const [resources, setResources] = useState<ClientResource[] | undefined>(undefined);
+  const resourcesBase = agent ? (portal && agent.client.portal_slug ? `/portal/${agent.client.portal_slug}` : `/clients/${agent.client_id}`) : "";
+  useEffect(() => {
+    if (!resourcesBase) return;
+    api<ClientResource[]>(`${resourcesBase}/resources`).then(setResources).catch(() => setResources(undefined));
+  }, [resourcesBase, api]);
 
   // Mirrors MAX_FULL_CONTEXT_CHARS in the backend: at or below this the whole
   // knowledge base is sent in full and embeddings are not used.
@@ -252,6 +260,8 @@ function AgentDetail({ id, segments }: { id: string; segments?: string[] }) {
           placeholder={t("agents.detail.promptPlaceholder")}
           pipelineStages={pipelineStages}
           clientTimezone={agent.client.timezone}
+          resources={resources}
+          resourceFileUrl={(resource) => apiUrl(`${resourcesBase}/resources/${resource.id}/file`)}
           onChange={(val) => {
             setPromptTokens(estimateTokens(val));
           }}

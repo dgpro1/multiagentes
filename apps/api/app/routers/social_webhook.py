@@ -34,7 +34,9 @@ def media(channel_id: uuid.UUID, attachment_id: uuid.UUID, expires: int, signatu
         Message.role == "assistant"))
     if not attachment:
         raise HTTPException(404, "Attachment not found")
-    return Response(attachment.data, media_type=attachment.mime,
+    from ..services.attachments import attachment_bytes
+
+    return Response(attachment_bytes(attachment), media_type=attachment.mime,
         headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
                  "Content-Security-Policy": "default-src 'none'; sandbox", "Referrer-Policy": "no-referrer",
                  "Content-Disposition": content_disposition(attachment.filename)})

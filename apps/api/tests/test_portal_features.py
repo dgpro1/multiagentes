@@ -22,7 +22,7 @@ NO_FEATURE = {"detail": "This feature is not enabled for this portal"}
 ALWAYS_ON_TODAY = ["inbox", "contacts", "pipeline", "calendar", "reports", "teams", "tags", "templates", "canned"]
 NOT_BUILT_YET = [
     "agents", "api", "channels.whatsapp", "channels.whatsapp_cloud", "channels.instagram", "channels.messenger",
-    "channels.webchat", "details", "professionals", "services", "appointments",
+    "channels.webchat", "details", "professionals", "services", "appointments", "resources",
 ]
 ZERO = "00000000-0000-0000-0000-000000000000"
 
@@ -359,6 +359,18 @@ GATED = [
     ("POST", "/services", ["services"]),
     ("PATCH", "/services/{id}", ["services"]),
     ("DELETE", "/services/{id}", ["services"]),
+    ("GET", "/resources", ["resources"]),
+    ("POST", "/resources", ["resources"]),
+    ("POST", "/resources/upload", ["resources"]),
+    ("PATCH", "/resources/{id}", ["resources"]),
+    ("DELETE", "/resources/{id}", ["resources"]),
+    ("GET", "/resources/{id}/file", ["resources"]),
+    ("GET", "/storage", ["resources"]),
+    ("PUT", "/storage", ["resources"]),
+    ("POST", "/storage/check", ["resources"]),
+    ("PATCH", "/storage/limits", ["resources"]),
+    ("DELETE", "/storage", ["resources"]),
+    ("POST", "/storage/link", ["resources"]),
     ("GET", "/appointments", ["appointments"]),
     ("POST", "/appointments", ["appointments"]),
     ("PATCH", "/appointments/{id}", ["appointments"]),

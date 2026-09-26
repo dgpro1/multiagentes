@@ -10,6 +10,7 @@ Builds tool specifications for the 9 commercial tools referenced in prompts:
 - add_internal_note
 - escalate_to_human
 - stay_silent
+- enviar_recurso (send_resource), built in ``resource_tool.py``
 
 Only tools explicitly declared in the agent's instructions (via [Herramienta: name])
 are instantiated and exposed to the model.
@@ -35,6 +36,7 @@ from ..conversation_state import record_activity, set_pipeline_stage
 from ..escalation import EscalationRequest
 from ..pipeline import list_stages
 from ..tags import create_tag
+from .resource_tool import TOOL_NAMES as RESOURCE_TOOL_NAMES, ResourceEffects, build_resource_spec
 from .specs import ToolSpec
 
 DAYS_ES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
@@ -55,6 +57,7 @@ class CommercialEffects:
     pipeline_stage: list[PipelineStage] = field(default_factory=list)
     is_silent: bool = False
     new_contact_name: str | None = None
+    resources: ResourceEffects = field(default_factory=ResourceEffects)
 
 
 def build_commercial_tools(
@@ -631,6 +634,13 @@ def build_commercial_tools(
                 handler=stay_silent_handler,
             )
         )
+
+    # 10. enviar_recurso: files and links from the client's library
+    resource_tool_name = next((name for name in RESOURCE_TOOL_NAMES if name in declared_set), None)
+    if resource_tool_name:
+        spec = build_resource_spec(db, client, agent, resource_tool_name, effects.resources)
+        if spec:
+            specs.append(spec)
 
     return specs
 

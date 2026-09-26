@@ -726,6 +726,58 @@ export type Service = {
   updated_at: string;
 };
 
+export type ResourceMediaKind = "image" | "video" | "audio" | "file";
+
+/** A file or link in a client's library, which the agent sends with [Herramienta: enviar_recurso]. */
+export type ClientResource = {
+  id: string;
+  kind: "file" | "link";
+  name: string;
+  description: string;
+  is_active: boolean;
+  position: number;
+  media_kind: ResourceMediaKind | null;
+  mime: string | null;
+  filename: string | null;
+  size_bytes: number;
+  url: string | null;
+  message_template: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/** The client's own Cloudflare R2 bucket. Credentials are never returned, only a hint of the key. */
+export type StorageConnection = {
+  status: "none" | "pending" | "connected" | "error";
+  provider: string;
+  account_id: string;
+  bucket: string;
+  access_key_hint: string;
+  last_error: string | null;
+  last_checked_at: string | null;
+  connected_at: string | null;
+  max_file_mb: number;
+  quota_mb: number;
+  used_bytes: number;
+  link_active: boolean;
+};
+
+export type StorageConnectPayload = {
+  account_id: string;
+  access_key_id: string;
+  secret_access_key: string;
+  bucket: string;
+};
+
+/** What the public onboarding link shows; never credentials. */
+export type StorageConnectInfo = {
+  client_name: string;
+  agency_name: string;
+  status: "pending" | "connected" | "error";
+  bucket: string;
+  expires_at: string;
+};
+
 export type WeekDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 /** One working range, "HH:MM" to "HH:MM" in the client's timezone. */
 export type TimeRange = [string, string];

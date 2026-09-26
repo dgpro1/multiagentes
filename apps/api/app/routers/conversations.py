@@ -34,6 +34,7 @@ from ..services.tools import run_completion
 from ..services.knowledge import build_system_prompt, llm_turns, retrieve_knowledge
 from ..services.crm_prompt_hydrator import build_agent_context
 from ..services.tools.commercial_tools import apply_commercial_effects
+from ..services.tools.resource_tool import deliver_resources
 from ..services.escalation import apply_escalation
 from ..services.operator_media import store_operator_media_reply
 from ..services.providers import resolve_agent_credentials
@@ -372,6 +373,13 @@ async def _generate_reply(
     if ctx_res.effects:
         if ctx_res.effects.is_silent or (reply_text and "[SILENCIO]" in reply_text):
             reply_text = "[SILENCIO]"
+        elif ctx_res.effects.resources.chosen:
+            delivered = await deliver_resources(
+                agent.client, conversation.contact, ctx_res.effects.resources, reply_text
+            )
+            reply_text = delivered.reply_text
+            completion.attachments = [*(completion.attachments or []), *delivered.files]
+            ctx_res.effects.notes.extend(delivered.failures)
     note_reply(conversation)
     reply = Message(
         conversation_id=conversation.id,

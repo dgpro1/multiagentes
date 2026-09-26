@@ -150,6 +150,12 @@ class Client(Base):
     scheduled_messages: Mapped[list["ScheduledMessage"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", order_by="ScheduledMessage.scheduled_for"
     )
+    storage_connection: Mapped["ClientStorageConnection | None"] = relationship(
+        back_populates="client", cascade="all, delete-orphan", uselist=False
+    )
+    resources: Mapped[list["ClientResource"]] = relationship(
+        back_populates="client", cascade="all, delete-orphan", order_by="ClientResource.position, ClientResource.created_at"
+    )
 
     @property
     def logo_url(self) -> str | None:
@@ -831,8 +837,12 @@ class Message(Base):
 class MessageAttachment(Base):
     """Original media file behind a chat message (image, voice note, document).
 
-    Bytes live in Postgres like KnowledgeDocument/Agency.logo_data; the LLM
-    never reads this table — it gets the text resolved into Message.llm_content.
+    Bytes are written to Postgres first. For a client with its own R2 bucket
+    connected, a background sweep later moves them there (``storage_key`` set,
+    ``data`` cleared; see services/attachment_offload.py), so the database does
+    not grow with media; reads go through ``attachments.attachment_bytes``,
+    which takes either. The LLM never reads this table — it gets the text
+    resolved into Message.llm_content.
     """
 
     __tablename__ = "message_attachments"
@@ -843,7 +853,9 @@ class MessageAttachment(Base):
     mime: Mapped[str] = mapped_column(String(100))
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
-    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    data: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, nullable=True)
+    # Where the bytes live in the client's own bucket once moved out of Postgres.
+    storage_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
     message: Mapped[Message] = relationship(back_populates="attachments")
@@ -1297,6 +1309,75 @@ class Service(Base):
         back_populates="services",
         passive_deletes=True,
     )
+
+
+class ClientStorageConnection(Base):
+    """The client's own object storage (a Cloudflare R2 bucket), where its files live.
+
+    The customer creates a bucket and an S3 API token in their own Cloudflare
+    account and gives them here, either from the panel or through a share link
+    (``connect_token``) the business owner opens without an OpenLivery account.
+    The credentials are stored encrypted and never returned. Deleting the client,
+    or disconnecting, removes this row and leaves the bucket's files untouched:
+    they belong to the customer.
+    """
+
+    __tablename__ = "client_storage_connections"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), unique=True)
+    provider: Mapped[str] = mapped_column(String(20), default="r2", server_default="r2")
+    # The Cloudflare account id; the endpoint is built from it, never typed.
+    account_ref: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    bucket: Mapped[str] = mapped_column(String(63), default="", server_default="")
+    region: Mapped[str] = mapped_column(String(32), default="auto", server_default="auto")
+    encrypted_access_key_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # pending: no credentials yet; connected: the last probe passed; error: it failed.
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Per-client limits, capped by the server-side ceilings in services/resource_storage.py.
+    max_file_mb: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
+    quota_mb: Mapped[int] = mapped_column(Integer, default=1024, server_default="1024")
+    connect_token: Mapped[str] = mapped_column(String(64), unique=True, default=new_public_id)
+    connect_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+    client: Mapped[Client] = relationship(back_populates="storage_connection")
+
+
+class ClientResource(Base):
+    """One thing the agent may send a customer: a file from the client's library
+    (image, video, document) or a link with its message template.
+
+    ``name`` is the handle the agent's prompt cites (``[Recurso: name]``), so it
+    is unique per client; ``description`` tells the model when to use it.
+    """
+
+    __tablename__ = "client_resources"
+    __table_args__ = (UniqueConstraint("client_id", "name", name="uq_client_resources_client_name"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(10))  # file | link
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # file
+    storage_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    media_kind: Mapped[str | None] = mapped_column(String(10), nullable=True)  # image | video | audio | file
+    mime: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # link
+    url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    message_template: Mapped[str] = mapped_column(Text, default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+    client: Mapped[Client] = relationship(back_populates="resources")
 
 
 class Appointment(Base):

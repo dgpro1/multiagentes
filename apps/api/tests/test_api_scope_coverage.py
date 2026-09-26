@@ -38,6 +38,9 @@ CLOSED_ROUTES = (
     ("GET", "/api/calendar/connect/{token}"),            # the public Google link landing
     ("POST", "/api/calendar/connect/{token}/start"),     # and its OAuth handoff
     ("GET", "/api/calendar/oauth/callback"),             # Google calls back here, not a person or a token
+    ("GET", "/api/clients/{client_id}/export"),          # a whole client's data in one request stays a person's gesture
+    ("GET", "/api/storage/connect/{token}"),             # the public link a business owner opens to connect their bucket
+    ("POST", "/api/storage/connect/{token}"),            # and where they paste their own credentials
 )
 
 

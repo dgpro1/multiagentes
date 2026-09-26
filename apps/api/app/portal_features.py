@@ -43,6 +43,7 @@ CATALOG: tuple[tuple[str, bool], ...] = (
     ("professionals", False),
     ("services", False),
     ("appointments", False),
+    ("resources", False),
 )
 
 KEYS: tuple[str, ...] = tuple(key for key, _ in CATALOG)

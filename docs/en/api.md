@@ -42,6 +42,10 @@ A granted subset narrower than the integration travels with the grant. Auth code
 | `contacts.manage` | Create and edit contacts. |
 | `tags.read` | See the contact tags. |
 | `tags.manage` | Create, rename, recolor and delete contact tags. |
+| `resources.read` | See the files and links in a client's resource library. |
+| `resources.manage` | Upload, edit and delete the files and links the agent may send. |
+| `storage.read` | See whether a client has connected its own file storage. |
+| `storage.manage` | Connect, check and disconnect a client's own file storage (panel only). |
 | `teams.read`, `teams.manage` | See / manage teams (panel only today). |
 | `templates.read`, `templates.manage` | WhatsApp templates (panel only today). |
 | `canned.manage` | Saved replies (panel only today). |
@@ -123,6 +127,21 @@ Every conversation (a *lead* in the panel) carries `number`, its short number in
 | `POST /clients/{id}/tags` | Create (idempotent; duplicate name is `409`). |
 | `PATCH /clients/{id}/tags/{tag_id}` | Rename or recolor. Routing a tag to a team or a person stays a panel gesture. |
 | `DELETE /clients/{id}/tags/{tag_id}` | Delete; links go with it. |
+
+**Resource library** (`resources.read`, writes `resources.manage`; storage state `storage.read`)
+
+Files and links a client's agent sends with `[Herramienta: enviar_recurso]`. Files live in the client's own Cloudflare R2 bucket, connected from the panel (the credentials never cross the API); until it is connected, uploads answer `409` with `storage_not_connected`. Links work without it. Limits: images 5 MB, videos and audio 16 MB, documents up to the client's limit (at most 20 MB), and a library quota per client.
+
+| Method & path | What it does |
+| --- | --- |
+| `GET /clients/{id}/resources` | The library, files and links. |
+| `GET /clients/{id}/resources/{resource_id}` | One resource. |
+| `GET /clients/{id}/resources/{resource_id}/file` | The file's bytes, read from the client's bucket. Images, audio and video inline; anything else as a download. |
+| `POST /clients/{id}/resources` | A link: `{"name", "url", "message_template", "description", "is_active"}`. The template takes `{{contact.name}}`, `{{client.name}}` and `{{url}}`. Idempotent; a duplicate name is `409`. |
+| `POST /clients/{id}/resources/upload` | A file, as multipart: `name`, `description`, `file`. Idempotent. |
+| `PATCH /clients/{id}/resources/{resource_id}` | Rename, describe, switch on or off, or change a link's address or template. |
+| `DELETE /clients/{id}/resources/{resource_id}` | Delete; a file is also removed from the bucket. |
+| `GET /clients/{id}/storage` | Whether the bucket is connected, its name, the limits and the bytes the library uses. Never credentials. |
 
 **Agents** (`agents.read`, writes `agents.write`)
 

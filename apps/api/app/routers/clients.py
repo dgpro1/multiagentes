@@ -233,6 +233,31 @@ def delete_client_domain(client_id: uuid.UUID, db: Session = Depends(get_db), us
     return _domain_out(_client(db, user, client_id))
 
 
+@router.get("/{client_id}/export")
+def export_client(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Everything the client owns as a ZIP of JSON Lines, offered before deleting it.
+    Closed to API tokens on purpose: it is a whole client's data in one request."""
+    from fastapi.responses import StreamingResponse
+
+    from ..services.attachments import content_disposition
+    from ..services.client_export import build_export
+
+    spool, filename = build_export(db, _client(db, user, client_id))
+
+    def chunks():
+        try:
+            while chunk := spool.read(1024 * 1024):
+                yield chunk
+        finally:
+            spool.close()
+
+    return StreamingResponse(chunks(), media_type="application/zip", headers={
+        "Content-Disposition": content_disposition(filename),
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    })
+
+
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(CLIENTS_WRITE))])
 async def delete_client(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Delete the client and everything under it: agents, channels, contacts,

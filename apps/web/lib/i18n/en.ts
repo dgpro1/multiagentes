@@ -18,6 +18,7 @@ import { oauth } from "./dicts/oauth";
 import { pipeline } from "./dicts/pipeline";
 import { professionals } from "./dicts/professionals";
 import { services } from "./dicts/services";
+import { resources } from "./dicts/resources";
 import { lead } from "./dicts/lead";
 
 export const en = {
@@ -38,6 +39,7 @@ export const en = {
   pipeline: pipeline.en,
   professionals: professionals.en,
   services: services.en,
+  resources: resources.en,
   lead: lead.en,
 };
 

@@ -168,7 +168,8 @@ def attachment_url(channel: SocialChannel, attachment: MessageAttachment) -> str
     base = urlunparse((origin.scheme, origin.netloc, "", "", "", ""))
     if not channel.is_enabled or channel.status != "connected" or not channel.external_account_id:
         raise HTTPException(status_code=409, detail="Connect this messaging channel before sending attachments.")
-    if attachment.size_bytes != len(attachment.data):
+    # A file already moved to the client's bucket has no bytes here; the media route reads it there.
+    if attachment.storage_key is None and attachment.size_bytes != len(attachment.data or b""):
         raise HTTPException(status_code=409, detail="The attachment data is incomplete.")
     if not get_settings().messaging_provider_webhook_secret.strip():
         raise HTTPException(status_code=409, detail="Set MESSAGING_PROVIDER_WEBHOOK_SECRET to send files.")

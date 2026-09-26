@@ -41,6 +41,7 @@ from .escalation import (
 from .pipeline import build_pipeline_spec, list_stages as pipeline_stages, pipeline_enabled, pipeline_prompt
 from .crm_prompt_hydrator import build_agent_context, has_declarative_tools
 from .tools.commercial_tools import apply_commercial_effects
+from .tools.resource_tool import deliver_resources
 from .whatsapp import deliver_reaction, send_channel_media, send_channel_message, signal_channel_read
 from .whatsapp_format import parse_reply_directives
 from .whatsapp_identity import resolve_peer_contact
@@ -586,6 +587,14 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
             db, conversation, completion.text, burst
         )
 
+    if commercial_effects and commercial_effects.resources.chosen and not is_deliberate_silent:
+        # Library resources the agent chose: links join the reply verbatim, files
+        # ride out below with any other tool-produced file.
+        delivered = await deliver_resources(agent.client, conversation.contact, commercial_effects.resources, reply_text)
+        reply_text = delivered.reply_text
+        completion.attachments = [*(completion.attachments or []), *delivered.files]
+        commercial_effects.notes.extend(delivered.failures)
+
     outbound = None
     if reply_text:
         if conversation.channel not in ("instagram", "messenger"):
@@ -663,8 +672,11 @@ async def send_reply_attachments(db: Session, conversation: Conversation, messag
         if not attachment:
             continue
         try:
+            from .attachments import read_attachment
+
             external_id = await send_channel_media(
-                db, conversation, kind=attachment.kind, data=attachment.data, mime=attachment.mime, filename=attachment.filename,
+                db, conversation, kind=attachment.kind, data=await read_attachment(attachment),
+                mime=attachment.mime, filename=attachment.filename,
             )
         except HTTPException:
             continue

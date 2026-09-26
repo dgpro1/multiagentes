@@ -65,6 +65,11 @@ SERVICES_MANAGE = "services.manage"
 # Create, reschedule, cancel and delete appointments. Listing appointments and
 # availability is free for anyone signed in to such a portal.
 APPOINTMENTS_MANAGE = "appointments.manage"
+# Upload, edit and delete the files and links of the resource library, and
+# connect the client's own R2 bucket. Only takes effect where the agency
+# switched the ``resources`` portal function on. Listing them is free for
+# anyone signed in to such a portal.
+RESOURCES_MANAGE = "resources.manage"
 # Create, rename, reorder and delete the custom fields of the lead card. Only
 # takes effect where the agency switched the ``inbox`` portal function on.
 # Listing the fields and filling their values on a lead is free for anyone with
@@ -80,6 +85,7 @@ PERMISSION_FEATURES: dict[str, str] = {
     PROFESSIONALS_MANAGE: "professionals",
     SERVICES_MANAGE: "services",
     APPOINTMENTS_MANAGE: "appointments",
+    RESOURCES_MANAGE: "resources",
     FIELDS_MANAGE: "inbox",
 }
 
@@ -100,6 +106,7 @@ PERMISSIONS: tuple[str, ...] = (
     PROFESSIONALS_MANAGE,
     SERVICES_MANAGE,
     APPOINTMENTS_MANAGE,
+    RESOURCES_MANAGE,
     FIELDS_MANAGE,
 )
 

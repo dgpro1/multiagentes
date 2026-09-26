@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { AlertCircle, Brackets, Check, ChevronRight, Clock, Info, Layers, Wrench } from "lucide-react";
-import { Alert } from "@/components/ui";
+import { AlertCircle, Brackets, Check, ChevronRight, Clock, FileText, Film, ImageIcon, Info, Layers, Link2, Music, Wrench } from "lucide-react";
+import { Alert, Modal } from "@/components/ui";
 import { useLanguage } from "@/lib/i18n";
-import type { PipelineStage } from "@/types";
+import type { ClientResource, PipelineStage } from "@/types";
 
 export type PromptItem = {
   key: string;
   token: string;
   label: string;
-  category: "tools" | "blocks" | "stages";
+  category: "tools" | "blocks" | "stages" | "resources";
   description: string;
 };
 
@@ -19,7 +19,24 @@ interface AgentPromptEditorProps {
   placeholder?: string;
   pipelineStages: PipelineStage[];
   clientTimezone?: string;
+  /** The client's library; undefined while loading or where it cannot be read. */
+  resources?: ClientResource[];
+  /** Builds a file's preview address for the picker; omitted, files show an icon. */
+  resourceFileUrl?: (resource: ClientResource) => string;
   onChange?: (val: string) => void;
+}
+
+const RESOURCE_TOOL_TOKEN = "[Herramienta: enviar_recurso]";
+const RESOURCE_TOOL_RE = /\[Herramienta:\s*(enviar_recurso|send_resource)\s*\]/i;
+const RESOURCE_TOKEN_RE = /\[Recurso:\s*([^\]\n]+?)\s*\]/gi;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Names cited via [Recurso: name], in order. */
+function citedResources(text: string): string[] {
+  return Array.from(text.matchAll(RESOURCE_TOKEN_RE), (m) => m[1].trim()).filter(Boolean);
 }
 
 function fold(s: string): string {
@@ -31,6 +48,8 @@ export function AgentPromptEditor({
   placeholder = "",
   pipelineStages,
   clientTimezone,
+  resources,
+  resourceFileUrl,
   onChange,
 }: AgentPromptEditorProps) {
   const { t } = useLanguage();
@@ -38,6 +57,7 @@ export function AgentPromptEditor({
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -106,6 +126,13 @@ export function AgentPromptEditor({
         label: "[Herramienta: escalate_to_human]",
         category: "tools",
         description: "Deriva la conversación al equipo humano con motivo",
+      },
+      {
+        key: "tool-resource",
+        token: RESOURCE_TOOL_TOKEN,
+        label: RESOURCE_TOOL_TOKEN,
+        category: "tools",
+        description: t("resources.subtitle"),
       },
       {
         key: "tool-silent",
@@ -190,8 +217,20 @@ export function AgentPromptEditor({
       );
     }
 
+    for (const resource of resources ?? []) {
+      if (!resource.is_active) continue;
+      const kind = resource.kind === "link" ? t("resources.kindLink") : t(`resources.kind.${resource.media_kind ?? "file"}`);
+      list.push({
+        key: `resource-${resource.id}`,
+        token: `[Recurso: ${resource.name}]`,
+        label: `[Recurso: ${resource.name}]`,
+        category: "resources",
+        description: resource.description || t("resources.picker.itemDescription", { kind }),
+      });
+    }
+
     return list;
-  }, [pipelineStages]);
+  }, [pipelineStages, resources, t]);
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return items;
@@ -244,6 +283,52 @@ export function AgentPromptEditor({
     }, 0);
   };
 
+  // The resource tool opens the picker instead of inserting a bare token.
+  const choose = (item: PromptItem) => {
+    if (item.key === "tool-resource") {
+      setIsOpen(false);
+      setSearchQuery("");
+      setPickerOpen(true);
+      return;
+    }
+    insertToken(item.token);
+  };
+
+  /** Makes the prompt cite exactly `names`: unchecked [Recurso: ...] lines go away,
+   * new ones follow the tool token (inserted at the cursor when missing). */
+  const applyPicker = (names: string[]) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const wanted = new Set(names.map(fold));
+    let next = el.value;
+    for (const cited of citedResources(next)) {
+      if (wanted.has(fold(cited))) continue;
+      const token = `\\[Recurso:\\s*${escapeRegExp(cited)}\\s*\\]`;
+      next = next.replace(new RegExp(`^[ \\t]*${token}[ \\t]*\\r?\\n?`, "gim"), "").replace(new RegExp(token, "gi"), "");
+    }
+    const present = new Set(citedResources(next).map(fold));
+    const lines = names.filter((name) => !present.has(fold(name))).map((name) => `[Recurso: ${name}]`);
+    const toolMatch = RESOURCE_TOOL_RE.exec(next);
+    if (toolMatch) {
+      if (lines.length) {
+        // After the last resource already cited below the tool, or right after the tool.
+        let at = toolMatch.index + toolMatch[0].length;
+        for (const m of next.matchAll(RESOURCE_TOKEN_RE)) if ((m.index ?? 0) > at) at = (m.index ?? 0) + m[0].length;
+        next = `${next.slice(0, at)}\n${lines.join("\n")}${next.slice(at)}`;
+      }
+      el.value = next;
+      setContent(next);
+      onChange?.(next);
+      setPickerOpen(false);
+      return;
+    }
+    el.value = next;
+    setContent(next);
+    onChange?.(next);
+    setPickerOpen(false);
+    if (names.length) insertToken([RESOURCE_TOOL_TOKEN, ...lines].join("\n"));
+  };
+
   // Inspect typing for bracket trigger
   const handleTextareaInput = () => {
     const el = textareaRef.current;
@@ -282,7 +367,7 @@ export function AgentPromptEditor({
     } else if (e.key === "Enter" || e.key === "Tab") {
       if (filteredItems.length > 0 && filteredItems[selectedIndex]) {
         e.preventDefault();
-        insertToken(filteredItems[selectedIndex].token);
+        choose(filteredItems[selectedIndex]);
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -334,12 +419,23 @@ export function AgentPromptEditor({
       }
     }
 
+    // Check library resources
+    const cited = citedResources(content);
+    if (cited.length && !RESOURCE_TOOL_RE.test(content)) list.push(t("resources.warnings.missingTool"));
+    if (resources) {
+      const known = new Set(resources.filter((r) => r.is_active).map((r) => fold(r.name)));
+      for (const name of cited) {
+        if (!known.has(fold(name))) list.push(t("resources.warnings.unknownResource", { name }));
+      }
+    }
+
     return list;
-  }, [content, pipelineStages, clientTimezone, t]);
+  }, [content, pipelineStages, clientTimezone, resources, t]);
 
   const categoryTitle = (cat: string) => {
     if (cat === "tools") return t("agents.detail.toolsCategory");
     if (cat === "blocks") return t("agents.detail.blocksCategory");
+    if (cat === "resources") return t("resources.title");
     return t("agents.detail.stagesCategory");
   };
 
@@ -416,7 +512,7 @@ export function AgentPromptEditor({
                       key={item.key}
                       type="button"
                       className={`variable-item${isSelected ? " selected" : ""}`}
-                      onClick={() => insertToken(item.token)}
+                      onClick={() => choose(item)}
                       onMouseEnter={() => setSelectedIndex(idx)}
                       style={{
                         padding: "8px 10px",
@@ -432,7 +528,7 @@ export function AgentPromptEditor({
                       }}
                     >
                       <span style={{ marginTop: 2, opacity: 0.8 }}>
-                        {item.category === "tools" ? <Wrench size={15} /> : item.category === "blocks" ? <Layers size={15} /> : <ChevronRight size={15} />}
+                        {item.category === "tools" ? <Wrench size={15} /> : item.category === "blocks" ? <Layers size={15} /> : item.category === "resources" ? <Link2 size={15} /> : <ChevronRight size={15} />}
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -479,6 +575,69 @@ export function AgentPromptEditor({
           ))}
         </div>
       )}
+
+      {pickerOpen && (
+        <ResourcePicker
+          resources={(resources ?? []).filter((r) => r.is_active)}
+          initial={citedResources(content)}
+          fileUrl={resourceFileUrl}
+          onApply={(names) => applyPicker(names)}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </div>
   );
+}
+
+/** Lets the operator check which library resources the enviar_recurso tool may send. */
+function ResourcePicker({ resources, initial, fileUrl, onApply, onClose }: {
+  resources: ClientResource[];
+  initial: string[];
+  fileUrl?: (resource: ClientResource) => string;
+  onApply: (names: string[]) => void;
+  onClose: () => void;
+}) {
+  const { t } = useLanguage();
+  const [query, setQuery] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(() => {
+    const cited = new Set(initial.map(fold));
+    return new Set(resources.filter((r) => cited.has(fold(r.name))).map((r) => r.id));
+  });
+  const shown = resources.filter((r) => !query.trim() || fold(`${r.name} ${r.description}`).includes(fold(query)));
+  const toggle = (id: string) => setPicked((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const icon = (r: ClientResource) => r.kind === "link" ? <Link2 size={16} /> : r.media_kind === "image" ? <ImageIcon size={16} /> : r.media_kind === "video" ? <Film size={16} /> : r.media_kind === "audio" ? <Music size={16} /> : <FileText size={16} />;
+
+  return <Modal open title={t("resources.picker.title")} description={t("resources.picker.copy")} onClose={onClose}>
+    <div className="modal-form">
+      {resources.length === 0 ? <Alert type="info">{t("resources.picker.empty")}</Alert> : <>
+        <input className="resource-picker-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("resources.picker.search")} autoFocus />
+        <ul className="resource-picker-list">
+          {shown.map((r) => <li key={r.id}>
+            <label>
+              <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
+              {r.kind === "file" && r.media_kind === "image" && fileUrl
+                ? <img className="resource-thumb" src={fileUrl(r)} alt="" loading="lazy" />
+                : <span className="resource-thumb resource-icon">{icon(r)}</span>}
+              <span>
+                <strong>{r.name}</strong>
+                <small>{r.description || (r.kind === "link" ? r.url : r.filename)}</small>
+              </span>
+            </label>
+          </li>)}
+        </ul>
+      </>}
+      <div className="modal-actions">
+        <span className="field-help" style={{ marginRight: "auto" }}>{t("resources.picker.selected", { count: picked.size })}</span>
+        <button type="button" className="button" onClick={onClose}>{t("common.cancel")}</button>
+        <button type="button" className="button primary" disabled={resources.length === 0}
+          onClick={() => onApply(resources.filter((r) => picked.has(r.id)).map((r) => r.name))}>
+          <Check size={15} /> {t("resources.picker.insert")}
+        </button>
+      </div>
+    </div>
+  </Modal>;
 }

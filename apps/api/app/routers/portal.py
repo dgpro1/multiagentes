@@ -16,7 +16,7 @@ from ..database import get_db, new_session
 from ..industries import catalog as industry_catalog
 from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
 from ..portal_features import enabled_keys, ensure_enabled
-from ..portal_permissions import APPOINTMENTS_MANAGE, CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, FIELDS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, SERVICES_MANAGE, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
+from ..portal_permissions import APPOINTMENTS_MANAGE, CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, FIELDS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, RESOURCES_MANAGE, SERVICES_MANAGE, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
 from ..ratelimit import login_rate_limit, public_asset_rate_limit
 from ..schemas import (
     ClientDetailsOut,
@@ -89,6 +89,7 @@ from ..schemas_lead_card import (
 )
 from ..schemas_professionals import ProfessionalCreate, ProfessionalOut, ProfessionalUpdate
 from ..schemas_services import ServiceCreate, ServiceOut, ServiceUpdate
+from ..schemas_resources import ResourceCreate, ResourceOut, ResourceUpdate, StorageConnect, StorageConnectionOut, StorageLimitsUpdate, StorageLinkOut
 from ..schemas_appointments import AppointmentCreate, AppointmentOut, AppointmentUpdate, AvailabilityDay, AvailabilityResponse
 from ..schemas_scheduled_messages import ScheduledMessageCreate, ScheduledMessageOut, ScheduledMessageUpdate
 from ..schemas_calendar import CalendarEventsOut, CalendarMemberCreate, CalendarMemberOut, CalendarMemberUpdate, CalendarOverviewOut
@@ -96,6 +97,8 @@ from ..services import calendar as calendar_service
 from ..services import pipeline as pipeline_service
 from ..services import professionals as professionals_service
 from ..services import services_catalog
+from ..services import resources_catalog, storage_connection
+from ..services.attachments import file_response
 from ..services import appointments as appointments_service
 from ..services import scheduled_messages as scheduled_messages_service
 from ..services.client_details import apply_details, clear_logo, store_logo
@@ -598,6 +601,99 @@ def portal_delete_service(
 ):
     services_catalog.delete_service(db, client, service_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# Resource library: the files and links the agent may send, and the client's own bucket.
+
+_RESOURCES = Depends(require_feature("resources"))
+_RESOURCES_MANAGE = [_RESOURCES, Depends(require_permission(RESOURCES_MANAGE))]
+
+
+@router.get("/{slug}/resources", response_model=list[ResourceOut], dependencies=[_RESOURCES])
+def portal_resources(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return resources_catalog.list_resources(db, client)
+
+
+@router.post("/{slug}/resources", response_model=ResourceOut, status_code=status.HTTP_201_CREATED, dependencies=_RESOURCES_MANAGE)
+def portal_create_link_resource(
+    slug: str, payload: ResourceCreate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    return resources_catalog.create_link(db, client, payload)
+
+
+@router.post("/{slug}/resources/upload", response_model=ResourceOut, status_code=status.HTTP_201_CREATED, dependencies=_RESOURCES_MANAGE)
+async def portal_upload_resource(
+    slug: str, name: str = Form(...), description: str = Form(""), file: UploadFile = File(...),
+    client: Client = Depends(_portal_client), db: Session = Depends(get_db),
+):
+    from .resources import read_upload
+
+    payload = ResourceCreate(kind="file", name=name, description=description)
+    data = await read_upload(file)
+    return resources_catalog.create_file(db, client, payload, data=data, mime=file.content_type or "", filename=file.filename)
+
+
+@router.patch("/{slug}/resources/{resource_id}", response_model=ResourceOut, dependencies=_RESOURCES_MANAGE)
+def portal_update_resource(
+    slug: str, resource_id: uuid.UUID, payload: ResourceUpdate,
+    client: Client = Depends(_portal_client), db: Session = Depends(get_db),
+):
+    return resources_catalog.update_resource(db, client, resource_id, payload)
+
+
+@router.delete("/{slug}/resources/{resource_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_RESOURCES_MANAGE)
+def portal_delete_resource(
+    slug: str, resource_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    resources_catalog.delete_resource(db, client, resource_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{slug}/resources/{resource_id}/file", dependencies=[_RESOURCES])
+def portal_resource_file(
+    slug: str, resource_id: uuid.UUID, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    row = resources_catalog.get_resource(db, client, resource_id)
+    return file_response(resources_catalog.read_file(client, row), row.mime or "application/octet-stream", row.filename)
+
+
+@router.get("/{slug}/storage", response_model=StorageConnectionOut, dependencies=[_RESOURCES])
+def portal_storage(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    return storage_connection.out(db, client)
+
+
+@router.put("/{slug}/storage", response_model=StorageConnectionOut, dependencies=_RESOURCES_MANAGE)
+def portal_connect_storage(
+    slug: str, payload: StorageConnect, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    storage_connection.connect(db, client, payload)
+    return storage_connection.out(db, client)
+
+
+@router.post("/{slug}/storage/check", response_model=StorageConnectionOut, dependencies=_RESOURCES_MANAGE)
+def portal_check_storage(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    storage_connection.recheck(db, client)
+    return storage_connection.out(db, client)
+
+
+@router.patch("/{slug}/storage/limits", response_model=StorageConnectionOut, dependencies=_RESOURCES_MANAGE)
+def portal_storage_limits(
+    slug: str, payload: StorageLimitsUpdate, client: Client = Depends(_portal_client), db: Session = Depends(get_db)
+):
+    storage_connection.update_limits(db, client, payload)
+    return storage_connection.out(db, client)
+
+
+@router.delete("/{slug}/storage", response_model=StorageConnectionOut, dependencies=_RESOURCES_MANAGE)
+def portal_disconnect_storage(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    storage_connection.disconnect(db, client)
+    return storage_connection.out(db, client)
+
+
+@router.post("/{slug}/storage/link", response_model=StorageLinkOut, dependencies=_RESOURCES_MANAGE)
+def portal_storage_link(slug: str, client: Client = Depends(_portal_client), db: Session = Depends(get_db)):
+    conn = storage_connection.renew_link(db, client)
+    return {"connect_url": storage_connection.connect_url(conn), "connect_expires_at": conn.connect_expires_at}
 
 
 @router.get(
@@ -2484,7 +2580,9 @@ async def portal_attachment(
         raise HTTPException(status_code=422, detail="Playback conversion is only available for audio")
     from ..services.audio import to_native_audio
 
-    converted = await to_native_audio(attachment.data)
+    from ..services.attachments import read_attachment
+
+    converted = await to_native_audio(await read_attachment(attachment))
     if converted is None:
         raise HTTPException(status_code=422, detail="This audio could not be prepared for playback")
     return Response(

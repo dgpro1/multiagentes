@@ -11,6 +11,7 @@ or a cookie session behind ``require(...)``), so the scope-coverage test
 holds here unchanged.
 """
 
+import hashlib
 import uuid
 from datetime import date, datetime
 from io import BytesIO
@@ -18,7 +19,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 import re
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -46,6 +47,9 @@ from ..api_scopes import (
     PIPELINE_MANAGE,
     PIPELINE_READ,
     REPORTS_READ,
+    RESOURCES_MANAGE,
+    RESOURCES_READ,
+    STORAGE_READ,
     TAGS_MANAGE,
     TAGS_READ,
 )
@@ -80,6 +84,9 @@ from ..services.idempotency import abandon, complete, owner_of, use_key
 from ..services.knowledge import build_system_prompt, embed_document_chunks, reindex_agent
 from ..services.report_operations import ConversationFilters, operations
 from ..services import tags as tags_service
+from ..services import resources_catalog, storage_connection
+from ..services.attachments import file_response
+from ..schemas_resources import ResourceCreate, ResourceOut, ResourceUpdate
 from ..services.whatsapp import send_channel_message
 from ..slugs import unique_slug
 from .agents import _agent as _panel_agent, _channels_of, _document_out
@@ -1234,3 +1241,121 @@ def v1_delete_tag(
     client = _agency_client(db, user, client_id)
     tags_service.delete_tag(db, client, tag_id)
     return JSONResponse(status_code=204, content=None)
+
+
+# Resource library ----------------------------------------------------------
+#
+# Files and links a client's agent sends with [Herramienta: enviar_recurso].
+# The files live in the client's own R2 bucket; connecting that bucket takes
+# credentials and stays a panel gesture, so v1 reports only its state.
+
+
+def _resource_out(client: Client, row) -> dict:
+    base = f"/api/v1/clients/{client.id}/resources/{row.id}"
+    links = {"self": base}
+    if row.kind == "file":
+        links["file"] = f"{base}/file"
+    return {**ResourceOut.model_validate(row).model_dump(mode="json"), "_links": links}
+
+
+@router.get("/clients/{client_id}/resources", dependencies=[Depends(require(RESOURCES_READ))])
+def v1_list_resources(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    client = _agency_client(db, user, client_id)
+    rows = [_resource_out(client, row) for row in resources_catalog.list_resources(db, client)]
+    return {"data": rows, "total": len(rows), "_links": {"self": f"/api/v1/clients/{client.id}/resources"}}
+
+
+@router.get("/clients/{client_id}/resources/{resource_id}", dependencies=[Depends(require(RESOURCES_READ))])
+def v1_get_resource(
+    client_id: uuid.UUID, resource_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    client = _agency_client(db, user, client_id)
+    return _resource_out(client, resources_catalog.get_resource(db, client, resource_id))
+
+
+@router.get("/clients/{client_id}/resources/{resource_id}/file", dependencies=[Depends(require(RESOURCES_READ))])
+def v1_resource_file(
+    client_id: uuid.UUID, resource_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    client = _agency_client(db, user, client_id)
+    row = resources_catalog.get_resource(db, client, resource_id)
+    return file_response(resources_catalog.read_file(client, row), row.mime or "application/octet-stream", row.filename)
+
+
+@router.post("/clients/{client_id}/resources", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(RESOURCES_MANAGE))])
+def v1_create_link_resource(
+    client_id: uuid.UUID, payload: ResourceCreate,
+    idempotency_key: str | None = Header(default=None),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """A link resource. Files go through ``POST .../resources/upload``."""
+    client = _agency_client(db, user, client_id)
+    receipt = use_key(db, agency_id=user.agency_id, owner=owner_of(user), key=idempotency_key or "",
+                      endpoint="v1:create_resource", body={**payload.model_dump(mode="json"), "client_id": str(client_id)})
+    if receipt.replay is not None:
+        return JSONResponse(status_code=receipt.replay["status"], content=receipt.replay["body"])
+    try:
+        body = _resource_out(client, resources_catalog.create_link(db, client, payload))
+        complete(db, receipt, status=201, body=body)
+        return JSONResponse(status_code=201, content=body)
+    except HTTPException:
+        abandon(db, receipt)
+        raise
+
+
+@router.post("/clients/{client_id}/resources/upload", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(RESOURCES_MANAGE))])
+async def v1_upload_resource(
+    client_id: uuid.UUID,
+    name: str = Form(...),
+    description: str = Form(""),
+    file: UploadFile = File(...),
+    idempotency_key: str | None = Header(default=None),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """A file resource, stored in the client's own bucket (409 ``storage_not_connected`` until it is connected)."""
+    from .resources import read_upload
+
+    client = _agency_client(db, user, client_id)
+    data = await read_upload(file)
+    payload = ResourceCreate(kind="file", name=name, description=description)
+    receipt = use_key(db, agency_id=user.agency_id, owner=owner_of(user), key=idempotency_key or "",
+                      endpoint="v1:upload_resource",
+                      body={"client_id": str(client_id), "name": payload.name, "description": payload.description,
+                            "filename": file.filename, "sha256": hashlib.sha256(data).hexdigest()})
+    if receipt.replay is not None:
+        return JSONResponse(status_code=receipt.replay["status"], content=receipt.replay["body"])
+    try:
+        row = resources_catalog.create_file(db, client, payload, data=data, mime=file.content_type or "", filename=file.filename)
+        body = _resource_out(client, row)
+        complete(db, receipt, status=201, body=body)
+        return JSONResponse(status_code=201, content=body)
+    except HTTPException:
+        abandon(db, receipt)
+        raise
+
+
+@router.patch("/clients/{client_id}/resources/{resource_id}", dependencies=[Depends(require(RESOURCES_MANAGE))])
+def v1_update_resource(
+    client_id: uuid.UUID, resource_id: uuid.UUID, payload: ResourceUpdate,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    client = _agency_client(db, user, client_id)
+    return _resource_out(client, resources_catalog.update_resource(db, client, resource_id, payload))
+
+
+@router.delete("/clients/{client_id}/resources/{resource_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require(RESOURCES_MANAGE))])
+def v1_delete_resource(
+    client_id: uuid.UUID, resource_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    client = _agency_client(db, user, client_id)
+    resources_catalog.delete_resource(db, client, resource_id)
+    return JSONResponse(status_code=204, content=None)
+
+
+@router.get("/clients/{client_id}/storage", dependencies=[Depends(require(STORAGE_READ))])
+def v1_storage(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Whether the client's own bucket is connected and how much of its quota the library uses. Never credentials."""
+    client = _agency_client(db, user, client_id)
+    body = storage_connection.out(db, client)
+    body.pop("access_key_hint", None)
+    return {**jsonable_encoder(body), "_links": {"self": f"/api/v1/clients/{client.id}/storage"}}

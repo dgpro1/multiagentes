@@ -33,6 +33,14 @@ are deliberately panel-only, with the reason beside them.
 | Client detail → calendar | `GET /api/v1/clients/{client_id}/calendar/events` |
 | Client detail → calendar | `POST /api/v1/clients/{client_id}/calendar/members` |
 | Client detail → calendar | `DELETE /api/v1/clients/{client_id}/calendar/members/{member_id}` |
+| Client detail → library | `GET /api/v1/clients/{client_id}/resources` |
+| Client detail → library | `GET /api/v1/clients/{client_id}/resources/{resource_id}` |
+| Client detail → library | `GET /api/v1/clients/{client_id}/resources/{resource_id}/file` |
+| Client detail → library → add link | `POST /api/v1/clients/{client_id}/resources` |
+| Client detail → library → upload file | `POST /api/v1/clients/{client_id}/resources/upload` |
+| Client detail → library → edit | `PATCH /api/v1/clients/{client_id}/resources/{resource_id}` |
+| Client detail → library → delete | `DELETE /api/v1/clients/{client_id}/resources/{resource_id}` |
+| Client detail → library → storage state | `GET /api/v1/clients/{client_id}/storage` |
 | Agents | `GET /api/v1/clients/{client_id}/agents` |
 | Agents → New | `POST /api/v1/clients/{client_id}/agents` |
 | Agent detail | `GET /api/v1/clients/{client_id}/agents/{agent_id}` |
@@ -97,6 +105,7 @@ Credentials are managed by people, so these live outside `/api/v1`:
 | Agent detail → escalation | Routing to teams and people is internal mechanics. |
 | Channel setup → connect | OAuth handshakes and per-line secrets are panel gestures. |
 | Calendar connect link | Google OAuth handshake. |
+| Client detail → library → connect storage | Takes the customer's own Cloudflare credentials; the panel and the public onboarding link only. |
 | Client detail → portal users, teams | Identity management for the portal; own credential model. |
 | Client detail → templates | Meta-side objects managed against the provider. |
 | Client detail → logo, custom domain | Files and DNS verification are panel gestures. |

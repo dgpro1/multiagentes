@@ -38,6 +38,10 @@ PROFESSIONALS_READ = "professionals.read"
 PROFESSIONALS_MANAGE = "professionals.manage"
 SERVICES_READ = "services.read"
 SERVICES_MANAGE = "services.manage"
+RESOURCES_READ = "resources.read"
+RESOURCES_MANAGE = "resources.manage"
+STORAGE_READ = "storage.read"
+STORAGE_MANAGE = "storage.manage"
 APPOINTMENTS_READ = "appointments.read"
 APPOINTMENTS_MANAGE = "appointments.manage"
 LEAD_FIELDS_READ = "lead_fields.read"
@@ -75,6 +79,10 @@ ALL: tuple[str, ...] = (
     PROFESSIONALS_MANAGE,
     SERVICES_READ,
     SERVICES_MANAGE,
+    RESOURCES_READ,
+    RESOURCES_MANAGE,
+    STORAGE_READ,
+    STORAGE_MANAGE,
     APPOINTMENTS_READ,
     APPOINTMENTS_MANAGE,
     LEAD_FIELDS_READ,
@@ -114,6 +122,10 @@ DESCRIPTIONS: dict[str, str] = {
     PROFESSIONALS_MANAGE: "Add, edit and delete professionals and their weekly hours.",
     SERVICES_READ: "See the services catalog of a client.",
     SERVICES_MANAGE: "Add, edit and delete services in the client's catalog.",
+    RESOURCES_READ: "See the files and links in a client's resource library.",
+    RESOURCES_MANAGE: "Upload, edit and delete the files and links the agent may send.",
+    STORAGE_READ: "See whether a client has connected its own file storage.",
+    STORAGE_MANAGE: "Connect, check and disconnect a client's own file storage.",
     APPOINTMENTS_READ: "See the appointments and availability of a client.",
     APPOINTMENTS_MANAGE: "Create, reschedule, cancel and manage appointments.",
     LEAD_FIELDS_READ: "See the custom fields of the lead card.",
@@ -139,6 +151,7 @@ PRESETS: dict[str, frozenset[str]] = {
             TEAMS_MANAGE,
             PROFESSIONALS_MANAGE,
             SERVICES_MANAGE,
+            RESOURCES_MANAGE,
             APPOINTMENTS_MANAGE,
             LEAD_FIELDS_MANAGE,
         }

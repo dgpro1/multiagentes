@@ -27,6 +27,7 @@ const LABELS: Record<PortalFeature, I18nKey> = {
   details: "clients.detail.pfDetails",
   professionals: "clients.detail.pfProfessionals",
   services: "clients.detail.pfServices",
+  resources: "clients.detail.pfResources",
   appointments: "clients.detail.pfAppointments",
 };
 

@@ -42,6 +42,10 @@ Un subconjunto otorgado más estrecho que la integración viaja con el grant. Lo
 | `contacts.manage` | Crear y editar contactos. |
 | `tags.read` | Ver las etiquetas. |
 | `tags.manage` | Crear, renombrar, recolorear y eliminar etiquetas. |
+| `resources.read` | Ver los archivos y enlaces de la biblioteca de recursos de un cliente. |
+| `resources.manage` | Subir, editar y eliminar los archivos y enlaces que el agente puede enviar. |
+| `storage.read` | Ver si un cliente conectó su propio almacenamiento de archivos. |
+| `storage.manage` | Conectar, comprobar y desconectar el almacenamiento propio de un cliente (solo panel). |
 | `teams.read`, `teams.manage` | Ver / gestionar equipos (hoy solo panel). |
 | `templates.read`, `templates.manage` | Plantillas de WhatsApp (hoy solo panel). |
 | `canned.manage` | Respuestas guardadas (hoy solo panel). |
@@ -123,6 +127,21 @@ Cada conversación (un *lead* en el panel) trae `number`, su número corto dentr
 | `POST /clients/{id}/tags` | Crea (idempotente; nombre duplicado es `409`). |
 | `PATCH /clients/{id}/tags/{tag_id}` | Renombra o recolorea. Rutear una etiqueta a un equipo o persona sigue siendo gesto del panel. |
 | `DELETE /clients/{id}/tags/{tag_id}` | Elimina; los enlaces van con ella. |
+
+**Biblioteca de recursos** (`resources.read`, escrituras `resources.manage`; estado del almacenamiento `storage.read`)
+
+Archivos y enlaces que el agente de un cliente envía con `[Herramienta: enviar_recurso]`. Los archivos viven en el bucket de Cloudflare R2 del propio cliente, que se conecta desde el panel (las credenciales nunca pasan por la API); mientras no esté conectado, las subidas responden `409` con `storage_not_connected`. Los enlaces funcionan sin él. Límites: imágenes 5 MB, videos y audio 16 MB, documentos hasta el límite del cliente (máximo 20 MB) y una cuota de biblioteca por cliente.
+
+| Método y ruta | Qué hace |
+| --- | --- |
+| `GET /clients/{id}/resources` | La biblioteca, archivos y enlaces. |
+| `GET /clients/{id}/resources/{resource_id}` | Un recurso. |
+| `GET /clients/{id}/resources/{resource_id}/file` | Los bytes del archivo, leídos del bucket del cliente. Imágenes, audio y video en línea; lo demás como descarga. |
+| `POST /clients/{id}/resources` | Un enlace: `{"name", "url", "message_template", "description", "is_active"}`. La plantilla admite `{{contact.name}}`, `{{client.name}}` y `{{url}}`. Idempotente; un nombre repetido es `409`. |
+| `POST /clients/{id}/resources/upload` | Un archivo, como multipart: `name`, `description`, `file`. Idempotente. |
+| `PATCH /clients/{id}/resources/{resource_id}` | Renombrar, describir, activar o desactivar, o cambiar la dirección o plantilla de un enlace. |
+| `DELETE /clients/{id}/resources/{resource_id}` | Eliminar; un archivo también se borra del bucket. |
+| `GET /clients/{id}/storage` | Si el bucket está conectado, su nombre, los límites y los bytes que usa la biblioteca. Nunca credenciales. |
 
 **Agentes** (`agents.read`, escrituras `agents.write`)
 

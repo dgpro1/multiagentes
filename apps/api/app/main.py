@@ -34,6 +34,7 @@ from .routers import (    agency,
     professionals,
     providers,
     reports,
+    resources,
     services,
     whatsapp,
     whatsapp_cloud,
@@ -64,6 +65,25 @@ async def _auto_resolve_loop() -> None:
             logger.exception("Auto-resolve sweep failed")
 
 
+async def _attachment_offload_loop(interval: int) -> None:
+    """Move chat attachments to each connected client's own bucket, in batches."""
+    from .services.attachment_offload import offload_batch
+
+    def sweep() -> int:
+        with new_session() as db:
+            return offload_batch(db)
+
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            # boto3 is synchronous: the sweep runs off the event loop.
+            moved = await asyncio.to_thread(sweep)
+            if moved:
+                logger.info("Moved %d attachment(s) to client buckets", moved)
+        except Exception:  # noqa: BLE001 - a failed sweep must not stop the next one
+            logger.exception("Attachment offload sweep failed")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     from .services.social_worker import start_worker, stop_worker
@@ -71,12 +91,16 @@ async def lifespan(_: FastAPI):
     sweeper = asyncio.create_task(_auto_resolve_loop()) if settings.auto_resolve_after_hours > 0 else None
     asyncio.create_task(_ensure_messaging_webhook())
     asyncio.create_task(_restore_evolution_channels())
+    offload_interval = settings.attachment_offload_interval_seconds
+    offloader = asyncio.create_task(_attachment_offload_loop(offload_interval)) if offload_interval > 0 else None
     try:
         yield
     finally:
         await stop_worker()
         if sweeper:
             sweeper.cancel()
+        if offloader:
+            offloader.cancel()
 
 
 async def _ensure_messaging_webhook() -> None:
@@ -194,6 +218,7 @@ app.include_router(social.router, prefix="/api")
 app.include_router(calendar.router, prefix="/api")
 app.include_router(professionals.router, prefix="/api")
 app.include_router(services.router, prefix="/api")
+app.include_router(resources.router, prefix="/api")
 app.include_router(appointments.router, prefix="/api")
 app.include_router(lead_card.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")

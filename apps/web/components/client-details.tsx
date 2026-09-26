@@ -2,7 +2,7 @@
 
 import { FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, ImagePlus, LoaderCircle, Plus, Save, Trash2, X } from "lucide-react";
+import { Copy, Download, ImagePlus, LoaderCircle, Plus, Save, Trash2, X } from "lucide-react";
 import { Alert, Modal } from "@/components/ui";
 import { IndustryPicker, isBusinessComplete, type IndustryValue } from "@/components/industry-picker";
 import { AiHint } from "@/components/ai-hint";
@@ -10,7 +10,7 @@ import { Combobox } from "@/components/combobox";
 import { useToast } from "@/components/toast";
 import { TIMEZONES } from "@/lib/timezones";
 import { CURRENCIES } from "@/lib/currencies";
-import { api, messageFrom } from "@/lib/api";
+import { api, apiUrl, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { DAYS, WEEKDAYS, MAX_RANGES, DEFAULT_RANGE, emptyHours, cloneRanges, cloneHours, scheduleError } from "@/lib/schedule";
 import type { PortalClientDetails, TimeRange, WeekDay, WeeklyHours } from "@/types";
@@ -201,6 +201,10 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
           <li><strong>{deletePreview.contacts}</strong> {t("clients.detail.deleteCountContacts")}</li>
           <li><strong>{deletePreview.portal_users}</strong> {t("clients.detail.deleteCountPortalUsers")}</li>
         </ul> : !deleteError && <p className="field-help"><LoaderCircle className="spin" size={14} /></p>}
+        <div className="delete-export">
+          <p className="field-help">{t("clients.detail.deleteExportCopy")}</p>
+          <a className="button secondary small" href={apiUrl(`${apiBase}/export`)} download><Download size={15} /> {t("clients.detail.deleteExport")}</a>
+        </div>
         <label>{t("clients.detail.deleteTypeName", { name })}<input value={deleteName} onChange={(e) => setDeleteName(e.target.value)} autoComplete="off" placeholder={name} /></label>
         {deleteError && <Alert>{deleteError}</Alert>}
         <div className="modal-actions"><button type="button" className="button" onClick={() => setDeleteOpen(false)}>{t("common.cancel")}</button><button type="button" className="button danger" disabled={busy || !deletePreview || deleteName.trim() !== name.trim()} onClick={remove}>{busy ? <LoaderCircle className="spin" size={16} /> : <><Trash2 size={15} /> {t("clients.detail.deleteClient")}</>}</button></div>

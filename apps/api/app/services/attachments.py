@@ -135,8 +135,57 @@ def content_disposition(filename: str | None, *, inline: bool = False) -> str:
     return f'{disposition}; filename="{ascii_filename}"; filename*=UTF-8\'\'{quote(filename, safe="")}'
 
 
+def _bucket_of(attachment: MessageAttachment):
+    """The client's bucket an offloaded attachment was moved to."""
+    from sqlalchemy.orm import object_session
+
+    from ..models import Client
+    from . import resource_storage
+
+    client = object_session(attachment).get(Client, attachment.message.conversation.client_id)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return resource_storage.for_client(client)
+
+
+def attachment_bytes(attachment: MessageAttachment) -> bytes:
+    """The attachment's bytes, from Postgres or, once moved, from the client's own bucket.
+
+    A moved file needs the bucket connected: disconnecting it (or the customer
+    deleting the object) answers 409/502 instead of an empty file."""
+    if attachment.data is not None:
+        return attachment.data
+    if not attachment.storage_key:
+        raise HTTPException(status_code=404, detail="The attachment has no data")
+    from . import resource_storage
+
+    try:
+        return _bucket_of(attachment).get(attachment.storage_key)
+    except resource_storage.StorageError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+async def read_attachment(attachment: MessageAttachment) -> bytes:
+    """``attachment_bytes`` for async callers: the bucket read runs off the event loop."""
+    if attachment.data is not None or not attachment.storage_key:
+        return attachment_bytes(attachment)
+    import asyncio
+
+    from . import resource_storage
+
+    store = _bucket_of(attachment)
+    try:
+        return await asyncio.to_thread(store.get, attachment.storage_key)
+    except resource_storage.StorageError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 def attachment_response(attachment: MessageAttachment) -> Response:
-    inline = is_inline_safe(attachment.mime)
+    return file_response(attachment_bytes(attachment), attachment.mime, attachment.filename)
+
+
+def file_response(data: bytes, mime: str, filename: str | None) -> Response:
+    inline = is_inline_safe(mime)
     headers = {
         "Cache-Control": "private, max-age=3600",
         # Stop the browser from second-guessing the type we send.
@@ -147,9 +196,9 @@ def attachment_response(attachment: MessageAttachment) -> Response:
         # matters when the API is served from its own domain.
         "Vary": "Origin",
     }
-    headers["Content-Disposition"] = content_disposition(attachment.filename, inline=inline)
-    media_type = attachment.mime if inline else "application/octet-stream"
-    return Response(content=attachment.data, media_type=media_type, headers=headers)
+    headers["Content-Disposition"] = content_disposition(filename, inline=inline)
+    media_type = mime if inline else "application/octet-stream"
+    return Response(content=data, media_type=media_type, headers=headers)
 
 
 def llm_text(message: Message) -> str:

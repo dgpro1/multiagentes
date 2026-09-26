@@ -16,6 +16,7 @@ import { oauth } from "./dicts/oauth";
 import { pipeline } from "./dicts/pipeline";
 import { professionals } from "./dicts/professionals";
 import { services } from "./dicts/services";
+import { resources } from "./dicts/resources";
 import { lead } from "./dicts/lead";
 
 // Spanish dictionary. Composed from the same modules; typed as Dictionary so it
@@ -38,5 +39,6 @@ export const es: Dictionary = {
   pipeline: pipeline.es,
   professionals: professionals.es,
   services: services.es,
+  resources: resources.es,
   lead: lead.es,
 };

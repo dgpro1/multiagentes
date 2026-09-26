@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = ""
     calendar_link_days: int = 7
+    # How long the link a business owner opens to connect their own Cloudflare
+    # R2 bucket stays valid.
+    storage_link_days: int = 7
+    # Chat attachments of clients with their own R2 bucket are moved there from
+    # Postgres by a background sweep this often (seconds). 0 disables the sweep;
+    # the attachments then stay in Postgres.
+    attachment_offload_interval_seconds: int = 600
 
     # Off by default: conversations no longer resolve themselves. When set,
     # conversations the AI is answering resolve after this many hours without
