@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import Agency, User
+from ..models import Agency, AgencySlugAlias, User
 from ..schemas import AgencyOut, AgencyUpdate
-from ..slugs import slugify
+from ..slugs import slug_free, slugify
 
 
 router = APIRouter(prefix="/agency", tags=["Agency"])
@@ -31,8 +31,12 @@ def update_agency(
     values = payload.model_dump(exclude_unset=True)
     if "slug" in values and values["slug"]:
         candidate = slugify(values["slug"])
-        if db.scalar(select(Agency).where(Agency.slug == candidate, Agency.id != agency.id)):
-            raise HTTPException(status_code=409, detail="That identifier is already in use")
+        if candidate != agency.slug:
+            if not slug_free(db, candidate):
+                raise HTTPException(status_code=409, detail="That identifier is already in use")
+            # The identifier is also an address: the retired slug stays
+            # working through the alias table.
+            db.add(AgencySlugAlias(slug=agency.slug, agency_id=agency.id))
         values["slug"] = candidate
     if "brand_color" in values and not re.fullmatch(r"#[0-9a-fA-F]{6}", values["brand_color"] or ""):
         raise HTTPException(status_code=400, detail="The color must use the #075985 format")

@@ -1,9 +1,16 @@
-"""Every platform route asks for the platform identity, except the one
-deliberately public endpoint (login). Read from the route table, like the
+"""Every platform route asks for the platform identity, except the few
+deliberately public endpoints (the login, and the invitation flows an
+invitee opens without a session). Read from the route table, like the
 scope-coverage suite, so a new platform route cannot forget the door."""
 
 from app.deps import get_current_platform_admin
 from app.main import app
+
+PUBLIC_PLATFORM_ROUTES = {
+    "/api/platform/auth/login",
+    "/api/platform/invitations/{token}",
+    "/api/platform/invitations/{token}/accept",
+}
 
 
 def _requires_platform(route) -> bool:
@@ -28,7 +35,7 @@ def test_every_platform_route_is_behind_the_platform_door():
         methods = set(getattr(route, "methods", set()) or set())
         if not path.startswith("/api/platform") or methods <= {"HEAD", "OPTIONS"}:
             continue
-        if path == "/api/platform/auth/login":
+        if path in PUBLIC_PLATFORM_ROUTES:
             continue
         if not _requires_platform(route):
             offenders.append(f"{sorted(methods)} {path}")

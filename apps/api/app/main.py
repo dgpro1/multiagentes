@@ -30,7 +30,9 @@ from .routers import (    agency,
     mobile,
     oauth,
     pipeline,
+    platform,
     platform_auth,
+    platform_invitations,
     portal,
     portal_manage,
     professionals,
@@ -270,4 +272,6 @@ app.include_router(appointments.router, prefix="/api")
 app.include_router(lead_card.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")
 app.include_router(platform_auth.router, prefix="/api")
+app.include_router(platform.router, prefix="/api")
+app.include_router(platform_invitations.router, prefix="/api")
 app.include_router(social_webhook.public_router, prefix="/api")
