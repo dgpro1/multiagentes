@@ -1,5 +1,6 @@
 """The portal inbox in one response, and the read receipt off the request."""
 
+import pytest
 import asyncio
 import time
 from datetime import timedelta
@@ -53,6 +54,7 @@ def test_the_inbox_answers_list_counters_and_mine_together(authenticated_client:
     assert second not in [row["id"] for row in resolved["mine"]]
 
 
+@pytest.mark.central_only("reads or writes through SessionLocal(), which has no client database by design")
 def test_marking_read_answers_before_the_channel_hears_about_it(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
     slug, first, _ = _portal(client)
@@ -81,6 +83,7 @@ def test_marking_read_answers_before_the_channel_hears_about_it(authenticated_cl
     assert client.get(f"/api/portal/{slug}/conversations/{first}").json()["unread"] is not True
 
 
+@pytest.mark.central_only("reads or writes through SessionLocal(), which has no client database by design")
 def test_a_failing_read_receipt_is_logged_not_raised(authenticated_client: TestClient, monkeypatch, caplog):
     client = authenticated_client
     slug, first, _ = _portal(client)

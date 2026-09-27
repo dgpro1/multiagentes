@@ -18,6 +18,7 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session, undefer
 
+from ..database import use_client
 from ..models import Client, ClientStorageConnection, Conversation, Message, MessageAttachment, now_utc
 from . import resource_storage
 
@@ -32,43 +33,55 @@ def attachment_key(client: Client, attachment: MessageAttachment) -> str:
 
 
 def offload_batch(db: Session, *, limit: int = BATCH, grace: timedelta = GRACE) -> int:
-    """Move up to ``limit`` attachments; returns how many moved. A client whose
-    bucket refuses a write is skipped for the rest of the batch."""
-    rows = db.execute(
-        select(MessageAttachment.id, Conversation.client_id)
-        .join(Message, Message.id == MessageAttachment.message_id)
-        .join(Conversation, Conversation.id == Message.conversation_id)
-        .join(ClientStorageConnection, ClientStorageConnection.client_id == Conversation.client_id)
-        .where(
-            ClientStorageConnection.status == "connected",
-            MessageAttachment.storage_key.is_(None),
-            MessageAttachment.data.is_not(None),
-            MessageAttachment.created_at < now_utc() - grace,
-        )
-        .order_by(MessageAttachment.created_at)
-        .limit(limit)
-    ).all()
+    """Move up to ``limit`` attachments; returns how many moved.
+
+    Client by client: the bucket connections are central while the
+    attachments live wherever each client keeps its data, so the two are never
+    joined in one query. A client whose bucket refuses a write is skipped for
+    the rest of the sweep."""
+    client_ids = list(db.scalars(
+        select(ClientStorageConnection.client_id).where(ClientStorageConnection.status == "connected")
+    ))
     moved = 0
-    failed_clients: set = set()
-    for attachment_id, client_id in rows:
-        if client_id in failed_clients:
-            continue
-        client = db.get(Client, client_id)
-        attachment = db.scalar(
-            select(MessageAttachment).options(undefer(MessageAttachment.data)).where(MessageAttachment.id == attachment_id)
-        )
-        if client is None or attachment is None or attachment.data is None:
-            continue
-        key = attachment_key(client, attachment)
-        try:
-            resource_storage.for_client(client).put(key, attachment.data, attachment.mime or "application/octet-stream")
-        except Exception as exc:  # noqa: BLE001 - one client's bucket must not stop the others
-            logger.warning("Could not move attachment %s to the bucket of client %s: %s", attachment_id, client_id, exc)
-            failed_clients.add(client_id)
-            db.rollback()
-            continue
-        attachment.storage_key = key
-        attachment.data = None
+    for client_id in client_ids:
+        if moved >= limit:
+            break
         db.commit()
-        moved += 1
+        db.expunge_all()
+        client = db.get(Client, client_id)
+        if client is None:
+            continue
+        use_client(db, client)
+        ids = list(db.scalars(
+            select(MessageAttachment.id)
+            .join(Message, Message.id == MessageAttachment.message_id)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(
+                Conversation.client_id == client_id,
+                MessageAttachment.storage_key.is_(None),
+                MessageAttachment.data.is_not(None),
+                MessageAttachment.created_at < now_utc() - grace,
+            )
+            .order_by(MessageAttachment.created_at)
+            .limit(limit - moved)
+        ))
+        for attachment_id in ids:
+            attachment = db.scalar(
+                select(MessageAttachment).options(undefer(MessageAttachment.data)).where(MessageAttachment.id == attachment_id)
+            )
+            if attachment is None or attachment.data is None:
+                continue
+            key = attachment_key(client, attachment)
+            try:
+                resource_storage.for_client(client).put(key, attachment.data, attachment.mime or "application/octet-stream")
+            except Exception as exc:  # noqa: BLE001 - one client's bucket must not stop the others
+                logger.warning("Could not move attachment %s to the bucket of client %s: %s", attachment_id, client_id, exc)
+                db.rollback()
+                break
+            attachment.storage_key = key
+            attachment.data = None
+            db.commit()
+            moved += 1
+    db.expunge_all()
+    use_client(db, None)
     return moved

@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy import event, text
 from sqlalchemy.orm import object_session, Mapped, mapped_column, relationship
 
@@ -155,6 +155,14 @@ class Client(Base):
     )
     resources: Mapped[list["ClientResource"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", order_by="ClientResource.position, ClientResource.created_at"
+    )
+    # Where this client's data plane lives (see app/data_plane.py): "central",
+    # "supabase" for its own connected project, or "switching" while
+    # services/tenant_switch.py moves it (requests wait; webhooks are kept in
+    # hunterai_pending_inbound and replayed).
+    data_mode: Mapped[str] = mapped_column(String(20), default="central", server_default="central")
+    data_store: Mapped["ClientDataStore | None"] = relationship(
+        back_populates="client", cascade="all, delete-orphan", uselist=False
     )
 
     @property
@@ -454,12 +462,17 @@ class UsageRecord(Base):
     # The reply behind the record (0043): which conversation and message, how
     # long the model took, who served it and what the tokens were made of.
     # Records from before carry none of it.
-    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
-    message_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    # Plain ids (see SocialOutbox): cleared when the conversation is deleted.
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     # Declared so the unit of work inserts the reply before the record that
     # points at it; nothing loads them eagerly.
-    conversation: Mapped["Conversation | None"] = relationship(foreign_keys=[conversation_id], lazy="noload")
-    message: Mapped["Message | None"] = relationship(foreign_keys=[message_id], lazy="noload")
+    conversation: Mapped["Conversation | None"] = relationship(
+        primaryjoin="foreign(UsageRecord.conversation_id) == Conversation.id", lazy="noload", viewonly=True
+    )
+    message: Mapped["Message | None"] = relationship(
+        primaryjoin="foreign(UsageRecord.message_id) == Message.id", lazy="noload", viewonly=True
+    )
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     served_by: Mapped[str] = mapped_column(String(60), default="", server_default="")
     cached_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -769,6 +782,14 @@ def _assign_conversation_number(mapper, connection, target: Conversation) -> Non
     """
     if target.number is not None:
         return
+    # A client keeping its data in its own database inserts the conversation
+    # there, but its counter lives on the central clients row: take it on the
+    # session's central connection, still inside the same unit of work.
+    session = object_session(target)
+    if session is not None:
+        central = session.get_bind(mapper=Client.__mapper__)
+        if connection.engine is not central:
+            connection = session.connection(bind_arguments={"mapper": Client.__mapper__})
     number = connection.execute(
         text("UPDATE clients SET conversation_seq = conversation_seq + 1 WHERE id = :client_id RETURNING conversation_seq"),
         {"client_id": target.client_id},
@@ -777,6 +798,19 @@ def _assign_conversation_number(mapper, connection, target: Conversation) -> Non
         # No such client: leave it to the foreign key to reject the insert.
         return
     target.number = number
+
+
+@event.listens_for(Conversation, "after_delete")
+def _forget_central_references(mapper, connection, target: Conversation) -> None:
+    """What ON DELETE did before the conversation could live in another database:
+    its social outbox rows go, and usage records forget it. Runs on the
+    session's central connection, in the same unit of work."""
+    session = object_session(target)
+    central = session.connection(bind_arguments={"mapper": SocialOutbox.__mapper__}) if session is not None else connection
+    central.execute(text("DELETE FROM social_outbox WHERE conversation_id = :id"), {"id": target.id})
+    central.execute(
+        text("UPDATE usage_records SET conversation_id = NULL, message_id = NULL WHERE conversation_id = :id"), {"id": target.id}
+    )
 
 
 class Message(Base):
@@ -1154,8 +1188,11 @@ class SocialOutbox(Base):
     __table_args__ = (UniqueConstraint("message_id", "part", name="uq_social_outbox_part"),)
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
     channel_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("social_channels.id", ondelete="CASCADE"), index=True)
-    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
-    message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
+    # Plain ids, no foreign key: the conversation and message may live in the
+    # client's own database. Deleting a conversation removes its rows here
+    # (see _forget_central_references), as the old ON DELETE CASCADE did.
+    conversation_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    message_id: Mapped[uuid.UUID] = mapped_column(index=True)
     part: Mapped[int] = mapped_column(Integer, default=0)
     payload: Mapped[dict] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(30), default="pending", server_default="pending", index=True)
@@ -1346,6 +1383,76 @@ class ClientStorageConnection(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
     client: Mapped[Client] = relationship(back_populates="storage_connection")
+
+
+class ClientDataStore(Base):
+    """The client's own Supabase project, where its data can live.
+
+    Connected through Supabase OAuth from a share link (``connect_token``) the
+    business owner opens without an OpenLivery account: they authorize, pick a
+    project, and OpenLivery creates its own ``hunterai_app`` role there (the
+    Management API never reveals the database password) and keeps that role's
+    connection string, encrypted. Disconnecting or deleting the client forgets
+    the credentials and never touches the customer's database.
+    """
+
+    __tablename__ = "client_data_stores"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), unique=True)
+    provider: Mapped[str] = mapped_column(String(20), default="supabase", server_default="supabase")
+    # pending: nothing yet; authorized: OAuth done, no project chosen;
+    # connected: role provisioned and probed; error: the last step failed.
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    project_ref: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    project_name: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    region: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    encrypted_refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    encrypted_dsn: Mapped[str | None] = mapped_column(Text, nullable=True)
+    db_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # The last tenant schema revision applied there (migrations_tenant/), "" before any.
+    schema_version: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    connect_token: Mapped[str] = mapped_column(String(64), unique=True, default=new_public_id)
+    connect_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+    client: Mapped[Client] = relationship(back_populates="data_store")
+
+
+class PendingInbound(Base):
+    """A webhook that arrived while its client's data was moving between
+    databases (``Client.data_mode == "switching"``). Kept here, central, and
+    replayed through the same handler once the move ends, so nothing a customer
+    sends during a switch is lost."""
+
+    __tablename__ = "hunterai_pending_inbound"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    # Which handler replays it: "evolution" or "messaging".
+    source: Mapped[str] = mapped_column(String(40))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DataStoreOAuthState(Base):
+    """One trip to Supabase's consent screen: single use, short lived, stored
+    hashed, carrying the PKCE verifier (encrypted). It names the link it
+    started from, so replacing the link voids authorizations in flight."""
+
+    __tablename__ = "data_store_oauth_states"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data_store_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("client_data_stores.id", ondelete="CASCADE"), index=True)
+    connect_token: Mapped[str] = mapped_column(String(64))
+    encrypted_verifier: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class ClientResource(Base):

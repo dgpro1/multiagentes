@@ -1,3 +1,4 @@
+import pytest
 import uuid
 from datetime import date, timedelta
 from unittest.mock import AsyncMock
@@ -25,6 +26,7 @@ def _portal_with_qr_line(client: TestClient):
     return customer
 
 
+@pytest.mark.central_only("seeds with SessionLocal(), which has no client database by design")
 def test_reports_aggregate_the_range(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
     customer = _portal_with_qr_line(client)

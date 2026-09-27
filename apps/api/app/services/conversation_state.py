@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, aliased
 
+from ..database import not_moving
 from ..models import Conversation, Message, PortalUser, now_utc
 from . import lead_group
 
@@ -382,6 +383,7 @@ def resolve_idle_ai_conversations(db: Session, *, hours: float, now: datetime | 
     idle = db.scalars(
         select(Conversation).where(
             lead_group.is_lead_row(),
+            not_moving(db, Conversation.client_id),
             Conversation.status == "open",
             Conversation.mode == "ai",
             ~lead_group.has_human_thread(),

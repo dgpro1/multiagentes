@@ -12,11 +12,12 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
+from sqlalchemy.exc import OperationalError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..database import get_db
+from ..database import get_db, use_client, DataMoving, keep_for_replay, active_client_id, mark_unreachable
 from ..deps import get_current_user
 from ..models import Client, Conversation, Message, SocialChannel, SocialOutbox, User, WhatsAppCloudChannel, now_utc
 from ..ratelimit import whatsapp_cloud_webhook_rate_limit
@@ -58,6 +59,17 @@ async def receive_webhook(request: Request, db: Session = Depends(get_db)):
         return {"status": "ok"}
     try:
         await _dispatch(db, event)
+    except DataMoving as moving:
+        # The client's data is moving between databases: keep the event and replay it after.
+        keep_for_replay(db, moving.client_id, "messaging", event)
+    except OperationalError:
+        # The client's own database did not answer (paused or down): keep the
+        # event for the retry sweep instead of losing it.
+        if (unreachable := active_client_id(db)) is not None:
+            keep_for_replay(db, unreachable, "messaging", event)
+            mark_unreachable(db, unreachable)
+        else:
+            logger.exception("Webhook processing hit a database error")
     except Exception as exc:
         logger.error("Provider event processing failed (%s)", type(exc).__name__)
     return {"status": "ok"}
@@ -139,6 +151,7 @@ async def _dispatch_whatsapp(db: Session, name: str, event: dict, account_id: st
         WhatsAppCloudChannel.external_account_id == account_id))
     if not channel or not channel.is_enabled:
         return
+    use_client(db, channel.client)
     message = event.get("message") or {}
     platform_id = str(message.get("platformMessageId") or "")
     if name == "message.received":
@@ -505,3 +518,9 @@ async def ensure_webhook(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=409, detail="Set MESSAGING_PROVIDER_WEBHOOK_SECRET first")
     webhook = await provider.ensure_webhook("HunterAI inbox", provider.webhook_url(), secret, provider.INBOX_EVENTS)
     return {"url": webhook.get("url"), "events": webhook.get("events"), "active": webhook.get("isActive", True)}
+
+
+# Events kept while their client's data was moving are re-run through the same dispatch.
+from ..services.tenant_switch import register_replayer  # noqa: E402
+
+register_replayer("messaging", _dispatch)

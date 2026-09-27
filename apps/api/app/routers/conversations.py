@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Respon
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from ..database import get_db
+from ..database import each_database, find_across_databases, get_db, use_client
 from ..api_scopes import INBOX_MANAGE, INBOX_READ, INBOX_REPLY, PIPELINE_MANAGE
 from ..deps import confined_client_id, get_current_user, require
 from ..services.conversation_state import note_reply, set_mode, set_status
-from ..models import Agent, Contact, Conversation, Message, now_utc, User
+from ..models import Agent, Client, Contact, Conversation, Message, now_utc, User
 from ..schemas import (
     ConversationCreate,
     ConversationDetail,
@@ -65,7 +65,9 @@ def _conversation(db: Session, user: User, conversation_id: uuid.UUID, *, act: b
         select(Conversation)
         .options(
             selectinload(Conversation.messages).selectinload(Message.attachments),
-            joinedload(Conversation.agent).joinedload(Agent.client),
+            # Separate queries: the agent and its client are central even when
+            # the conversation lives in the client's own database.
+            selectinload(Conversation.agent).selectinload(Agent.client),
         )
         .execution_options(populate_existing=True)
         .where(Conversation.id == conversation_id, Conversation.agency_id == user.agency_id)
@@ -74,7 +76,7 @@ def _conversation(db: Session, user: User, conversation_id: uuid.UUID, *, act: b
     # PortalActor); the client's customer threads are the inbox's business.
     if (only_client := confined_client_id(user)) is not None:
         query = query.where(Conversation.client_id == only_client, Conversation.channel == "playground")
-    conversation = db.scalar(query)
+    conversation = find_across_databases(db, lambda: db.scalar(query), agency_id=user.agency_id, client_id=only_client)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     if conversation.primary_conversation_id is not None:
@@ -103,6 +105,10 @@ def get_conversation_by_number(
 ):
     """One conversation by its per-client number (the "#12" of a lead). The
     agency scoping is the same as the by-id route, plus the client."""
+    owner = db.scalar(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id))
+    if owner is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    use_client(db, owner)
     conversation_id = db.scalar(
         select(Conversation.id).where(
             Conversation.agency_id == user.agency_id,
@@ -123,41 +129,45 @@ def list_conversations(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = select(Conversation).where(
-        Conversation.agency_id == user.agency_id, Conversation.archived_at.is_(None), lead_group.is_lead_row()
-    )
-    if (only_client := confined_client_id(user)) is not None:
-        query = query.where(Conversation.client_id == only_client, Conversation.channel == "playground")
-    if agent_id:
-        query = query.where(Conversation.agent_id == agent_id)
-    if client_id:
-        query = query.where(Conversation.client_id == client_id)
-    # Same rule as the inbox: only a new visitor message moves a row up.
-    last_inbound = (
-        select(lead_group.group_key().label("cid"), func.max(Message.created_at).label("at"))
-        .select_from(Message)
-        .join(Conversation, Conversation.id == Message.conversation_id)
-        .where(Message.kind == "message", Message.sender_type == "visitor")
-        .group_by(lead_group.group_key())
-        .subquery()
-    )
-    query = query.outerjoin(last_inbound, last_inbound.c.cid == Conversation.id).order_by(
-        func.coalesce(last_inbound.c.at, Conversation.created_at).desc(), Conversation.created_at.desc()
-    )
-    items = db.scalars(query).all()
-    channel_accounts.annotate(db, items)
-    stats = lead_group.group_stats(db, items)
-    human_ids = set(
-        db.scalars(
-            select(Conversation.primary_conversation_id).where(
-                Conversation.primary_conversation_id.in_([row.id for row in items]), Conversation.mode == "human"
-            )
-        ).all()
-    )
-    return [
-        lead_view.list_item(ConversationOut.model_validate(row), row, stats[row.id], group_human=row.id in human_ids)
-        for row in items
-    ]
+    only_client = confined_client_id(user)
+    items: list[tuple] = []
+    # A client may keep its conversations in its own database: read each
+    # database the agency uses and merge, newest visitor message first.
+    for _client in each_database(db, agency_id=user.agency_id, client_id=only_client or client_id):
+        query = select(Conversation).where(
+            Conversation.agency_id == user.agency_id, Conversation.archived_at.is_(None), lead_group.is_lead_row()
+        )
+        if only_client is not None:
+            query = query.where(Conversation.client_id == only_client, Conversation.channel == "playground")
+        if agent_id:
+            query = query.where(Conversation.agent_id == agent_id)
+        if client_id:
+            query = query.where(Conversation.client_id == client_id)
+        # Same rule as the inbox: only a new visitor message moves a row up.
+        last_inbound = (
+            select(lead_group.group_key().label("cid"), func.max(Message.created_at).label("at"))
+            .select_from(Message)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(Message.kind == "message", Message.sender_type == "visitor")
+            .group_by(lead_group.group_key())
+            .subquery()
+        )
+        rows = db.execute(query.add_columns(last_inbound.c.at).outerjoin(last_inbound, last_inbound.c.cid == Conversation.id)).all()
+        found = [row[0] for row in rows]
+        channel_accounts.annotate(db, found)
+        stats = lead_group.group_stats(db, found)
+        human_ids = set(
+            db.scalars(
+                select(Conversation.primary_conversation_id).where(
+                    Conversation.primary_conversation_id.in_([row.id for row in found]), Conversation.mode == "human"
+                )
+            ).all()
+        )
+        for conv, at in rows:
+            item = lead_view.list_item(ConversationOut.model_validate(conv), conv, stats[conv.id], group_human=conv.id in human_ids)
+            items.append(((at or conv.created_at), conv.created_at, item))
+    items.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
+    return [item for _, _, item in items]
 
 
 @router.get("/inbox", response_model=list[ConversationInboxOut], dependencies=[Depends(require(INBOX_READ))])
@@ -215,8 +225,8 @@ def inbox(
     lead_human = or_(Conversation.mode == "human", group_human)
 
     query = (
-        select(Conversation, Agent.name, last.c.content, unread_count.label("unread_count"), last_inbound.c.at.label("last_inbound_at"), group_human.label("group_human"))
-        .join(Agent, Agent.id == Conversation.agent_id)
+        # The agent's name is central: looked up by id below, never joined here.
+        select(Conversation, last.c.content, unread_count.label("unread_count"), last_inbound.c.at.label("last_inbound_at"), group_human.label("group_human"))
         .outerjoin(last, last.c.cid == Conversation.id)
         .outerjoin(unread_counts, unread_counts.c.cid == Conversation.id)
         .outerjoin(last_inbound, last_inbound.c.cid == Conversation.id)
@@ -247,35 +257,40 @@ def inbox(
             )
         )
     # Same rule as the portal: only a new visitor message moves a row up.
-    rows = db.execute(
-        query.order_by(func.coalesce(last_inbound.c.at, Conversation.created_at).desc(), Conversation.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-    ).all()
-    channel_accounts.annotate(db, [conv for conv, *_rest in rows])
-    stats = lead_group.group_stats(db, [conv for conv, *_rest in rows])
-    return [
-        {
-            "id": conv.id,
-            "number": conv.number,
-            "agent_id": conv.agent_id,
-            "agent_name": agent_name or "",
-            "client_id": conv.client_id,
-            "title": conv.title,
-            "contact_name": conv.contact_name,
-            "channel": conv.channel,
-            "account_label": conv.account_label,
-            "mode": "human" if row_group_human else conv.mode,
-            "preview": (content or "")[:140].strip(),
-            "unread": int(row_unread_count) > 0,
-            "unread_count": int(row_unread_count),
-            "updated_at": max(conv.updated_at, stats[conv.id].updated_at or conv.updated_at),
-            "last_inbound_at": last_inbound_at,
-            "channels": stats[conv.id].channels,
-            "linked_count": stats[conv.id].linked_count,
-        }
-        for conv, agent_name, content, row_unread_count, last_inbound_at, row_group_human in rows
-    ]
+    # Each database the agency uses gives its first offset+limit rows; merged,
+    # the page is cut from the combined order.
+    ordered = query.order_by(func.coalesce(last_inbound.c.at, Conversation.created_at).desc(), Conversation.created_at.desc())
+    entries: list[tuple] = []
+    for _client in each_database(db, agency_id=user.agency_id):
+        rows = db.execute(ordered.limit(offset + limit)).all()
+        convs = [conv for conv, *_rest in rows]
+        channel_accounts.annotate(db, convs)
+        stats = lead_group.group_stats(db, convs)
+        for conv, content, row_unread_count, last_inbound_at, row_group_human in rows:
+            entries.append(((last_inbound_at or conv.created_at), conv.created_at, {
+                "id": conv.id,
+                "number": conv.number,
+                "agent_id": conv.agent_id,
+                "client_id": conv.client_id,
+                "title": conv.title,
+                "contact_name": conv.contact_name,
+                "channel": conv.channel,
+                "account_label": conv.account_label,
+                "mode": "human" if row_group_human else conv.mode,
+                "preview": (content or "")[:140].strip(),
+                "unread": int(row_unread_count) > 0,
+                "unread_count": int(row_unread_count),
+                "updated_at": max(conv.updated_at, stats[conv.id].updated_at or conv.updated_at),
+                "last_inbound_at": last_inbound_at,
+                "channels": stats[conv.id].channels,
+                "linked_count": stats[conv.id].linked_count,
+            }))
+    entries.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
+    page = [item for _, _, item in entries[offset:offset + limit]]
+    names = dict(db.execute(select(Agent.id, Agent.name).where(Agent.id.in_({item["agent_id"] for item in page}))).tuples().all()) if page else {}
+    for item in page:
+        item["agent_name"] = names.get(item["agent_id"]) or ""
+    return page
 
 
 @router.post("", response_model=ConversationDetail, status_code=status.HTTP_201_CREATED)
@@ -286,6 +301,7 @@ def create_conversation(payload: ConversationCreate, db: Session = Depends(get_d
     agent = db.scalar(query)
     if not agent:
         raise HTTPException(status_code=400, detail="The selected agent does not exist")
+    use_client(db, agent.client)
     conversation = Conversation(
         agency_id=user.agency_id,
         client_id=agent.client_id,

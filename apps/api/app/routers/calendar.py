@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
-from ..database import get_db
+from ..database import get_db, use_client
 from ..api_scopes import CALENDAR_MANAGE, CALENDAR_READ
 from ..deps import get_current_user, require
 from ..models import Client, User
@@ -37,6 +37,7 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     client = db.scalar(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id))
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    use_client(db, client)
     return client
 
 

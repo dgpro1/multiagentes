@@ -9,9 +9,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
+from ..database import use_client
 from ..models import ContactIdentity, Conversation, Message, SocialChannel, SocialOutbox, SocialWebhookEvent, new_uuid, now_utc
 from . import social_graph
-from .attachments import store_attachment
+from .attachments import store_attachment, store_visitor_attachment
 from .conversation_state import set_mode
 from .social_media import fetch_inbound_media
 from .whatsapp_inbound import InboundMessage, process_inbound, reply_delay_seconds
@@ -473,7 +474,7 @@ async def process_event(db: Session, channel: SocialChannel, event: dict) -> Non
         from .whatsapp_inbound import resolve_inbound_content
         incoming = _message(db, channel, mid)
         for blob, blob_mime, media_kind in fetched[1:]:
-            store_attachment(db, incoming, data=blob, mime=blob_mime, kind=media_kind)
+            store_visitor_attachment(db, incoming, data=blob, mime=blob_mime, kind=media_kind)
             _, context = await resolve_inbound_content(db, channel.agent, InboundMessage(
                 external_message_id=mid, external_chat_id=person,
                 media_kind=media_kind, media_bytes=blob, media_mime=blob_mime), conversation=conversation, message=incoming)
@@ -515,7 +516,14 @@ async def process_pending(db: Session, *, limit: int = 25) -> int:
             break
         try:
             channel = db.get(SocialChannel, event.channel_id)
+            if channel and channel.client.data_mode == "switching":
+                # The client's data is moving: try again shortly, without spending an attempt.
+                event.status, event.available_at, event.attempts = "pending", now_utc() + timedelta(seconds=30), event.attempts - 1
+                event.locked_until = None
+                db.commit()
+                continue
             if channel and channel.is_enabled and channel.status in {"connected", "reauthorization_required"}:
+                use_client(db, channel.client)
                 await process_event(db, channel, event.payload)
             event.status, event.processed_at, event.last_error = "processed", now_utc(), None
         except WaitForDelivery:
@@ -531,5 +539,7 @@ async def process_pending(db: Session, *, limit: int = 25) -> int:
             logger.error("Social event processing failed for %s (%s)", event.id, type(exc).__name__)
         event.locked_until = None
         db.commit()
+        db.expunge_all()
+        use_client(db, None)
         count += 1
     return count

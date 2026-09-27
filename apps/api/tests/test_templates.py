@@ -1,3 +1,4 @@
+import pytest
 import uuid
 from datetime import timedelta
 from unittest.mock import AsyncMock
@@ -136,6 +137,7 @@ def test_templates_are_read_and_submitted_through_the_business_account(authentic
     assert refused.status_code == 415
 
 
+@pytest.mark.central_only("reads or writes through SessionLocal(), which has no client database by design")
 def test_a_template_starts_a_conversation_and_the_window_rules_replies(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
     customer = _portal_with_cloud_line(client)

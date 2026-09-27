@@ -40,7 +40,12 @@ CLOSED_ROUTES = (
     ("GET", "/api/calendar/oauth/callback"),             # Google calls back here, not a person or a token
     ("GET", "/api/clients/{client_id}/export"),          # a whole client's data in one request stays a person's gesture
     ("GET", "/api/storage/connect/{token}"),             # the public link a business owner opens to connect their bucket
-    ("POST", "/api/storage/connect/{token}"),            # and where they paste their own credentials
+    ("POST", "/api/storage/connect/{token}"),
+    ("GET", "/api/datastore/connect/{token}"),           # the public Supabase link landing
+    ("POST", "/api/datastore/connect/{token}/start"),    # its OAuth handoff
+    ("GET", "/api/datastore/connect/{token}/projects"),  # the projects the owner's grant can see
+    ("POST", "/api/datastore/connect/{token}/project"),  # and the one they pick
+    ("GET", "/api/supabase/oauth/callback"),             # Supabase calls back here            # and where they paste their own credentials
 )
 
 

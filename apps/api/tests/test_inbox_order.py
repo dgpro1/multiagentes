@@ -1,3 +1,4 @@
+import pytest
 import uuid
 from datetime import timedelta
 
@@ -40,6 +41,7 @@ def _visitor_wrote(conversation_id: str, minutes_ago: int) -> None:
         db.commit()
 
 
+@pytest.mark.central_only("reads or writes through SessionLocal(), which has no client database by design")
 def test_only_a_new_visitor_message_moves_a_conversation_up(authenticated_client: TestClient):
     client = authenticated_client
     slug, first, second = _portal(client)

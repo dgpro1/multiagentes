@@ -19,7 +19,7 @@ from fastapi.responses import Response
 from sqlalchemy import Date, String, cast, func, select
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import each_database, get_db
 from ..api_scopes import REPORTS_READ
 from ..deps import get_current_user, require
 from ..models import Agent, Client, Conversation, Message, UsageRecord, User
@@ -83,6 +83,8 @@ class Filters:
         self.agent_id = agent_id
         self.model = (model or "").strip()[:180] or None
         self.q = (q or "").strip()[:120]
+        # Conversations in clients' own databases whose contact matches q (see _tenant_matches).
+        self.tenant_matches: list = []
 
     def apply(self, query):
         query = query.where(
@@ -91,7 +93,7 @@ class Filters:
             UsageRecord.created_at < datetime.combine(self.date_to + timedelta(days=1), time.min, tzinfo=timezone.utc),
         )
         if self.client_id:
-            query = query.where(Conversation.client_id == self.client_id)
+            query = query.where(CLIENT_OF_REPLY == self.client_id)
         if self.agent_id:
             query = query.where(UsageRecord.agent_id == self.agent_id)
         if self.model:
@@ -100,8 +102,16 @@ class Filters:
             query = query.where(
                 folded_like(Conversation.contact_name, self.q)
                 | cast(UsageRecord.conversation_id, String).like(f"{self.q.lower()}%")
+                | UsageRecord.conversation_id.in_(self.tenant_matches)
             )
         return query
+
+
+# Usage records are central; a reply's conversation may live in its client's
+# own database, where this query cannot see it. The client then comes from the
+# agent that replied, and the conversation details are filled in afterwards
+# (_tenant_conversations).
+CLIENT_OF_REPLY = func.coalesce(Conversation.client_id, Agent.client_id)
 
 
 def _joined(query):
@@ -109,9 +119,55 @@ def _joined(query):
     return (
         query.select_from(UsageRecord)
         .outerjoin(Conversation, Conversation.id == UsageRecord.conversation_id)
-        .outerjoin(Client, Client.id == Conversation.client_id)
         .outerjoin(Agent, Agent.id == UsageRecord.agent_id)
+        .outerjoin(Client, Client.id == CLIENT_OF_REPLY)
     )
+
+
+def _tenant_conversations(db: Session, agency_id, ids) -> dict:
+    """Conversations that live in clients' own databases, by id: contact,
+    channel and lead. Empty when every client of the agency is central."""
+    found: dict = {}
+    ids = [i for i in ids if i is not None]
+    if not ids:
+        return found
+    for client in each_database(db, agency_id=agency_id):
+        if client is None:
+            continue
+        for row in db.execute(
+            select(Conversation.id, Conversation.contact_name, Conversation.channel, Conversation.primary_conversation_id)
+            .where(Conversation.id.in_(ids))
+        ):
+            found[row.id] = row
+    return found
+
+
+def lead_count(db: Session, filters: "Filters") -> int:
+    """Leads the range's replies belong to (a merged lead counts once),
+    whether their conversation is central or in its client's own database."""
+    lead_of_reply = func.coalesce(Conversation.primary_conversation_id, UsageRecord.conversation_id)
+    count = db.scalar(filters.apply(_joined(
+        select(func.count(func.distinct(lead_of_reply))).where(Conversation.id.is_not(None))
+    ))) or 0
+    elsewhere = list(db.scalars(filters.apply(_joined(
+        select(func.distinct(UsageRecord.conversation_id)).where(Conversation.id.is_(None), UsageRecord.conversation_id.is_not(None))
+    ))))
+    if elsewhere:
+        rows = _tenant_conversations(db, filters.agency_id, elsewhere)
+        count += len({row.primary_conversation_id or row.id for row in rows.values()})
+    return int(count)
+
+
+def _tenant_matches(db: Session, agency_id, q: str) -> list:
+    """Ids of conversations in clients' own databases whose contact matches q."""
+    ids: list = []
+    if not q:
+        return ids
+    for client in each_database(db, agency_id=agency_id):
+        if client is None:
+            continue
+        ids += list(db.scalars(select(Conversation.id).where(folded_like(Conversation.contact_name, q))))
+    return ids
 
 
 # Per group and model: replies, tokens, what the replies reported, and the
@@ -170,8 +226,10 @@ def cost_report(
     replies = sum(entry["replies"] for entry in by_model)
     cost = sum((Decimal(str(entry["cost_usd"])) for entry in by_model), Decimal(0))
     # A lead merged from several conversations is one conversation.
-    lead_of_reply = func.coalesce(Conversation.primary_conversation_id, UsageRecord.conversation_id)
-    conversations = db.scalar(filters.apply(_joined(select(func.count(func.distinct(lead_of_reply)))))) or 0
+    by_client = _fold(_grouped(db, filters, CLIENT_OF_REPLY, Client.name), 2,
+                      lambda key: (str(key[0]) if key[0] else None, key[1] or ""))
+    by_agent = _fold(_grouped(db, filters, UsageRecord.agent_id, Agent.name), 2,
+                     lambda key: (str(key[0]) if key[0] else None, key[1] or ""))
 
     days: dict = {}
     for row in _grouped(db, filters, cast(func.timezone(zone, UsageRecord.created_at), Date)):
@@ -180,6 +238,7 @@ def cost_report(
         entry["replies"] += int(day_replies)
         entry["cost"] += _group_cost(metered, day_model, unpriced_in, unpriced_out)
 
+    conversations = lead_count(db, filters)
     return {
         "totals": {
             "cost_usd": _money(cost),
@@ -189,10 +248,8 @@ def cost_report(
             "output_tokens": sum(entry["output_tokens"] for entry in by_model),
             "avg_cost_per_reply_usd": _money(cost / replies) if replies else 0.0,
         },
-        "by_client": _fold(_grouped(db, filters, Conversation.client_id, Client.name), 2,
-                           lambda key: (str(key[0]) if key[0] else None, key[1] or "")),
-        "by_agent": _fold(_grouped(db, filters, UsageRecord.agent_id, Agent.name), 2,
-                          lambda key: (str(key[0]) if key[0] else None, key[1] or "")),
+        "by_client": by_client,
+        "by_agent": by_agent,
         "by_model": by_model,
         "by_day": [{"date": day, "replies": entry["replies"], "cost_usd": _money(entry["cost"])}
                    for day, entry in sorted(days.items())],
@@ -202,7 +259,7 @@ def cost_report(
 
 def _replies_query(filters: Filters):
     query = _joined(select(
-        UsageRecord, Conversation.contact_name, Conversation.channel, Conversation.client_id,
+        UsageRecord, Conversation.contact_name, Conversation.channel, CLIENT_OF_REPLY,
         Client.name, Agent.name, Message.tool_calls,
     )).outerjoin(Message, Message.id == UsageRecord.message_id)
     return filters.apply(query).order_by(UsageRecord.created_at.desc())
@@ -234,6 +291,7 @@ def _reply(row) -> dict:
         "cost_usd": _money(cost),
         "estimated": estimated,
         "duration_ms": record.duration_ms,
+        "_message_id": record.message_id,
         "tools": len(calls),
         "tool_errors": sum(1 for call in calls if isinstance(call, dict) and call.get("is_error")),
     }
@@ -256,9 +314,10 @@ def replies(
     """One line per reply, newest first; ``format=csv`` downloads the whole
     range (up to MAX_EXPORT_ROWS)."""
     filters = Filters(user.agency_id, date_from, date_to, client_id, agent_id, model, q)
+    filters.tenant_matches = _tenant_matches(db, user.agency_id, filters.q)
     query = _replies_query(filters)
     if format == "csv":
-        rows = [_reply(row) for row in db.execute(query.limit(MAX_EXPORT_ROWS)).all()]
+        rows = _with_tenant_details(db, user.agency_id, [_reply(row) for row in db.execute(query.limit(MAX_EXPORT_ROWS)).all()])
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         writer.writerow(["date", "reply_id", "conversation", "contact", "client", "agent", "channel", "model", "served_by",
@@ -273,8 +332,31 @@ def replies(
         return Response(content=buffer.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": f'attachment; filename="replies-{filters.date_from.isoformat()}-{filters.date_to.isoformat()}.csv"'})
     total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
-    items = [_reply(row) for row in db.execute(query.limit(limit).offset(offset)).all()]
+    items = _with_tenant_details(db, user.agency_id, [_reply(row) for row in db.execute(query.limit(limit).offset(offset)).all()])
     return {"items": items, "total": int(total)}
+
+
+def _with_tenant_details(db: Session, agency_id, items: list[dict]) -> list[dict]:
+    """Fill contact and channel for replies whose conversation lives in its
+    client's own database (the central query could not join it)."""
+    missing = [item["conversation_id"] for item in items if item["conversation_id"] and item["channel"] is None]
+    if missing:
+        found = _tenant_conversations(db, agency_id, missing)
+        elsewhere = {item["_message_id"] for item in items if item["conversation_id"] in found and item["_message_id"]}
+        calls_of: dict = {}
+        for client in each_database(db, agency_id=agency_id) if elsewhere else ():
+            if client is not None:
+                calls_of.update(dict(db.execute(select(Message.id, Message.tool_calls).where(Message.id.in_(elsewhere))).tuples().all()))
+        for item in items:
+            row = found.get(item["conversation_id"])
+            if row is not None:
+                item["contact_name"], item["channel"] = row.contact_name, row.channel
+                calls = calls_of.get(item["_message_id"]) or []
+                item["tools"] = len(calls)
+                item["tool_errors"] = sum(1 for call in calls if isinstance(call, dict) and call.get("is_error"))
+    for item in items:
+        item.pop("_message_id", None)
+    return items
 
 
 @router.get("/operations", dependencies=[Depends(require(REPORTS_READ))])

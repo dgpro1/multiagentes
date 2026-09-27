@@ -12,7 +12,7 @@ from sqlalchemy import Interval, and_, case, exists, func, literal, or_, select
 from sqlalchemy.orm import Session, aliased, joinedload, object_session, selectinload
 
 from ..config import get_settings
-from ..database import get_db, new_session
+from ..database import get_db, new_client_session, new_session, use_client
 from ..industries import catalog as industry_catalog
 from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
 from ..portal_features import enabled_keys, ensure_enabled
@@ -158,6 +158,7 @@ def _public_client(db: Session, slug: str) -> Client:
     )
     if not client:
         raise HTTPException(status_code=404, detail="Portal not found or disabled")
+    use_client(db, client)
     return client
 
 
@@ -194,6 +195,7 @@ def _portal_client(
             user = None
         if not user or not user.is_active or user.client_id != client.id:
             raise HTTPException(status_code=401, detail="This account is no longer active")
+    use_client(db, client)
     return client
 
 
@@ -323,7 +325,7 @@ def _detail(db: Session, client: Client, conversation_id: uuid.UUID, *, act: boo
         conversation_id = lead_id
     conversation = db.scalar(
         select(Conversation)
-        .options(selectinload(Conversation.messages).selectinload(Message.attachments), joinedload(Conversation.agent), joinedload(Conversation.assignee))
+        .options(selectinload(Conversation.messages).selectinload(Message.attachments), selectinload(Conversation.agent), selectinload(Conversation.assignee))
         .execution_options(populate_existing=True)
         .where(Conversation.id == conversation_id, Conversation.client_id == client.id)
     )
@@ -1058,12 +1060,13 @@ def _conversation_page(
         .subquery()
     )
     query = (
-        select(Conversation, last.c.content, unread_count.label("unread_count"), PortalUser.name.label("assignee_name"), PortalUser.email.label("assignee_email"), last_inbound.c.at.label("last_inbound_at"), Team.name.label("team_name"), group_human.label("group_human"))
+        # Assignee and team names are central (portal_users, teams) while the
+        # conversations may live in the client's own database: they are looked
+        # up by id after the page is read, never joined here.
+        select(Conversation, last.c.content, unread_count.label("unread_count"), last_inbound.c.at.label("last_inbound_at"), group_human.label("group_human"))
         .outerjoin(last, last.c.cid == Conversation.id)
         .outerjoin(unread_counts, unread_counts.c.cid == Conversation.id)
-        .outerjoin(PortalUser, PortalUser.id == Conversation.assignee_id)
         .outerjoin(last_inbound, last_inbound.c.cid == Conversation.id)
-        .outerjoin(Team, Team.id == Conversation.team_id)
         .outerjoin(Contact, Contact.id == Conversation.contact_id)
         .where(
             Conversation.client_id == client.id,
@@ -1121,6 +1124,10 @@ def _conversation_page(
     ).all()
     channel_accounts.annotate(db, [row[0] for row in rows])
     stats = lead_group.group_stats(db, [row[0] for row in rows])
+    assignee_ids = {row[0].assignee_id for row in rows if row[0].assignee_id}
+    team_ids = {row[0].team_id for row in rows if row[0].team_id}
+    people = {p.id: p for p in db.scalars(select(PortalUser).where(PortalUser.id.in_(assignee_ids)))} if assignee_ids else {}
+    teams = {t.id: t.name for t in db.scalars(select(Team).where(Team.id.in_(team_ids)))} if team_ids else {}
     items = [
         lead_view.list_item(
             ConversationOut.model_validate(conv).model_copy(
@@ -1128,9 +1135,12 @@ def _conversation_page(
                     "preview": (content or "")[:140].strip(),
                     "unread": int(row_unread_count) > 0,
                     "unread_count": int(row_unread_count),
-                    "assignee_name": ((assignee_name or "").strip() or assignee_email) if conv.assignee_id else None,
+                    "assignee_name": (
+                        ((people[conv.assignee_id].name or "").strip() or people[conv.assignee_id].email)
+                        if conv.assignee_id in people else None
+                    ),
                     "last_inbound_at": last_inbound_at,
-                    "team_name": team_name,
+                    "team_name": teams.get(conv.team_id),
                     **_window_fields(conv, last_inbound_at),
                 }
             ),
@@ -1138,7 +1148,7 @@ def _conversation_page(
             stats[conv.id],
             group_human=bool(row_group_human),
         )
-        for conv, content, row_unread_count, assignee_name, assignee_email, last_inbound_at, team_name, row_group_human in rows
+        for conv, content, row_unread_count, last_inbound_at, row_group_human in rows
     ]
     return items, total
 
@@ -1258,7 +1268,7 @@ async def portal_mark_read(
             .limit(1)
         )
         if latest_external:
-            _signal_read_later(thread.id, [latest_external])
+            _signal_read_later(thread.id, [latest_external], client_id=thread.client_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1266,13 +1276,13 @@ async def portal_mark_read(
 _read_signals: set["asyncio.Task[None]"] = set()
 
 
-def _signal_read_later(conversation_id: uuid.UUID, external_ids: list[str]) -> None:
+def _signal_read_later(conversation_id: uuid.UUID, external_ids: list[str], *, client_id: uuid.UUID | None = None) -> None:
     """Blue-tick ``external_ids`` on the conversation's channel after the
     response has gone out. Opens its own session, since the request's is
     closed by then; the failure of a read receipt is logged, never surfaced."""
 
     async def run() -> None:
-        db = new_session()
+        db = new_client_session(client_id)
         try:
             conversation = db.get(Conversation, conversation_id)
             if conversation:

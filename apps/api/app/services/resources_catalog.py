@@ -21,6 +21,7 @@ from ..schemas_resources import ResourceCreate, ResourceUpdate
 from . import resource_storage as storage
 from . import storage_connection
 from .attachments import attachment_kind, ensure_uploadable, safe_filename
+from .image_resize import shrink_image
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,12 @@ def create_file(
     if not data:
         raise HTTPException(status_code=422, detail="The file is empty")
     media_kind = attachment_kind(mime)
+    if media_kind == "image":
+        # Accept the photo the business has (up to the ceiling) and fit it
+        # to what WhatsApp shows; the per-kind limit applies to the result.
+        if len(data) > storage.CEILING_FILE_MB * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"An image can be at most {storage.CEILING_FILE_MB} MB")
+        data, mime = shrink_image(data, mime)
     limit = storage.max_bytes(conn, media_kind)
     if len(data) > limit:
         raise HTTPException(

@@ -42,6 +42,8 @@ RESOURCES_READ = "resources.read"
 RESOURCES_MANAGE = "resources.manage"
 STORAGE_READ = "storage.read"
 STORAGE_MANAGE = "storage.manage"
+DATASTORE_READ = "datastore.read"
+DATASTORE_MANAGE = "datastore.manage"
 APPOINTMENTS_READ = "appointments.read"
 APPOINTMENTS_MANAGE = "appointments.manage"
 LEAD_FIELDS_READ = "lead_fields.read"
@@ -83,6 +85,8 @@ ALL: tuple[str, ...] = (
     RESOURCES_MANAGE,
     STORAGE_READ,
     STORAGE_MANAGE,
+    DATASTORE_READ,
+    DATASTORE_MANAGE,
     APPOINTMENTS_READ,
     APPOINTMENTS_MANAGE,
     LEAD_FIELDS_READ,
@@ -126,6 +130,8 @@ DESCRIPTIONS: dict[str, str] = {
     RESOURCES_MANAGE: "Upload, edit and delete the files and links the agent may send.",
     STORAGE_READ: "See whether a client has connected its own file storage.",
     STORAGE_MANAGE: "Connect, check and disconnect a client's own file storage.",
+    DATASTORE_READ: "See whether a client has connected its own Supabase database.",
+    DATASTORE_MANAGE: "Hand out the Supabase connection link, check and disconnect a client's database.",
     APPOINTMENTS_READ: "See the appointments and availability of a client.",
     APPOINTMENTS_MANAGE: "Create, reschedule, cancel and manage appointments.",
     LEAD_FIELDS_READ: "See the custom fields of the lead card.",

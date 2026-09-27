@@ -14,7 +14,7 @@ from ..api_scopes import (
     TEMPLATES_MANAGE,
     TEMPLATES_READ,
 )
-from ..database import get_db
+from ..database import get_db, use_client
 from ..deps import confined_client_id, get_current_user, require
 from ..models import Agent, Client, Contact, Conversation, PortalUser, PushDevice, User, new_domain_token, Team
 from ..portal_features import merged as merged_features
@@ -85,6 +85,7 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     client = db.scalar(query)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    use_client(db, client)
     return client
 
 
@@ -283,6 +284,9 @@ async def delete_client(client_id: uuid.UUID, db: Session = Depends(get_db), use
     for channel in client.whatsapp_cloud_channels:
         await release_channel_profile(channel)
     await release_client_profile(client)
+    # Cascades must reach only the central rows: a client's own database (and
+    # everything in it) belongs to the customer and is never deleted from here.
+    use_client(db, None)
     db.delete(client)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

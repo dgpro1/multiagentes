@@ -59,6 +59,39 @@ def safe_filename(filename: str | None) -> str | None:
     return re.sub(r"[^\w. -]", "_", filename)[:255] or None
 
 
+# What a visitor's file may weigh, by kind, before its bytes are kept. WhatsApp
+# itself caps images at 5 MB and video/audio at 16 MB; documents keep the
+# general ceiling.
+INBOUND_LIMITS = {"image": 5 * 1024 * 1024, "video": 16 * 1024 * 1024, "audio": 16 * 1024 * 1024}
+
+
+def inbound_limit(kind: str) -> int:
+    return INBOUND_LIMITS.get(kind, MAX_ATTACHMENT_BYTES)
+
+
+def store_visitor_attachment(
+    db: Session,
+    message: Message,
+    *,
+    data: bytes,
+    mime: str,
+    filename: str | None = None,
+    kind: str | None = None,
+) -> MessageAttachment | None:
+    """``store_attachment`` for a file a visitor already sent (it cannot be
+    refused): over its kind's limit, only a notice is kept on the message, in
+    the customer's language like the other conversation markers."""
+    kind = kind or attachment_kind(mime)
+    if len(data) <= inbound_limit(kind):
+        return store_attachment(db, message, data=data, mime=mime, filename=filename, kind=kind)
+    size = f"{len(data) / (1024 * 1024):.1f} MB"
+    notice = f"[Archivo demasiado grande para guardarse: {safe_filename(filename) or kind}, {size}]"
+    message.content = f"{message.content}\n{notice}".strip() if message.content else notice
+    if message.llm_content:
+        message.llm_content = f"{message.llm_content}\n{notice}"
+    return None
+
+
 def store_attachment(
     db: Session,
     message: Message,

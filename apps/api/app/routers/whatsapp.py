@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from ..config import get_settings
-from ..database import get_db
+from ..database import get_db, use_client
 from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
 from ..deps import confine, get_current_user, require
 from ..models import Agent, Client, Conversation, Message, User, WhatsAppChannel, now_utc
@@ -41,6 +41,7 @@ def _channel_for_user(db: Session, user: User, ref: uuid.UUID) -> WhatsAppChanne
         confine(select(WhatsAppChannel).where(WhatsAppChannel.id == ref, WhatsAppChannel.agency_id == user.agency_id), user, WhatsAppChannel.client_id)
     )
     if channel:
+        use_client(db, channel.client)
         return channel
     channel = db.scalar(
         confine(
@@ -52,8 +53,8 @@ def _channel_for_user(db: Session, user: User, ref: uuid.UUID) -> WhatsAppChanne
     )
     if not channel:
         raise HTTPException(status_code=404, detail="This client does not have WhatsApp configured yet")
+    use_client(db, channel.client)
     return channel
-
 
 def _owned_client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     # A client's portal admin reaches only its own client; see PortalActor.
@@ -74,6 +75,7 @@ def _client_agent(db: Session, user: User, client_id: uuid.UUID, agent_id: uuid.
     )
     if not agent:
         raise HTTPException(status_code=400, detail="Select an agent that belongs to this client")
+    use_client(db, agent.client)
     return agent
 
 
@@ -138,6 +140,7 @@ def _internal_channel(db: Session, channel_id: uuid.UUID) -> WhatsAppChannel:
     )
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    use_client(db, channel.client)
     return channel
 
 
@@ -387,6 +390,7 @@ async def inbound_message(channel_id: uuid.UUID, payload: WhatsAppInbound, db: S
 @internal_router.post("/channels/{channel_id}/reaction", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(_require_bridge)])
 def inbound_reaction(channel_id: uuid.UUID, payload: WhatsAppInboundReaction, db: Session = Depends(get_db)):
     """The visitor reacted to a message (or removed the reaction)."""
+    _internal_channel(db, channel_id)  # its client may keep the conversation in its own database
     message = db.scalar(
         select(Message)
         .join(Conversation)
@@ -404,6 +408,7 @@ def inbound_reaction(channel_id: uuid.UUID, payload: WhatsAppInboundReaction, db
 
 @internal_router.post("/channels/{channel_id}/outbound-confirm", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(_require_bridge)])
 def confirm_outbound(channel_id: uuid.UUID, payload: WhatsAppOutboundConfirm, db: Session = Depends(get_db)):
+    _internal_channel(db, channel_id)  # its client may keep the conversation in its own database
     message = db.scalar(
         select(Message)
         .join(Conversation)

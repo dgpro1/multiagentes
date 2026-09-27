@@ -1,3 +1,4 @@
+import pytest
 import asyncio
 import base64
 import uuid
@@ -641,6 +642,7 @@ def test_white_label_portal_and_human_takeover(authenticated_client: TestClient)
     assert inbox_after.json()[0]["preview"] == "Hi, I'm part of the Luna team."
 
 
+@pytest.mark.central_only("seeds messages with SessionLocal(), which has no client database by design")
 def test_portal_inbox_pages_searches_and_tracks_unread(authenticated_client: TestClient):
     client = authenticated_client
     customer = client.post(
@@ -796,6 +798,7 @@ def test_activity_never_reaches_the_model_and_a_resolved_case_stays_closed(authe
     assert client.get(f"/api/conversations/{third['conversation_id']}").json()["status"] == "open"
 
 
+@pytest.mark.central_only("seeds messages with SessionLocal(), which has no client database by design")
 def test_idle_ai_conversations_resolve_themselves_but_human_ones_wait(authenticated_client: TestClient):
     from datetime import timedelta
 

@@ -113,7 +113,7 @@ class Storage:
     def probe(self) -> None:
         """Write, read back and delete a throwaway object: proves the token can
         do everything the library needs."""
-        key = f"_openlivery/probe-{uuid.uuid4().hex}"
+        key = f"_hunterai/probe-{uuid.uuid4().hex}"
         self.put(key, b"ok", "text/plain")
         try:
             if self.get(key) != b"ok":

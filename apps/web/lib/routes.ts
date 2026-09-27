@@ -21,7 +21,7 @@
 export const PORTAL_VIEWS = ["inbox", "contacts", "calendar", "pipeline", "reports", "agents", "channels", "api", "details", "professionals", "services", "library", "settings"] as const;
 export type PortalView = (typeof PORTAL_VIEWS)[number];
 
-export const CLIENT_TABS = ["details", "agents", "channels", "inbox", "teams", "professionals", "services", "library", "tags", "templates", "calendar", "pipeline", "api", "portal"] as const;
+export const CLIENT_TABS = ["details", "agents", "channels", "inbox", "teams", "professionals", "services", "library", "database", "tags", "templates", "calendar", "pipeline", "api", "portal"] as const;
 export type ClientTab = (typeof CLIENT_TABS)[number];
 
 // In the order the channel cards are shown.

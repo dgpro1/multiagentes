@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import get_db, use_client
 from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
 from ..deps import confine, get_current_user, require
 from ..models import Agent, Client, User, WidgetChannel
@@ -21,6 +21,7 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     client = db.scalar(confine(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id), user, Client.id))
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    use_client(db, client)
     return client
 
 

@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..database import not_moving
 from ..models import Client, Conversation, Message, PortalUser, ScheduledMessage, now_utc
 from ..schemas_scheduled_messages import (
     ScheduledMessageCreate,
@@ -173,6 +174,7 @@ async def dispatch_due_scheduled_messages(db: Session, limit: int = 50) -> int:
             .where(
                 ScheduledMessage.status == "pending",
                 ScheduledMessage.scheduled_for <= now,
+                not_moving(db, ScheduledMessage.client_id),
             )
             .order_by(ScheduledMessage.scheduled_for.asc())
             .limit(limit)

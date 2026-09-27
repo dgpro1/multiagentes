@@ -23,7 +23,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import get_db, use_client
 from ..models import Agency, Client, PortalUser, PushDevice, now_utc
 from ..portal_features import enabled_keys
 from ..portal_permissions import permissions_for
@@ -185,6 +185,7 @@ def _resolve(db: Session, authorization: str | None) -> tuple[Client, Agency, Po
         # A user who was removed or disabled loses the session with them.
         if not user or user.client_id != client.id or not user.is_active:
             raise HTTPException(status_code=401, detail="This account is no longer active")
+    use_client(db, client)
     return client, agency, user, token
 
 

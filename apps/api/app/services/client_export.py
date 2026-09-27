@@ -136,4 +136,4 @@ def build_export(db: Session, client: Client):
     spool.seek(0)
     stamp = now_utc().strftime("%Y%m%d")
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in client.name.lower()).strip("-") or "client"
-    return spool, f"openlivery-{safe}-{stamp}.zip"
+    return spool, f"hunterai-{safe}-{stamp}.zip"

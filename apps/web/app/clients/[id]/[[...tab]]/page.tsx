@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Bot, Briefcase, Calendar as CalendarIcon, Copy, ExternalLink, FileText, GitBranch, Globe2, HardDrive, Inbox, KeyRound, LoaderCircle, Lock, Pencil, Radio, Save, Settings2, ShieldAlert, ShieldCheck, Stethoscope, Tag, Trash2, UserCheck, UserRound, Users, UserX } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, Briefcase, Calendar as CalendarIcon, Copy, Database, ExternalLink, FileText, GitBranch, Globe2, HardDrive, Inbox, KeyRound, LoaderCircle, Lock, Pencil, Radio, Save, Settings2, ShieldAlert, ShieldCheck, Stethoscope, Tag, Trash2, UserCheck, UserRound, Users, UserX } from "lucide-react";
 import { Alert, EmptyState, Modal, StatusBadge } from "@/components/ui";
 import { SectionTabs } from "@/components/section-tabs";
 import { ApiIntegrations } from "@/components/api-integrations";
@@ -13,6 +13,7 @@ import { ClientDetails } from "@/components/client-details";
 import { ProfessionalsView } from "@/components/professionals-view";
 import { ServicesView } from "@/components/services-view";
 import { ResourcesView } from "@/components/resources-view";
+import { DataStorePanel } from "@/components/data-store-panel";
 import { GrowingTextarea } from "@/components/growing-textarea";
 import { LeadCard } from "@/components/lead-card/lead-card";
 import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
@@ -104,6 +105,7 @@ export default function ClientDetailPage() {
       { id: "professionals", label: t("clients.detail.tabProfessionals"), icon: Stethoscope, href: clientPath(client.id, "professionals") },
       { id: "services", label: t("clients.detail.tabServices"), icon: Briefcase, href: clientPath(client.id, "services") },
       { id: "library", label: t("clients.detail.tabLibrary"), icon: HardDrive, href: clientPath(client.id, "library") },
+      { id: "database", label: t("clients.detail.tabDatabase"), icon: Database, href: clientPath(client.id, "database") },
       { id: "tags", label: t("clients.detail.tabTags"), icon: Tag, href: clientPath(client.id, "tags") },
       { id: "templates", label: t("clients.detail.tabTemplates"), icon: FileText, href: clientPath(client.id, "templates") },
       { id: "calendar", label: t("clients.detail.tabCalendar"), icon: CalendarIcon, href: clientPath(client.id, "calendar") },
@@ -125,6 +127,7 @@ export default function ClientDetailPage() {
     {tab === "teams" && <div className="embedded-portal-view"><TeamsView base={`/clients/${client.id}`} /></div>}
     {tab === "professionals" && <div className="embedded-portal-view"><ProfessionalsView apiBase={`/clients/${client.id}`} canManage timezone={client.timezone} /></div>}
     {tab === "services" && <div className="embedded-portal-view"><ServicesView apiBase={`/clients/${client.id}`} canManage currency={client.currency} /></div>}
+    {tab === "database" && <div className="embedded-portal-view"><DataStorePanel clientId={client.id} /></div>}
     {tab === "library" && <div className="embedded-portal-view"><ResourcesView apiBase={`/clients/${client.id}`} canManage /></div>}
     {tab === "tags" && <div className="embedded-portal-view"><TagsView base={`/clients/${client.id}/contact-tags`} canManage /></div>}
     {tab === "templates" && <div className="embedded-portal-view"><TemplatesView base={`/clients/${client.id}`} /></div>}

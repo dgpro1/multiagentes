@@ -769,6 +769,38 @@ export type StorageConnectPayload = {
   bucket: string;
 };
 
+/** The client's own Supabase project. Credentials never leave the server. */
+export type DataStore = {
+  status: "none" | "pending" | "authorized" | "connected" | "error";
+  oauth_ready: boolean;
+  recommended_region: string;
+  data_mode: "central" | "supabase" | "switching";
+  schema_version?: string;
+  schema_head: string;
+  project_ref?: string;
+  project_name?: string;
+  region?: string;
+  db_size_bytes?: number | null;
+  last_error?: string | null;
+  last_checked_at?: string | null;
+  connected_at?: string | null;
+  link_active: boolean;
+};
+
+export type DataStoreConnectInfo = {
+  client_name: string;
+  agency_name: string;
+  status: "pending" | "authorized" | "connected" | "error";
+  oauth_ready: boolean;
+  recommended_region: string;
+  project_name: string;
+  project_ref: string;
+  last_error: string | null;
+  expires_at: string;
+};
+
+export type SupabaseProject = { ref: string; name: string; region: string; status: string };
+
 /** What the public onboarding link shows; never credentials. */
 export type StorageConnectInfo = {
   client_name: string;

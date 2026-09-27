@@ -46,6 +46,8 @@ A granted subset narrower than the integration travels with the grant. Auth code
 | `resources.manage` | Upload, edit and delete the files and links the agent may send. |
 | `storage.read` | See whether a client has connected its own file storage. |
 | `storage.manage` | Connect, check and disconnect a client's own file storage (panel only). |
+| `datastore.read` | See whether a client has connected its own Supabase database (panel API, not versioned). |
+| `datastore.manage` | Hand out the Supabase connection link, check and disconnect it (panel API, not versioned). |
 | `teams.read`, `teams.manage` | See / manage teams (panel only today). |
 | `templates.read`, `templates.manage` | WhatsApp templates (panel only today). |
 | `canned.manage` | Saved replies (panel only today). |

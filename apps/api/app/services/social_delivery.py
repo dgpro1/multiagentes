@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session, aliased
 
+from ..database import use_client
 from ..models import Conversation, Message, MessageAttachment, SocialChannel, SocialOutbox, now_utc
 from .conversation_state import note_reply
 from .social_policy import require_reply
@@ -69,6 +70,11 @@ def _finish_message(db: Session, row: SocialOutbox, error: str | None = None) ->
     message.delivery_error = error or next((item.last_error for item in siblings if item.status in {"failed", "unknown", "cancelled"}), None)
 
 
+def _route_to_channel_client(db: Session, channel_id) -> None:
+    channel = db.get(SocialChannel, channel_id)
+    use_client(db, channel.client if channel else None)
+
+
 async def process_outbox(db: Session, *, limit: int = 25) -> int:
     from . import social_graph
     count = 0
@@ -77,9 +83,15 @@ async def process_outbox(db: Session, *, limit: int = 25) -> int:
         SocialOutbox.status == "sending", SocialOutbox.locked_until < now_utc(),
     ).with_for_update(skip_locked=True)).all()
     for item in abandoned:
+        abandoned_channel = db.get(SocialChannel, item.channel_id)
+        if abandoned_channel and abandoned_channel.client.data_mode == "switching":
+            continue
         item.status = "unknown"
         item.last_error = "Delivery was interrupted. Check the conversation before sending again."
+        # The message lives wherever the channel's client keeps its data.
+        _route_to_channel_client(db, item.channel_id)
         _finish_message(db, item, item.last_error)
+        db.commit()
     db.commit()
     for _ in range(limit):
         earlier = aliased(SocialOutbox)
@@ -93,8 +105,14 @@ async def process_outbox(db: Session, *, limit: int = 25) -> int:
         if not row:
             db.rollback()
             break
-        conversation = db.get(Conversation, row.conversation_id)
         channel = db.get(SocialChannel, row.channel_id)
+        if channel and channel.client.data_mode == "switching":
+            # The client's data is moving: deliver it once the move ends.
+            row.available_at = now_utc() + timedelta(seconds=30)
+            db.commit()
+            continue
+        _route_to_channel_client(db, row.channel_id)
+        conversation = db.get(Conversation, row.conversation_id)
         try:
             if not conversation or not channel or conversation.social_channel_id != channel.id:
                 raise HTTPException(status_code=409, detail="The channel destination is no longer available.")

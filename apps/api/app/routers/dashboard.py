@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from collections import Counter
+
+from ..database import each_database, get_db
 from ..deps import get_current_user
 from ..models import Agent, Client, Conversation, Message, SocialChannel, UsageRecord, User, WhatsAppChannel, WhatsAppCloudChannel, now_utc
 from ..schemas import DashboardMetrics, DashboardOut
@@ -25,9 +27,12 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_us
     active_agents = db.scalar(
         select(func.count(Agent.id)).where(Agent.agency_id == agency_id, Agent.is_active.is_(True))
     ) or 0
-    conversations = db.scalar(
-        select(func.count(Conversation.id)).where(Conversation.agency_id == agency_id, lead_group.is_lead_row())
-    ) or 0
+    # Conversations may live in a client's own database: count in each, add up.
+    conversations = 0
+    for _client in each_database(db, agency_id=agency_id):
+        conversations += db.scalar(
+            select(func.count(Conversation.id)).where(Conversation.agency_id == agency_id, lead_group.is_lead_row())
+        ) or 0
     channels = db.scalar(
         select(func.count(WhatsAppChannel.id)).where(WhatsAppChannel.agency_id == agency_id)
     ) or 0
@@ -70,46 +75,52 @@ def dashboard_metrics(
         select(Message.id).where(Message.conversation_id == Conversation.id,
             Message.kind == "message", Message.is_historical.is_(False)).correlate(Conversation))))
 
-    messages = db.scalar(
-        select(func.count(Message.id))
-        .join(Conversation, Message.conversation_id == Conversation.id)
-        .where(Conversation.agency_id == agency_id, Message.created_at >= since, Message.is_historical.is_(False))
-    ) or 0
-    human_conversations = db.scalar(
-        select(func.count(Conversation.id)).where(
-            Conversation.agency_id == agency_id, Conversation.mode == "human", Conversation.created_at >= since, active_case
-        )
-    ) or 0
-
-    channel_rows = db.execute(
-        select(Conversation.channel, func.count(Conversation.id))
-        .where(Conversation.agency_id == agency_id, Conversation.created_at >= since, active_case)
-        .group_by(Conversation.channel)
-    ).all()
-    by_channel = {channel: count for channel, count in channel_rows}
-
-    # New conversations per day over the selected window (zero-filled).
+    # Conversations and messages may live in a client's own database: every
+    # count is taken in each database the agency uses and added up; names and
+    # usage are central.
+    messages = 0
+    human_conversations = 0
+    by_channel: Counter = Counter()
+    counts: Counter = Counter()
+    per_agent: Counter = Counter()
     day = func.date(Conversation.created_at)
-    daily_rows = db.execute(
-        select(day, func.count(Conversation.id))
-        .where(Conversation.agency_id == agency_id, day >= start_date, active_case)
-        .group_by(day)
-    ).all()
-    counts = {str(d): c for d, c in daily_rows}
+    for _client in each_database(db, agency_id=agency_id):
+        messages += db.scalar(
+            select(func.count(Message.id))
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .where(Conversation.agency_id == agency_id, Message.created_at >= since, Message.is_historical.is_(False))
+        ) or 0
+        human_conversations += db.scalar(
+            select(func.count(Conversation.id)).where(
+                Conversation.agency_id == agency_id, Conversation.mode == "human", Conversation.created_at >= since, active_case
+            )
+        ) or 0
+        for channel, count in db.execute(
+            select(Conversation.channel, func.count(Conversation.id))
+            .where(Conversation.agency_id == agency_id, Conversation.created_at >= since, active_case)
+            .group_by(Conversation.channel)
+        ).all():
+            by_channel[channel] += count
+        # New conversations per day over the selected window (zero-filled below).
+        for d, c in db.execute(
+            select(day, func.count(Conversation.id))
+            .where(Conversation.agency_id == agency_id, day >= start_date, active_case)
+            .group_by(day)
+        ).all():
+            counts[str(d)] += c
+        for agent_id, count in db.execute(
+            select(Conversation.agent_id, func.count(Conversation.id))
+            .where(Conversation.agency_id == agency_id, Conversation.created_at >= since, active_case)
+            .group_by(Conversation.agent_id)
+        ).all():
+            per_agent[agent_id] += count
     daily_conversations = [
         {"date": (start_date + timedelta(days=i)).isoformat(), "count": counts.get((start_date + timedelta(days=i)).isoformat(), 0)}
         for i in range(days)
     ]
-
-    top_rows = db.execute(
-        select(Agent.id, Agent.name, func.count(Conversation.id))
-        .join(Conversation, Conversation.agent_id == Agent.id)
-        .where(Agent.agency_id == agency_id, Conversation.created_at >= since, active_case)
-        .group_by(Agent.id, Agent.name)
-        .order_by(func.count(Conversation.id).desc())
-        .limit(5)
-    ).all()
-    top_agents = [{"id": aid, "name": name, "conversations": count} for aid, name, count in top_rows]
+    top_ids = [agent_id for agent_id, _ in per_agent.most_common(5)]
+    names = dict(db.execute(select(Agent.id, Agent.name).where(Agent.id.in_(top_ids), Agent.agency_id == agency_id)).tuples().all()) if top_ids else {}
+    top_agents = [{"id": aid, "name": names[aid], "conversations": per_agent[aid]} for aid in top_ids if aid in names]
 
     tokens_in, tokens_out = db.execute(
         select(
@@ -133,7 +144,7 @@ def dashboard_metrics(
     return {
         "messages": messages,
         "human_conversations": human_conversations,
-        "by_channel": by_channel,
+        "by_channel": dict(by_channel),
         "daily_conversations": daily_conversations,
         "top_agents": top_agents,
         "tokens_in": int(tokens_in),

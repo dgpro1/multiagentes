@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import get_db, use_client
 from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
 from ..deps import confine, get_current_user, require
 from ..models import Agent, Client, User, WhatsAppCloudChannel, new_public_id, now_utc
@@ -28,6 +28,7 @@ def _channel_for_user(db: Session, user: User, ref: uuid.UUID) -> WhatsAppCloudC
         )
     )
     if channel:
+        use_client(db, channel.client)
         return channel
     channel = db.scalar(
         confine(
@@ -39,8 +40,8 @@ def _channel_for_user(db: Session, user: User, ref: uuid.UUID) -> WhatsAppCloudC
     )
     if not channel:
         raise HTTPException(status_code=404, detail="This client does not have the WhatsApp API configured yet")
+    use_client(db, channel.client)
     return channel
-
 
 def _owned_client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     # A client's portal admin reaches only its own client; see PortalActor.
@@ -61,6 +62,7 @@ def _client_agent(db: Session, user: User, client_id: uuid.UUID, agent_id: uuid.
     )
     if not agent:
         raise HTTPException(status_code=400, detail="Select an agent that belongs to this client")
+    use_client(db, agent.client)
     return agent
 
 

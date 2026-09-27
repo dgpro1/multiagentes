@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..api_scopes import APPOINTMENTS_MANAGE, APPOINTMENTS_READ
-from ..database import get_db
+from ..database import get_db, use_client
 from ..deps import confined_client_id, get_current_user, require
 from ..models import Client, User
 from ..schemas_appointments import (
@@ -33,6 +33,7 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     client = db.scalar(query)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    use_client(db, client)
     return client
 
 

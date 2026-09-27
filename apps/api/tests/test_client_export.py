@@ -23,7 +23,7 @@ def test_the_export_holds_the_clients_data_and_no_secret(authenticated_client):
     response = client.get(f"/api/clients/{customer['id']}/export")
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "application/zip"
-    assert "openlivery-acme-dental-" in response.headers["content-disposition"]
+    assert "hunterai-acme-dental-" in response.headers["content-disposition"]
 
     archive = zipfile.ZipFile(io.BytesIO(response.content))
     names = set(archive.namelist())

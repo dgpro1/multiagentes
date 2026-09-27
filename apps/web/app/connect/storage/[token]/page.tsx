@@ -45,7 +45,7 @@ export default function StorageConnectPage() {
   return <Shell wide>
     <HardDrive size={36} className="connect-icon" />
     <h1>{t("resources.publicLink.title")}</h1>
-    <p>{t("resources.publicLink.intro", { agency: info.agency_name || "OpenLivery", client: info.client_name })}</p>
+    <p>{t("resources.publicLink.intro", { agency: info.agency_name || "HunterAI", client: info.client_name })}</p>
     <div style={{ width: "100%", textAlign: "left" }}><StorageConnectForm onConnect={connect} /></div>
   </Shell>;
 }

@@ -4,6 +4,7 @@ import logging
 
 from sqlalchemy import or_, select
 
+from ..database import not_moving
 from ..models import Conversation, Message, now_utc
 from .attachments import llm_text
 from .conversation_state import note_reply, record_activity
@@ -105,6 +106,7 @@ async def resume_due(db, *, limit=10):
         now = now_utc()
         conversation = db.scalar(select(Conversation).where(
             Conversation.phone_pause_until <= now,
+            not_moving(db, Conversation.client_id),
             or_(Conversation.phone_resume_claimed_until.is_(None), Conversation.phone_resume_claimed_until <= now),
         ).order_by(Conversation.phone_pause_until).with_for_update(skip_locked=True).limit(1)
         .execution_options(populate_existing=True))

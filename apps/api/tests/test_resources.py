@@ -82,7 +82,7 @@ def test_connecting_probes_the_bucket_and_never_returns_the_secret(acme, bucket)
     assert CREDENTIALS["secret_access_key"] not in client.get(f"/api/clients/{client_id}/storage").text
     # The probe object is written, read back and removed.
     assert bucket.objects == {}
-    assert any(key.startswith("_openlivery/probe-") for key in bucket.deleted)
+    assert any(key.startswith("_hunterai/probe-") for key in bucket.deleted)
 
 
 def test_bad_credentials_are_refused_and_not_kept(acme, monkeypatch):
@@ -318,3 +318,28 @@ def test_attachments_move_to_the_clients_bucket_and_are_still_served(acme, bucke
     # Disconnected, the moved file is refused rather than served empty.
     client.delete(f"/api/clients/{client_id}/storage")
     assert client.get(url).status_code == 409
+
+
+def test_a_large_photo_is_fitted_to_1600px_on_upload(acme, bucket):
+    from PIL import Image
+
+    client, client_id = acme
+    connect(client, client_id)
+    raw = io.BytesIO()
+    Image.effect_noise((3200, 2400), 90).convert("RGB").save(raw, "JPEG", quality=95)
+    photo = raw.getvalue()
+    made = upload(client, client_id, "Storefront", photo, "image/jpeg", "front.jpg")
+    assert made.status_code == 201, made.text
+    stored = bucket.objects[next(iter(bucket.objects))]
+    assert made.json()["size_bytes"] == len(stored) < len(photo)
+    assert max(Image.open(io.BytesIO(stored)).size) == 1600
+
+
+def test_a_visitor_file_over_its_kind_limit_keeps_only_a_notice():
+    from app.models import Message
+    from app.services.attachments import store_visitor_attachment
+
+    message = Message(content="mira esto", llm_content="mira esto")
+    assert store_visitor_attachment(None, message, data=b"x" * (5 * 1024 * 1024 + 1), mime="image/jpeg", filename="big.jpg") is None
+    assert "[Archivo demasiado grande para guardarse: big.jpg, 5.0 MB]" in message.content
+    assert message.llm_content.endswith("5.0 MB]")

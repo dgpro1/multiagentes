@@ -7,7 +7,7 @@ from datetime import timedelta
 from sqlalchemy import or_, select
 
 from ..config import get_settings
-from ..database import new_session
+from ..database import each_database, new_session, not_moving
 from ..models import Conversation, EscalationRule, Message, SocialOutbox, now_utc
 from .social_policy import require_reply
 
@@ -38,7 +38,7 @@ async def complete_escalations(db, *, limit: int = 25) -> int:
     """Deliver the AI farewell before changing the thread to human mode."""
     from .escalation import EscalationRequest, apply_escalation
     ids = db.scalars(select(Conversation.id).where(
-        Conversation.social_pending_escalation.is_not(None),
+        Conversation.social_pending_escalation.is_not(None), not_moving(db, Conversation.client_id),
     ).limit(limit)).all()
     completed = 0
     for conversation_id in ids:
@@ -80,6 +80,7 @@ async def process_replies(db, *, limit: int = 10) -> int:
         conversation = db.scalar(select(Conversation).where(
             Conversation.social_reply_due_at <= now,
             Conversation.social_pending_escalation.is_(None),
+            not_moving(db, Conversation.client_id),
             or_(Conversation.social_reply_claimed_until.is_(None), Conversation.social_reply_claimed_until < now),
         ).order_by(Conversation.social_reply_due_at).with_for_update(skip_locked=True).limit(1))
         if not conversation:
@@ -128,15 +129,21 @@ async def run_scope(db) -> None:
     from .social_delivery import process_outbox
     from .social_inbound import process_pending
     from .social_history import process_history_jobs
+    # Central queues whose items name their channel: each item is routed to its
+    # client's database as it is processed.
     await process_pending(db)
-    await process_replies(db)
     await process_outbox(db)
-    await complete_escalations(db)
+    # Sweeps over a client's own tables run once per database: the central one,
+    # then each client that keeps its data in its own. The session is emptied
+    # between them so nothing loaded from one database is written to another.
+    for _client in each_database(db):
+        await process_replies(db)
+        await complete_escalations(db)
+        await resume_due(db)
+        await dispatch_due_scheduled_messages(db)
     await refresh_due_channels(db)
     await process_history_jobs(db)
     await process_due(db)
-    await resume_due(db)
-    await dispatch_due_scheduled_messages(db)
 
 
 async def run_once() -> None:

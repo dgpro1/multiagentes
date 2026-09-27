@@ -46,6 +46,8 @@ Un subconjunto otorgado más estrecho que la integración viaja con el grant. Lo
 | `resources.manage` | Subir, editar y eliminar los archivos y enlaces que el agente puede enviar. |
 | `storage.read` | Ver si un cliente conectó su propio almacenamiento de archivos. |
 | `storage.manage` | Conectar, comprobar y desconectar el almacenamiento propio de un cliente (solo panel). |
+| `datastore.read` | Ver si un cliente conectó su propia base de datos de Supabase (API del panel, sin versión). |
+| `datastore.manage` | Entregar el enlace de conexión de Supabase, comprobarla y desconectarla (API del panel, sin versión). |
 | `teams.read`, `teams.manage` | Ver / gestionar equipos (hoy solo panel). |
 | `templates.read`, `templates.manage` | Plantillas de WhatsApp (hoy solo panel). |
 | `canned.manage` | Respuestas guardadas (hoy solo panel). |

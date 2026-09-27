@@ -4,6 +4,7 @@ These tests drive the service layer directly (not the HTTP endpoint) so the
 debounce timers run inside a single asyncio loop the test controls.
 """
 
+import pytest
 import asyncio
 from unittest.mock import AsyncMock
 
@@ -64,6 +65,7 @@ async def _process(db, channel, message: inbound_service.InboundMessage):
     )
 
 
+@pytest.mark.central_only("reads or writes through SessionLocal(), which has no client database by design")
 def test_burst_is_answered_with_a_single_reply(authenticated_client: TestClient, monkeypatch):
     _setup_channel(authenticated_client)
     monkeypatch.setattr(inbound_service, "reply_delay_seconds", lambda agent: 0.15)

@@ -21,8 +21,9 @@ type Draft = {
 };
 
 const MB = 1024 * 1024;
-// Mirrors MEDIA_LIMITS_MB in apps/api/app/services/resource_storage.py; the server has the last word.
-const KIND_LIMIT_MB: Record<string, number> = { image: 5, video: 16, audio: 16, file: 20 };
+// What the browser lets through before uploading; the server has the last word. Images may be
+// large because the server fits them to 1600 px (see apps/api/app/services/image_resize.py).
+const KIND_LIMIT_MB: Record<string, number> = { image: 20, video: 16, audio: 16, file: 20 };
 
 function mediaKindOf(mime: string): string {
   if (mime.startsWith("image/")) return "image";
@@ -100,7 +101,8 @@ export function ResourcesView({ apiBase, canManage }: { apiBase: string; canMana
     try {
       if (editing === "file") {
         if (!draft.file) { setError(t("resources.errors.fileRequired")); setBusy(false); return; }
-        const limit = Math.min(KIND_LIMIT_MB[mediaKindOf(draft.file.type)] ?? 20, storage?.max_file_mb ?? 20);
+        const kind = mediaKindOf(draft.file.type);
+        const limit = kind === "image" ? KIND_LIMIT_MB.image : Math.min(KIND_LIMIT_MB[kind] ?? 20, storage?.max_file_mb ?? 20);
         if (draft.file.size > limit * MB) { setError(t("resources.errors.tooLarge", { max: limit })); setBusy(false); return; }
         const form = new FormData();
         form.append("name", name);

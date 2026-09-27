@@ -54,7 +54,7 @@ from ..api_scopes import (
     TAGS_READ,
 )
 from ..config import get_settings
-from ..database import get_db
+from ..database import get_db, use_client
 from ..deps import get_current_user, require
 from ..models import (
     Agent,
@@ -91,7 +91,7 @@ from ..services.whatsapp import send_channel_message
 from ..slugs import unique_slug
 from .agents import _agent as _panel_agent, _channels_of, _document_out
 from ..services.client_details import check_industry as _check_industry
-from .reports import Filters as _ReportFilters, _fold, _group_cost, _grouped, _joined, _money, _replies_query, _reply, _safe_tz
+from .reports import Filters as _ReportFilters, _fold, _group_cost, _grouped, _joined, _money, _replies_query, _reply, _safe_tz, _tenant_matches, _with_tenant_details, lead_count
 
 router = APIRouter(prefix="/v1", tags=["Public API v1"])
 
@@ -199,6 +199,7 @@ def _agency_client(db: Session, user, client_id: uuid.UUID) -> Client:
     client = db.scalar(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id))
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    use_client(db, client)
     return client
 
 
@@ -1008,11 +1009,12 @@ def v1_report_costs(
     agent_id = _report_agent(db, client, agent_id)
     filters = _ReportFilters(user.agency_id, date_from, date_to, client.id, agent_id, model, None)
     zone = _safe_tz(tz)
+    # Usage records are central; the report reads them there (see reports.lead_count).
+    use_client(db, None)
     by_model = _fold(_grouped(db, filters, UsageRecord.model), 1, lambda key: (key[0], key[0]))
     replies = sum(entry["replies"] for entry in by_model)
     cost = sum((Decimal(str(entry["cost_usd"])) for entry in by_model), Decimal(0))
-    lead_of_reply = func.coalesce(Conversation.primary_conversation_id, UsageRecord.conversation_id)
-    conversations = db.scalar(filters.apply(_joined(select(func.count(func.distinct(lead_of_reply)))))) or 0
+    conversations = lead_count(db, filters)
     days: dict = {}
     for row in _grouped(db, filters, cast(func.timezone(zone, UsageRecord.created_at), Date)):
         day, day_model, day_replies, _tokens_in, _tokens_out, metered, unpriced_in, unpriced_out = row
@@ -1057,9 +1059,11 @@ def v1_report_replies(
     agent_id = _report_agent(db, client, agent_id)
     page, limit = _parse_pagination(page, limit)
     filters = _ReportFilters(user.agency_id, date_from, date_to, client.id, agent_id, model, search)
+    use_client(db, None)
+    filters.tenant_matches = _tenant_matches(db, user.agency_id, filters.q)
     query = _replies_query(filters)
     total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
-    items = [_reply(row) for row in db.execute(query.limit(limit).offset((page - 1) * limit)).all()]
+    items = _with_tenant_details(db, user.agency_id, [_reply(row) for row in db.execute(query.limit(limit).offset((page - 1) * limit)).all()])
     return _page(request, jsonable_encoder(items), total, page, limit)
 
 

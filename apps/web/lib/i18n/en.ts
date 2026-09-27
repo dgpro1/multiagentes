@@ -19,6 +19,7 @@ import { pipeline } from "./dicts/pipeline";
 import { professionals } from "./dicts/professionals";
 import { services } from "./dicts/services";
 import { resources } from "./dicts/resources";
+import { dataStore } from "./dicts/dataStore";
 import { lead } from "./dicts/lead";
 
 export const en = {
@@ -40,6 +41,7 @@ export const en = {
   professionals: professionals.en,
   services: services.en,
   resources: resources.en,
+  dataStore: dataStore.en,
   lead: lead.en,
 };
 

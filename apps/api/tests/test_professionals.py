@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.models import Client, Professional
 from app.schemas_professionals import DAYS
-from conftest import TestingSession, login_legacy_owner
+from conftest import TENANT_TESTS, TestingSession, login_legacy_owner
 
 NO_FEATURE = {"detail": "This feature is not enabled for this portal"}
 FORBIDDEN = {"detail": "Your role cannot do this"}
@@ -27,6 +27,16 @@ def _customer(client: TestClient, name: str = "Dental Co") -> dict:
 
 def _url(customer: dict) -> str:
     return f"/api/clients/{customer['id']}/professionals"
+
+
+def _central(sql, **params):
+    """A raw read of the central database, past the test session's default
+    client database (see conftest._TestingSession)."""
+    from sqlalchemy import text
+
+    from app import database
+    with database.engine.connect() as conn:
+        return conn.execute(text(sql), params).scalar()
 
 
 def _portal(client: TestClient, name: str = "Portal Co", on: bool = True) -> tuple[dict, str]:
@@ -244,7 +254,15 @@ def test_deleting_a_client_removes_its_professionals(authenticated_client: TestC
     row = client.post(_url(customer), json={"name": "Gone soon"}).json()
     assert client.delete(f"/api/clients/{customer['id']}").status_code == 204
     with TestingSession() as db:
-        assert db.get(Professional, uuid.UUID(row["id"])) is None
+        if TENANT_TESTS:
+            # A client's own database belongs to the customer: deleting the
+            # client disconnects it but never deletes its rows (see
+            # test_deleting_a_client_never_touches_its_own_database). The row
+            # stays there, unreachable, with no central copy left behind.
+            assert db.get(Professional, uuid.UUID(row["id"])) is not None
+            assert _central("SELECT count(*) FROM professionals WHERE id = :id", id=row["id"]) == 0
+        else:
+            assert db.get(Professional, uuid.UUID(row["id"])) is None
 
 
 def test_an_api_token_reads_and_writes_only_with_the_matching_scope(authenticated_client: TestClient):

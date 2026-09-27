@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..api_scopes import CONTACTS_MANAGE, INBOX_MANAGE, INBOX_READ, LEAD_FIELDS_MANAGE, LEAD_FIELDS_READ
-from ..database import get_db
+from ..database import find_across_databases, get_db, use_client
 from ..deps import confined_client_id, get_current_user, require
 from ..models import Client, Conversation, User
 from ..schemas import ContactOut, ContactTagsSet, ContactUpdate
@@ -42,14 +42,16 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
     client = db.scalar(query)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    use_client(db, client)
     return client
 
 
 def _conversation_client(db: Session, user: User, conversation_id: uuid.UUID) -> Client:
     """The client that owns the conversation, resolved inside the caller's agency."""
-    client_id = db.scalar(
+    # The conversation may live in its client's own database.
+    client_id = find_across_databases(db, lambda: db.scalar(
         select(Conversation.client_id).where(Conversation.id == conversation_id, Conversation.agency_id == user.agency_id)
-    )
+    ), agency_id=user.agency_id)
     if client_id is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     try:

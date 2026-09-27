@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from .config import get_settings
-from .database import new_session
+from .database import each_database, new_session
 from .services.conversation_state import resolve_idle_ai_conversations
 from .routers import (    agency,
     agent_tools,
@@ -18,6 +18,7 @@ from .routers import (    agency,
     auth,
     calendar,
     catalog,
+    data_store,
     clients,
     conversations,
     dashboard,
@@ -49,6 +50,11 @@ from .routers import (    agency,
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+# Deleting a central row a client's own database points at clears it there too.
+from .services import tenant_references  # noqa: E402
+
+tenant_references.install()
+
 AUTO_RESOLVE_SWEEP_SECONDS = 15 * 60
 
 
@@ -57,8 +63,10 @@ async def _auto_resolve_loop() -> None:
     while True:
         await asyncio.sleep(AUTO_RESOLVE_SWEEP_SECONDS)
         try:
+            closed = 0
             with new_session() as db:
-                closed = resolve_idle_ai_conversations(db, hours=get_settings().auto_resolve_after_hours)
+                for _client in each_database(db):
+                    closed += resolve_idle_ai_conversations(db, hours=get_settings().auto_resolve_after_hours)
             if closed:
                 logger.info("Auto-resolved %d idle AI conversation(s)", closed)
         except Exception:  # noqa: BLE001 - a failed sweep must not stop the next one
@@ -84,6 +92,40 @@ async def _attachment_offload_loop(interval: int) -> None:
             logger.exception("Attachment offload sweep failed")
 
 
+async def _update_client_schemas() -> None:
+    """At boot: bring every connected client database to this release's tenant
+    schema, then replay what was kept for clients that were behind."""
+    from .services.tenant_schema import upgrade_all
+    from .services.tenant_switch import replay_pending
+
+    def run() -> list:
+        with new_session() as db:
+            return upgrade_all(db)
+
+    try:
+        for client_id in await asyncio.to_thread(run):
+            await replay_pending(client_id)
+    except Exception:  # noqa: BLE001 - a client database must never block the boot
+        logger.exception("Client schema update failed")
+
+
+KEPT_WEBHOOK_RETRY_SECONDS = 60
+
+
+async def _retry_kept_webhooks_loop() -> None:
+    """Replay webhooks kept while a client's own database was not answering."""
+    from .services.tenant_switch import retry_kept
+
+    while True:
+        await asyncio.sleep(KEPT_WEBHOOK_RETRY_SECONDS)
+        try:
+            replayed = await retry_kept()
+            if replayed:
+                logger.info("Replayed %d kept webhook(s)", replayed)
+        except Exception:  # noqa: BLE001 - a failed sweep must not stop the next one
+            logger.exception("Kept webhook retry failed")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     from .services.social_worker import start_worker, stop_worker
@@ -91,6 +133,8 @@ async def lifespan(_: FastAPI):
     sweeper = asyncio.create_task(_auto_resolve_loop()) if settings.auto_resolve_after_hours > 0 else None
     asyncio.create_task(_ensure_messaging_webhook())
     asyncio.create_task(_restore_evolution_channels())
+    asyncio.create_task(_update_client_schemas())
+    kept_retry = asyncio.create_task(_retry_kept_webhooks_loop())
     offload_interval = settings.attachment_offload_interval_seconds
     offloader = asyncio.create_task(_attachment_offload_loop(offload_interval)) if offload_interval > 0 else None
     try:
@@ -101,6 +145,7 @@ async def lifespan(_: FastAPI):
             sweeper.cancel()
         if offloader:
             offloader.cancel()
+        kept_retry.cancel()
 
 
 async def _ensure_messaging_webhook() -> None:
@@ -219,6 +264,7 @@ app.include_router(calendar.router, prefix="/api")
 app.include_router(professionals.router, prefix="/api")
 app.include_router(services.router, prefix="/api")
 app.include_router(resources.router, prefix="/api")
+app.include_router(data_store.router, prefix="/api")
 app.include_router(appointments.router, prefix="/api")
 app.include_router(lead_card.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")

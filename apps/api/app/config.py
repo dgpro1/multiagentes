@@ -94,6 +94,21 @@ class Settings(BaseSettings):
     # the attachments then stay in Postgres.
     attachment_offload_interval_seconds: int = 600
 
+    # Supabase: each client connects its own project so its data can live in
+    # its own database. One OAuth app (registered in the agency's Supabase
+    # organization, scopes Database read+write and Projects read) serves the
+    # whole installation. Its redirect URI must be registered exactly; empty
+    # means {frontend_url}/api/supabase/oauth/callback, right behind the gateway.
+    supabase_oauth_client_id: str = ""
+    supabase_oauth_client_secret: str = ""
+    supabase_redirect_uri: str = ""
+    supabase_api_url: str = "https://api.supabase.com"
+    datastore_link_days: int = 7
+    # Where clients should create their Supabase project: the region closest to
+    # this server. Every inbound message makes several round trips to the
+    # client's database, so a far region adds latency to every reply.
+    supabase_recommended_region: str = "eu-central-1"
+
     # Off by default: conversations no longer resolve themselves. When set,
     # conversations the AI is answering resolve after this many hours without
     # a message from either side; conversations a person took over are never

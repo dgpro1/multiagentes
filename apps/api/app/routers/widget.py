@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from ..database import get_db
+from ..database import get_db, use_client
 from ..services.conversation_state import exchanged_only, note_inbound
 from ..models import Agency, Agent, Client, Conversation, Message, MessageAttachment, WidgetChannel, now_utc
 from ..ratelimit import public_asset_rate_limit, widget_poll_rate_limit, widget_rate_limit
@@ -14,6 +14,7 @@ from ..schemas import WidgetConfigOut, WidgetMessageIn, WidgetReply
 from ..services.attachments import (
     MAX_ATTACHMENT_BYTES,
     MAX_WIDGET_ATTACHMENTS,
+    inbound_limit,
     attachment_kind,
     attachment_response,
     conversation_attachment,
@@ -60,6 +61,7 @@ def _channel(db: Session, public_id: str) -> WidgetChannel:
     )
     if not channel:
         raise HTTPException(status_code=404, detail="Widget not found")
+    use_client(db, channel.client)
     return channel
 
 
@@ -363,8 +365,8 @@ async def widget_media(
         raise HTTPException(status_code=429, detail="This conversation reached its attachment limit")
     kind = attachment_kind(content_type)
     data = await file.read(MAX_ATTACHMENT_BYTES + 1)
-    if len(data) > MAX_ATTACHMENT_BYTES:
-        raise HTTPException(status_code=413, detail="The file is too large (20 MB max)")
+    if len(data) > inbound_limit(kind):
+        raise HTTPException(status_code=413, detail=f"The file is too large ({inbound_limit(kind) // (1024 * 1024)} MB max)")
     if not data:
         raise HTTPException(status_code=400, detail="The file is empty")
     caption = caption.strip()[:8000]

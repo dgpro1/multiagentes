@@ -5,6 +5,7 @@ an agent keeps the conversations it handled; deleting a client is previewed
 with counts; an inactive client is switched off everywhere.
 """
 
+import pytest
 import asyncio
 from unittest.mock import AsyncMock
 
@@ -76,6 +77,7 @@ def test_conversations_are_archived_before_they_can_be_deleted(authenticated_cli
     assert client.get(f"{base}/summary").json()["archived"] == 0
 
 
+@pytest.mark.central_only("reads or writes through SessionLocal(), which has no client database by design")
 def test_deleting_an_agent_keeps_its_conversations(authenticated_client: TestClient):
     client = authenticated_client
     customer, agent = _portal(client)
@@ -177,6 +179,7 @@ def test_an_inactive_client_is_switched_off_everywhere(authenticated_client: Tes
     assert client.post(f"/api/portal/{slug}/login", json={"email": "ana@archive.com", "password": "secure-portal"}).status_code == 200
 
 
+@pytest.mark.central_only("reads or writes through SessionLocal(), which has no client database by design")
 def test_a_blocked_contact_talks_to_a_wall(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
     customer, agent = _portal(client)

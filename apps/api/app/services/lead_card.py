@@ -45,7 +45,7 @@ def get_lead(db: Session, client: Client, conversation_id: uuid.UUID, *, act: bo
         .options(
             selectinload(Conversation.contact).selectinload(Contact.tags),
             joinedload(Conversation.pipeline_stage),
-            joinedload(Conversation.responsible),
+            selectinload(Conversation.responsible),  # central: its own query
         )
         .execution_options(populate_existing=True)
         .where(

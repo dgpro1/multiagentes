@@ -17,12 +17,12 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from ..database import new_session
+from ..database import DataMoving, new_client_session, new_session
 from .contacts import display_name, phone_from_chat_id, previous_conversation_recap, rename_conversations, resolve_contact
 from . import lead_group
 from .conversation_state import exchanged_only, note_inbound, note_reply, set_pipeline_stage
 from ..models import Agent, Conversation, Message, MessageAttachment, now_utc
-from .attachments import llm_text, store_attachment
+from .attachments import llm_text, store_attachment, store_visitor_attachment
 from .knowledge import contact_context, build_system_prompt, llm_turns, retrieve_knowledge
 from .media import audio_filename, describe_image, transcribe_audio
 from .notifications import notify_needs_human
@@ -311,7 +311,7 @@ async def process_inbound(
     db.add(visitor_message)
     if inbound.media_kind and inbound.media_bytes:
         db.flush()
-        store_attachment(
+        store_visitor_attachment(
             db,
             visitor_message,
             data=inbound.media_bytes,
@@ -362,7 +362,7 @@ async def process_inbound(
 
     delay = reply_delay_seconds(channel.agent)
     if delay > 0:
-        schedule_debounced_reply(conversation.id, delay)
+        schedule_debounced_reply(conversation.id, delay, client_id=conversation.client_id)
         return InboundResult(accepted=True, conversation_id=conversation.id, mode="ai")
 
     await _signal_read_and_typing(db, conversation, [inbound.external_message_id])
@@ -705,7 +705,7 @@ def reply_delay_seconds(agent: Agent) -> float:
     return random.uniform(low, high)
 
 
-def schedule_debounced_reply(conversation_id: uuid.UUID, delay: float) -> None:
+def schedule_debounced_reply(conversation_id: uuid.UUID, delay: float, *, client_id: uuid.UUID | None = None) -> None:
     """(Re)start the conversation's quiet-window timer.
 
     Every inbound message cancels the previous timer, so the reply fires only
@@ -716,7 +716,7 @@ def schedule_debounced_reply(conversation_id: uuid.UUID, delay: float) -> None:
     previous = _pending_replies.pop(conversation_id, None)
     if previous is not None and not previous.done():
         previous.cancel()
-    task = asyncio.get_running_loop().create_task(_debounced_reply(conversation_id, delay))
+    task = asyncio.get_running_loop().create_task(_debounced_reply(conversation_id, delay, client_id))
     _pending_replies[conversation_id] = task
 
     def _cleanup(finished: "asyncio.Task[None]") -> None:
@@ -726,9 +726,14 @@ def schedule_debounced_reply(conversation_id: uuid.UUID, delay: float) -> None:
     task.add_done_callback(_cleanup)
 
 
-async def _debounced_reply(conversation_id: uuid.UUID, delay: float) -> None:
+async def _debounced_reply(conversation_id: uuid.UUID, delay: float, client_id: uuid.UUID | None = None) -> None:
     await asyncio.sleep(delay)
-    db = new_session()
+    # The conversation lives wherever its client keeps its data.
+    try:
+        db = new_client_session(client_id)
+    except DataMoving:
+        schedule_debounced_reply(conversation_id, 30.0, client_id=client_id)  # answer once the move ends
+        return
     try:
         conversation = db.get(Conversation, conversation_id)
         if not conversation or conversation.mode == "human" or conversation.phone_pause_until is not None:

@@ -15,11 +15,12 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.exc import OperationalError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from ..config import get_settings
-from ..database import get_db
+from ..database import get_db, use_client, DataMoving, keep_for_replay, active_client_id, mark_unreachable
 from ..models import Agent, Conversation, Message, WhatsAppChannel, now_utc
 from ..schemas import WhatsAppOutgoing
 from ..security import encrypt_secret
@@ -58,6 +59,17 @@ async def receive_webhook(request: Request, db: Session = Depends(get_db)):
     # From here on always acknowledge with 200.
     try:
         await _dispatch(db, event)
+    except DataMoving as moving:
+        # The client's data is moving between databases: keep the event and replay it after.
+        keep_for_replay(db, moving.client_id, "evolution", event)
+    except OperationalError:
+        # The client's own database did not answer (paused or down): keep the
+        # event for the retry sweep instead of losing it.
+        if (unreachable := active_client_id(db)) is not None:
+            keep_for_replay(db, unreachable, "evolution", event)
+            mark_unreachable(db, unreachable)
+        else:
+            logger.exception("Webhook processing hit a database error")
     except Exception:  # noqa: BLE001 - never make Evolution retry
         logger.exception("Evolution event processing failed")
     return {"status": "ok"}
@@ -70,12 +82,15 @@ def _channel(db: Session, instance: str) -> WhatsAppChannel | None:
         channel_id = instance.removeprefix("openlivery-")
     except AttributeError:  # pragma: no cover - Python < 3.9 guard
         return None
-    return db.scalar(
+    channel = db.scalar(
         select(WhatsAppChannel)
         .options(joinedload(WhatsAppChannel.agent).joinedload(Agent.client))
         .where(WhatsAppChannel.id == channel_id)
         .execution_options(populate_existing=True)
     )
+    if channel is not None:
+        use_client(db, channel.client)
+    return channel
 
 
 async def _handle_qr(db: Session, channel: WhatsAppChannel, data: dict) -> None:
@@ -309,3 +324,9 @@ async def _dispatch(db: Session, event: dict) -> None:
             for item in data:
                 if isinstance(item, dict) and item.get("key"):
                     await _handle_message(db, channel, item)
+
+
+# Events kept while their client's data was moving are re-run through the same dispatch.
+from ..services.tenant_switch import register_replayer  # noqa: E402
+
+register_replayer("evolution", _dispatch)

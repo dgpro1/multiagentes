@@ -23,6 +23,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY alembic.ini ./alembic.ini
 COPY migrations ./migrations
+# Schema of a client's own database (phase B), applied through the panel.
+COPY migrations_tenant ./migrations_tenant
 COPY app ./app
 COPY tests ./tests
 

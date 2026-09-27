@@ -1,6 +1,7 @@
 """The agency-level operational report: conversations, timing and volume
 across the agency's clients."""
 
+import pytest
 import uuid
 from datetime import timedelta
 from unittest.mock import AsyncMock
@@ -38,6 +39,7 @@ def _client_with_conversation(client: TestClient, monkeypatch):
     return customer
 
 
+@pytest.mark.central_only("reads or writes through SessionLocal(), which has no client database by design")
 def test_operations_report_rolls_up_the_agency(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
     customer = _client_with_conversation(client, monkeypatch)
@@ -64,6 +66,7 @@ def test_operations_report_rolls_up_the_agency(authenticated_client: TestClient,
     assert client.get(f"/api/reports/operations?from={today.isoformat()}&to={frm}").status_code == 200
 
 
+@pytest.mark.central_only("reads or writes through SessionLocal(), which has no client database by design")
 def test_report_filters_list_the_agency_scope(authenticated_client: TestClient, monkeypatch):
     client = authenticated_client
     _client_with_conversation(client, monkeypatch)

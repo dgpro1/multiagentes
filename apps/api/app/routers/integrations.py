@@ -18,7 +18,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..api_scopes import DESCRIPTIONS, INTEGRATIONS_MANAGE, PRESETS, resolve
-from ..database import get_db
+from ..database import get_db, use_client
 from ..deps import PortalActor, confine, confined_client_id, get_current_user, require
 from ..models import ApiIntegration, ApiToken, Client, User, WebhookDelivery, WebhookSubscription
 from ..portal_api_access import (
@@ -76,6 +76,7 @@ def _client_or_404(db: Session, user, client_id: uuid.UUID) -> Client:
     client = db.scalar(confine(select(Client).where(Client.id == client_id, Client.agency_id == user.agency_id), user, Client.id))
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    use_client(db, client)
     return client
 
 

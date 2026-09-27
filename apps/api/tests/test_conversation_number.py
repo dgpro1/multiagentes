@@ -305,6 +305,7 @@ def _columns(table: str) -> set[str]:
         return {row[0] for row in rows}
 
 
+@pytest.mark.central_only("exercises a central migration on the central schema")
 def test_upgrade_numbers_existing_rows_oldest_first_per_client_and_seeds_the_counters():
     from datetime import datetime, timedelta, timezone
 

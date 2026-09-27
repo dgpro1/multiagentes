@@ -6,7 +6,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import get_db, use_client
 from ..models import Conversation, Message, MessageAttachment, SocialChannel, now_utc
 from ..services.social_media import verify_media_signature
 from ..services.attachments import content_disposition
@@ -18,6 +18,7 @@ def _channel(db: Session, channel_id: uuid.UUID) -> SocialChannel:
     channel = db.get(SocialChannel, channel_id)
     if not channel:
         raise HTTPException(404, "Unknown channel")
+    use_client(db, channel.client)
     return channel
 
 
