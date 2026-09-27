@@ -19,6 +19,7 @@ import { services } from "./dicts/services";
 import { resources } from "./dicts/resources";
 import { dataStore } from "./dicts/dataStore";
 import { lead } from "./dicts/lead";
+import { platform } from "./dicts/platform";
 
 // Spanish dictionary. Composed from the same modules; typed as Dictionary so it
 // must mirror the exact shape of `en` (each area's `es` mirrors its own `en`).
@@ -43,4 +44,5 @@ export const es: Dictionary = {
   resources: resources.es,
   dataStore: dataStore.es,
   lead: lead.es,
+  platform: platform.es,
 };

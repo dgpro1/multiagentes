@@ -9,13 +9,13 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import Date, cast, func, select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_platform_admin
-from ..models import Agency, AgencySlugAlias, Agent, Client, PlatformAdmin, PlatformAuditEvent
+from ..models import Agency, AgencySlugAlias, Agent, Client, PlatformAdmin, PlatformAuditEvent, UsageRecord
 from ..schemas_platform import (
     PlatformAccessUpdate,
     PlatformAgencyCreated,
@@ -24,9 +24,12 @@ from ..schemas_platform import (
     PlatformAgencyUpdate,
     PlatformAuditEventOut,
     PlatformClientOut,
+    PlatformInfrastructureClient,
     PlatformInvitationCreate,
     PlatformInvitationIssued,
     PlatformInvitationOut,
+    PlatformOverviewOut,
+    PlatformUsageOut,
 )
 from ..services import platform as platform_service
 from ..slugs import slug_free, slugify
@@ -264,16 +267,138 @@ def audit_events(
         select(PlatformAuditEvent).order_by(PlatformAuditEvent.created_at.desc()).offset((page - 1) * limit).limit(limit)
     ).all()
     response.headers["X-Total-Count"] = str(total)
-    return [
-        {
-            "id": row.id,
-            "actor_name": row.actor_name,
-            "action": row.action,
-            "target_agency_id": row.target_agency_id,
-            "resource_type": row.resource_type,
-            "resource_id": row.resource_id,
-            "details": row.details,
-            "created_at": row.created_at,
-        }
-        for row in rows
-    ]
+    return [_audit_out(row) for row in rows]
+
+
+def _audit_out(row: PlatformAuditEvent) -> dict:
+    return {
+        "id": row.id,
+        "actor_name": row.actor_name,
+        "action": row.action,
+        "target_agency_id": row.target_agency_id,
+        "resource_type": row.resource_type,
+        "resource_id": row.resource_id,
+        "details": row.details,
+        "created_at": row.created_at,
+    }
+
+
+def _usage_totals(db: Session, agency_id: uuid.UUID | None) -> dict:
+    query = select(
+        func.count(UsageRecord.id),
+        func.coalesce(func.sum(UsageRecord.input_tokens), 0),
+        func.coalesce(func.sum(UsageRecord.output_tokens), 0),
+        func.sum(UsageRecord.cost_usd),
+        func.count(UsageRecord.id).filter(UsageRecord.cost_usd.is_(None)),
+    )
+    if agency_id is not None:
+        query = query.where(UsageRecord.agency_id == agency_id)
+    replies, tokens_in, tokens_out, cost, unpriced = db.execute(query).one()
+    return {
+        "replies": int(replies),
+        "input_tokens": int(tokens_in),
+        "output_tokens": int(tokens_out),
+        "cost_usd": float(cost) if cost is not None else None,
+        "unpriced_replies": int(unpriced),
+    }
+
+
+@router.get("/overview", response_model=PlatformOverviewOut)
+def overview(db: Session = Depends(get_db), admin: PlatformAdmin = Depends(get_current_platform_admin)):
+    agencies = db.scalar(select(func.count()).select_from(Agency)) or 0
+    blocked = db.scalar(
+        select(func.count()).select_from(Agency).where(Agency.access_status == "blocked")
+    ) or 0
+    clients = db.scalar(select(func.count()).select_from(Client)) or 0
+    agents = db.scalar(select(func.count()).select_from(Agent)) or 0
+    recent = db.scalars(
+        select(PlatformAuditEvent).order_by(PlatformAuditEvent.created_at.desc()).limit(5)
+    ).all()
+    return {
+        "agencies": int(agencies),
+        "blocked_agencies": int(blocked),
+        "clients": int(clients),
+        "agents": int(agents),
+        "usage": _usage_totals(db, None),
+        "recent_events": [_audit_out(row) for row in recent],
+    }
+
+
+@router.get("/agencies/{agency_id}/usage", response_model=PlatformUsageOut)
+def agency_usage(
+    agency_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin: PlatformAdmin = Depends(get_current_platform_admin),
+):
+    if db.get(Agency, agency_id) is None:
+        raise HTTPException(status_code=404, detail="Agency not found")
+    day = cast(func.timezone("UTC", UsageRecord.created_at), Date)
+    rows = db.execute(
+        select(
+            day,
+            func.count(UsageRecord.id),
+            func.coalesce(func.sum(UsageRecord.input_tokens), 0),
+            func.coalesce(func.sum(UsageRecord.output_tokens), 0),
+            func.sum(UsageRecord.cost_usd),
+        )
+        .where(UsageRecord.agency_id == agency_id)
+        .group_by(day)
+        .order_by(day)
+    ).all()
+    return {
+        "total": _usage_totals(db, agency_id),
+        "days": [
+            {
+                "date": row[0].isoformat(),
+                "replies": int(row[1]),
+                "input_tokens": int(row[2]),
+                "output_tokens": int(row[3]),
+                "cost_usd": float(row[4]) if row[4] is not None else None,
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.get("/agencies/{agency_id}/infrastructure", response_model=list[PlatformInfrastructureClient])
+def agency_infrastructure(
+    agency_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin: PlatformAdmin = Depends(get_current_platform_admin),
+):
+    """Each client's data store and storage, as observed facts. Never the
+    DSN, tokens or credentials: those stay encrypted and unreachable."""
+    if db.get(Agency, agency_id) is None:
+        raise HTTPException(status_code=404, detail="Agency not found")
+    clients = db.scalars(select(Client).where(Client.agency_id == agency_id).order_by(Client.created_at)).all()
+    result = []
+    for client in clients:
+        store = client.data_store
+        storage = client.storage_connection
+        result.append({
+            "client_id": client.id,
+            "client_name": client.name,
+            "portal_slug": client.portal_slug,
+            "data_mode": client.data_mode,
+            "datastore": {
+                "status": store.status,
+                "schema_version": store.schema_version,
+                "project_name": store.project_name,
+                "region": store.region,
+                "db_size_bytes": store.db_size_bytes,
+                "last_error": store.last_error,
+                "last_checked_at": store.last_checked_at,
+                "connected_at": store.connected_at,
+            } if store is not None else None,
+            "storage": {
+                "status": storage.status,
+                "bucket": storage.bucket,
+                "region": storage.region,
+                "quota_mb": storage.quota_mb,
+                "max_file_mb": storage.max_file_mb,
+                "last_error": storage.last_error,
+                "last_checked_at": storage.last_checked_at,
+                "connected_at": storage.connected_at,
+            } if storage is not None else None,
+        })
+    return result

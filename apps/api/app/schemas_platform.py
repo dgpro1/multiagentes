@@ -112,3 +112,42 @@ class PlatformAuditEventOut(BaseModel):
     resource_id: str
     details: dict
     created_at: datetime
+
+
+class PlatformUsageTotal(BaseModel):
+    replies: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float | None
+    unpriced_replies: int
+
+
+class PlatformUsageDay(BaseModel):
+    date: str
+    replies: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float | None
+
+
+class PlatformUsageOut(BaseModel):
+    total: PlatformUsageTotal
+    days: list[PlatformUsageDay]
+
+
+class PlatformInfrastructureClient(BaseModel):
+    client_id: uuid.UUID
+    client_name: str
+    portal_slug: str
+    data_mode: str
+    datastore: dict | None
+    storage: dict | None
+
+
+class PlatformOverviewOut(BaseModel):
+    agencies: int
+    blocked_agencies: int
+    clients: int
+    agents: int
+    usage: PlatformUsageTotal
+    recent_events: list[PlatformAuditEventOut]

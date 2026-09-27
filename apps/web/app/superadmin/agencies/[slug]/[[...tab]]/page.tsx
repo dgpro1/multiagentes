@@ -1,0 +1,341 @@
+"use client";
+
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
+import { Building2, LoaderCircle } from "lucide-react";
+import { api, messageFrom } from "@/lib/api";
+import { useT } from "@/lib/i18n";
+import { PlatformShell } from "@/components/platform-shell";
+import { Alert, EmptyState, PageHead } from "@/components/ui";
+import { SectionTabs } from "@/components/section-tabs";
+import { PLATFORM_AGENCY_TABS, platformAgencyPath, tabFromSegments } from "@/lib/routes";
+import type { PlatformAgency, PlatformClient, PlatformInfrastructureClient, PlatformInvitation, PlatformUsage } from "@/types";
+
+function tokens(value: number): string {
+  return value.toLocaleString();
+}
+
+function cost(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return `$${value.toFixed(4)}`;
+}
+
+function StatusPill({ status }: { status: string }) {
+  return (
+    <span className={`status ${status === "connected" || status === "active" ? "status-active" : status === "error" ? "status-inactive" : ""}`}>
+      <i />{status}
+    </span>
+  );
+}
+
+function SummaryTab({ agency }: { agency: PlatformAgency }) {
+  const t = useT();
+  const [reason, setReason] = useState(agency.access_block_reason);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [invite, setInvite] = useState<PlatformInvitation | null>(null);
+  const [inviteName, setInviteName] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+
+  async function setAccess(status: "active" | "blocked") {
+    setBusy(true);
+    setError("");
+    try {
+      const body = await api<PlatformAgency>(`/platform/agencies/${agency.id}/access`, {
+        method: "PUT",
+        body: JSON.stringify(status === "blocked" ? { status, reason } : { status }),
+      });
+      setReason(body.access_block_reason);
+      setConfirming(false);
+      // Keep the screen honest: reload the resolved agency.
+      window.location.reload();
+    } catch (err) {
+      setError(messageFrom(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendInvitation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setInviteBusy(true);
+    try {
+      const body = await api<PlatformInvitation>(`/platform/agencies/${agency.id}/admin-invitations`, {
+        method: "POST",
+        body: JSON.stringify({ email: inviteEmail, name: inviteName }),
+      });
+      setInvite(body);
+    } catch (err) {
+      setError(messageFrom(err));
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
+  const blocked = agency.access_status === "blocked";
+
+  return (
+    <>
+      <section className="form-section" style={{ marginTop: 20 }}>
+        <div className="section-copy">
+          <h2>{t("platform.detail.accessTitle")}</h2>
+          <p>{t("platform.detail.accessCopy")}</p>
+        </div>
+        <div className="form-fields">
+          <p>
+            <span className={`status ${blocked ? "status-inactive" : "status-active"}`}><i />{blocked ? t("platform.detail.blocked") : t("platform.detail.active")}</span>
+            {blocked && agency.access_block_reason ? <small style={{ marginLeft: 8 }}>{agency.access_block_reason}</small> : null}
+          </p>
+          {blocked ? (
+            <button className="button primary" disabled={busy} onClick={() => void setAccess("active")}>{t("platform.detail.restore")}</button>
+          ) : (
+            <>
+              <label>{t("platform.detail.reason")}<input value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+              {confirming ? (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="button danger" disabled={busy} onClick={() => void setAccess("blocked")}>{busy && <LoaderCircle className="spin" size={16} />}{t("platform.detail.blockConfirm")}</button>
+                  <button className="button" onClick={() => setConfirming(false)}>{t("common.cancel")}</button>
+                </div>
+              ) : (
+                <button className="button danger" onClick={() => setConfirming(true)}>{t("platform.detail.block")}</button>
+              )}
+            </>
+          )}
+          {error && <Alert>{error}</Alert>}
+        </div>
+      </section>
+      <section className="form-section">
+        <div className="section-copy">
+          <h2>{t("platform.detail.inviteTitle")}</h2>
+          <p>{t("platform.detail.inviteCopy")}</p>
+        </div>
+        <div className="form-fields">
+          {invite ? (
+            <div style={{ padding: "12px 14px", border: "1px solid var(--line)", borderRadius: 9 }}>
+              <p style={{ margin: "0 0 6px", fontSize: 13, color: "var(--muted)" }}>{t("platform.detail.inviteLink")}</p>
+              <p style={{ wordBreak: "break-all", margin: 0 }}><strong>{invite.url}</strong></p>
+            </div>
+          ) : (
+            <form onSubmit={sendInvitation} style={{ display: "grid", gap: 12 }}>
+              <label>{t("platform.detail.inviteName")}<input value={inviteName} onChange={(event) => setInviteName(event.target.value)} required minLength={2} /></label>
+              <label>{t("platform.detail.inviteEmail")}<input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} required type="email" /></label>
+              <button className="button primary align-start" disabled={inviteBusy}>{inviteBusy && <LoaderCircle className="spin" size={16} />}{t("platform.detail.inviteSend")}</button>
+            </form>
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ClientsTab({ agency }: { agency: PlatformAgency }) {
+  const t = useT();
+  const [clients, setClients] = useState<PlatformClient[] | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api<PlatformClient[]>(`/platform/agencies/${agency.id}/clients`)
+      .then((rows) => { if (active) setClients(rows); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [agency.id]);
+
+  if (clients === null) return null;
+  if (clients.length === 0) {
+    return <EmptyState icon={<Building2 size={22} />} title={t("platform.detail.clientsEmpty")} description="" />;
+  }
+  return (
+    <div className="table-shell" style={{ marginTop: 20 }}>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("platform.create.name")}</th>
+            <th>{t("platform.detail.state")}</th>
+            <th>{t("platform.detail.mode")}</th>
+            <th>{t("platform.overview.agents")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {clients.map((client) => (
+            <tr key={client.id}>
+              <td><span className="table-link">{client.name}</span><small style={{ marginLeft: 8, color: "var(--muted)" }}>{client.portal_slug}</small></td>
+              <td>{client.is_active ? t("platform.detail.active") : t("platform.list.blocked")}</td>
+              <td>{client.data_mode}</td>
+              <td>{t("platform.detail.clientAgents", { count: client.agent_count })}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function UsageTab({ agency }: { agency: PlatformAgency }) {
+  const t = useT();
+  const [usage, setUsage] = useState<PlatformUsage | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api<PlatformUsage>(`/platform/agencies/${agency.id}/usage`)
+      .then((rows) => { if (active) setUsage(rows); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [agency.id]);
+
+  if (usage === null) return null;
+  if (usage.total.replies === 0) {
+    return <EmptyState icon={<Building2 size={22} />} title={t("platform.detail.usageEmpty")} description="" />;
+  }
+  return (
+    <>
+      <div className="metrics-grid" style={{ marginTop: 20, gridTemplateColumns: "repeat(3, 1fr)" }}>
+        <article className="metric-card"><small>{t("platform.detail.replies")}</small><strong>{usage.total.replies}</strong></article>
+        <article className="metric-card"><small>{t("platform.detail.tokensIn")}</small><strong>{tokens(usage.total.input_tokens)}</strong></article>
+        <article className="metric-card"><small>{t("platform.detail.cost")}</small><strong>{cost(usage.total.cost_usd)}</strong></article>
+      </div>
+      <div className="table-shell">
+        <table>
+          <thead>
+            <tr>
+              <th>{t("platform.detail.day")}</th>
+              <th>{t("platform.detail.replies")}</th>
+              <th>{t("platform.detail.tokensIn")}</th>
+              <th>{t("platform.detail.tokensOut")}</th>
+              <th>{t("platform.detail.cost")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {usage.days.map((day) => (
+              <tr key={day.date}>
+                <td>{day.date}</td>
+                <td>{day.replies}</td>
+                <td>{tokens(day.input_tokens)}</td>
+                <td>{tokens(day.output_tokens)}</td>
+                <td>{cost(day.cost_usd)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function InfrastructureTab({ agency }: { agency: PlatformAgency }) {
+  const t = useT();
+  const [clients, setClients] = useState<PlatformInfrastructureClient[] | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api<PlatformInfrastructureClient[]>(`/platform/agencies/${agency.id}/infrastructure`)
+      .then((rows) => { if (active) setClients(rows); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [agency.id]);
+
+  if (clients === null) return null;
+  if (clients.length === 0) {
+    return <EmptyState icon={<Building2 size={22} />} title={t("platform.detail.infraEmpty")} description="" />;
+  }
+  return (
+    <div className="table-shell" style={{ marginTop: 20 }}>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("platform.create.name")}</th>
+            <th>{t("platform.detail.mode")}</th>
+            <th>{t("platform.detail.datastore")}</th>
+            <th>{t("platform.detail.storage")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {clients.map((client) => (
+            <tr key={client.client_id}>
+              <td>{client.client_name}<small style={{ marginLeft: 8, color: "var(--muted)" }}>{client.portal_slug}</small></td>
+              <td>{client.data_mode}</td>
+              <td>
+                {client.datastore ? (
+                  <>
+                    <StatusPill status={client.datastore.status} />
+                    {client.datastore.last_error && <small style={{ display: "block", color: "var(--red-text)" }}>{client.datastore.last_error}</small>}
+                  </>
+                ) : t("platform.detail.none")}
+              </td>
+              <td>
+                {client.storage ? (
+                  <>
+                    <StatusPill status={client.storage.status} />
+                    {client.storage.bucket && <small style={{ display: "block", color: "var(--muted)" }}>{client.storage.bucket}</small>}
+                  </>
+                ) : t("platform.detail.none")}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function PlatformAgencyPage() {
+  const t = useT();
+  const router = useRouter();
+  const { slug, tab: segments } = useParams<{ slug: string; tab?: string[] }>();
+  const [agency, setAgency] = useState<PlatformAgency | null>(null);
+  const [missing, setMissing] = useState(false);
+  const { tab } = tabFromSegments(PLATFORM_AGENCY_TABS, segments, "summary");
+
+  useEffect(() => {
+    let active = true;
+    api<PlatformAgency>(`/platform/agencies/by-slug/${encodeURIComponent(slug)}`)
+      .then((current) => { if (active) setAgency(current); })
+      .catch(() => { if (active) setMissing(true); });
+    return () => { active = false; };
+  }, [slug, router]);
+
+  if (missing) {
+    return (
+      <PlatformShell>
+        <EmptyState
+          icon={<Building2 size={22} />}
+          title={t("platform.list.empty")}
+          description=""
+          action={<Link className="button primary" href="/superadmin/agencies">{t("platform.nav.agencies")}</Link>}
+        />
+      </PlatformShell>
+    );
+  }
+  if (!agency) return <PlatformShell><div className="app-loader" /></PlatformShell>;
+
+  return (
+    <PlatformShell>
+      <PageHead
+        eyebrow={t("platform.overview.agencies")}
+        title={agency.name}
+        description={`/superadmin/agencies/${agency.slug}`}
+        action={
+          <span className={`status ${agency.access_status === "blocked" ? "status-inactive" : "status-active"}`}>
+            <i />{agency.access_status === "blocked" ? t("platform.detail.blocked") : t("platform.detail.active")}
+          </span>
+        }
+      />
+      <div className="section-tabs-wrap">
+        <SectionTabs
+          value={tab}
+          tabs={PLATFORM_AGENCY_TABS.map((item) => ({
+            id: item,
+            label: t(`platform.detail.tabs.${item}` as const),
+            href: platformAgencyPath(agency.slug, item),
+          }))}
+        />
+      </div>
+      {tab === "summary" && <SummaryTab agency={agency} />}
+      {tab === "clients" && <ClientsTab agency={agency} />}
+      {tab === "usage" && <UsageTab agency={agency} />}
+      {tab === "infrastructure" && <InfrastructureTab agency={agency} />}
+    </PlatformShell>
+  );
+}

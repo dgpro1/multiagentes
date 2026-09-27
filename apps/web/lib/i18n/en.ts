@@ -21,6 +21,7 @@ import { services } from "./dicts/services";
 import { resources } from "./dicts/resources";
 import { dataStore } from "./dicts/dataStore";
 import { lead } from "./dicts/lead";
+import { platform } from "./dicts/platform";
 
 export const en = {
   ...core.en,
@@ -43,6 +44,7 @@ export const en = {
   resources: resources.en,
   dataStore: dataStore.en,
   lead: lead.en,
+  platform: platform.en,
 };
 
 export type Dictionary = typeof en;

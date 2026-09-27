@@ -935,3 +935,114 @@ export type ScheduledMessage = {
   updated_at: string;
 };
 
+// The platform (superadmin) surface, under /api/platform.
+export type PlatformAdmin = {
+  id: string;
+  name: string;
+  email: string;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type PlatformAgency = {
+  id: string;
+  slug: string;
+  name: string;
+  brand_color: string;
+  created_at: string;
+  client_count: number;
+  agent_count: number;
+  access_status: string;
+  access_blocked_at: string | null;
+  access_block_reason: string;
+};
+
+export type PlatformInvitation = {
+  id: string;
+  agency_id: string;
+  agency_name: string;
+  email: string;
+  name: string;
+  status: string;
+  expires_at: string;
+  created_at: string;
+  token?: string;
+  url?: string;
+};
+
+export type PlatformClient = {
+  id: string;
+  name: string;
+  portal_slug: string;
+  is_active: boolean;
+  data_mode: string;
+  agent_count: number;
+  created_at: string;
+};
+
+export type PlatformUsageTotal = {
+  replies: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number | null;
+  unpriced_replies: number;
+};
+
+export type PlatformUsage = {
+  total: PlatformUsageTotal;
+  days: {
+    date: string;
+    replies: number;
+    input_tokens: number;
+    output_tokens: number;
+    cost_usd: number | null;
+  }[];
+};
+
+export type PlatformAuditEvent = {
+  id: string;
+  actor_name: string;
+  action: string;
+  target_agency_id: string | null;
+  resource_type: string;
+  resource_id: string;
+  details: Record<string, unknown>;
+  created_at: string;
+};
+
+export type PlatformOverview = {
+  agencies: number;
+  blocked_agencies: number;
+  clients: number;
+  agents: number;
+  usage: PlatformUsageTotal;
+  recent_events: PlatformAuditEvent[];
+};
+
+export type PlatformInfrastructureClient = {
+  client_id: string;
+  client_name: string;
+  portal_slug: string;
+  data_mode: string;
+  datastore: {
+    status: string;
+    schema_version: string;
+    project_name: string;
+    region: string;
+    db_size_bytes: number | null;
+    last_error: string | null;
+    last_checked_at: string | null;
+    connected_at: string | null;
+  } | null;
+  storage: {
+    status: string;
+    bucket: string;
+    region: string;
+    quota_mb: number;
+    max_file_mb: number;
+    last_error: string | null;
+    last_checked_at: string | null;
+    connected_at: string | null;
+  } | null;
+};
+
