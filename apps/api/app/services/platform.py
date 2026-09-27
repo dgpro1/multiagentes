@@ -18,6 +18,7 @@ from ..security import hash_password
 from ..services import access_policy
 from ..services.api_credentials import digest
 from ..slugs import slug_free, slugify, unique_agency_slug
+from .. import agency_features
 
 INVITATION_PREFIX = "inv_"
 INVITATION_DAYS = 7
@@ -62,6 +63,8 @@ def agency_out(db: Session, agency: Agency) -> dict:
         "access_status": agency.access_status,
         "access_blocked_at": agency.access_blocked_at,
         "access_block_reason": agency.access_block_reason,
+        "features": agency_features.normalize(agency.features),
+        "plan": agency.plan,
     }
 
 

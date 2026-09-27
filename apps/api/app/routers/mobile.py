@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db, use_client
 from ..models import Agency, Client, PortalUser, PushDevice, now_utc
 from ..portal_features import enabled_keys
+from ..agency_features import effective_portal_keys
 from ..portal_permissions import permissions_for
 from ..ratelimit import login_rate_limit
 from ..services import access_policy
@@ -140,7 +141,7 @@ def _session_for(client: Client, agency: Agency, user: PortalUser | None, db: Se
         user_name=(user.name or "").strip() if user else "",
         role=user.role if user else None,
         permissions=sorted(permissions_for(user.role)) if user else [],
-        features=enabled_keys(client),
+        features=effective_portal_keys(client, agency),
         branding=_branding(client, agency),
         push=PushConfig(enabled=push_enabled(), provider=configured_provider()),
         privacy=disclosure(db, client),

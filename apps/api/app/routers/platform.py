@@ -16,6 +16,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_platform_admin
 from ..models import Agency, AgencySlugAlias, Agent, Client, PlatformAdmin, PlatformAuditEvent, UsageRecord
+from .. import agency_features
 from ..schemas_platform import (
     PlatformAccessUpdate,
     PlatformAgencyCreated,
@@ -24,6 +25,8 @@ from ..schemas_platform import (
     PlatformAgencyUpdate,
     PlatformAuditEventOut,
     PlatformClientOut,
+    PlatformFeaturesOut,
+    PlatformFeaturesUpdate,
     PlatformInfrastructureClient,
     PlatformInvitationCreate,
     PlatformInvitationIssued,
@@ -300,6 +303,47 @@ def _usage_totals(db: Session, agency_id: uuid.UUID | None) -> dict:
         "output_tokens": int(tokens_out),
         "cost_usd": float(cost) if cost is not None else None,
         "unpriced_replies": int(unpriced),
+    }
+
+
+@router.put("/agencies/{agency_id}/features", response_model=PlatformAgencyOut)
+def set_agency_features(
+    agency_id: uuid.UUID,
+    payload: PlatformFeaturesUpdate,
+    db: Session = Depends(get_db),
+    admin: PlatformAdmin = Depends(get_current_platform_admin),
+):
+    """The module switches, and which preset they came from. A ceiling: it
+    never rewrites what the agency and its clients chose below, it only caps
+    what the portal and mobile sessions expose."""
+    agency = db.get(Agency, agency_id)
+    if agency is None:
+        raise HTTPException(status_code=404, detail="Agency not found")
+    previous = agency_features.normalize(agency.features)
+    agency.features = agency_features.merged(agency.features, payload.features)
+    if payload.plan is not None:
+        if payload.plan and payload.plan not in agency_features.PRESETS:
+            raise HTTPException(status_code=422, detail=f"Unknown plan: {payload.plan}")
+        agency.plan = payload.plan
+    platform_service.record_audit(
+        db, admin, "agency.features_changed", target_agency_id=agency.id,
+        resource_type="agency", resource_id=str(agency.id),
+        details={"previous": previous, "features": agency_features.normalize(agency.features), "plan": agency.plan},
+    )
+    db.commit()
+    db.refresh(agency)
+    return platform_service.agency_out(db, agency)
+
+
+@router.get("/features", response_model=PlatformFeaturesOut)
+def feature_catalog(
+    db: Session = Depends(get_db),
+    admin: PlatformAdmin = Depends(get_current_platform_admin),
+):
+    """The module catalogue and the named presets the panel offers."""
+    return {
+        "catalog": [{"key": key, "default": default} for key, default in agency_features.CATALOG],
+        "presets": {name: list(keys) for name, keys in agency_features.PRESETS.items()},
     }
 
 

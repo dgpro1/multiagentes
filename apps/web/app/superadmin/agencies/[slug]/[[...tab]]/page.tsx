@@ -10,6 +10,7 @@ import { PlatformShell } from "@/components/platform-shell";
 import { Alert, EmptyState, PageHead } from "@/components/ui";
 import { SectionTabs } from "@/components/section-tabs";
 import { PLATFORM_AGENCY_TABS, platformAgencyPath, tabFromSegments } from "@/lib/routes";
+import { AGENCY_FEATURES, AGENCY_PRESETS, PRESET_NAMES, type AgencyFeature } from "@/lib/agency-features";
 import type { PlatformAgency, PlatformClient, PlatformInfrastructureClient, PlatformInvitation, PlatformUsage } from "@/types";
 
 function tokens(value: number): string {
@@ -26,6 +27,85 @@ function StatusPill({ status }: { status: string }) {
     <span className={`status ${status === "connected" || status === "active" ? "status-active" : status === "error" ? "status-inactive" : ""}`}>
       <i />{status}
     </span>
+  );
+}
+
+function PlanTab({ agency }: { agency: PlatformAgency }) {
+  const t = useT();
+  const [features, setFeatures] = useState<Record<string, boolean>>(agency.features);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  async function put(next: Record<string, boolean>, plan?: string) {
+    setBusy("all");
+    setError("");
+    try {
+      const body = await api<PlatformAgency>(`/platform/agencies/${agency.id}/features`, {
+        method: "PUT",
+        body: JSON.stringify(plan === undefined ? { features: next } : { features: next, plan }),
+      });
+      setFeatures(body.features);
+    } catch (err) {
+      setError(messageFrom(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function toggle(key: AgencyFeature, enabled: boolean) {
+    void put({ [key]: enabled });
+  }
+
+  function applyPreset(name: keyof typeof AGENCY_PRESETS) {
+    const keys = AGENCY_PRESETS[name];
+    const snapshot = Object.fromEntries(AGENCY_FEATURES.map((entry) => [entry.key, keys.includes(entry.key as never)]));
+    void put(snapshot, name);
+  }
+
+  return (
+    <section style={{ marginTop: 20 }}>
+      <div className="section-copy" style={{ marginBottom: 14 }}>
+        <h2>{t("platform.detail.planTitle")}</h2>
+        <p>{t("platform.detail.planCopy")}</p>
+      </div>
+      <div className="stitch-feature-grid">
+        {AGENCY_FEATURES.map((entry) => {
+          const on = features[entry.key] ?? entry.default;
+          return (
+            <div key={entry.key} className="stitch-feature-tile">
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
+                {t(`platform.detail.modules.${entry.key}` as const)}
+              </span>
+              <label className="stitch-switch">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={busy !== null}
+                  onChange={(event) => toggle(entry.key, event.target.checked)}
+                />
+                <span className="stitch-slider" />
+              </label>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 18, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, color: "var(--muted)" }}>{t("platform.detail.presetLabel")}:</span>
+        {PRESET_NAMES.map((name) => (
+          <button
+            key={name}
+            type="button"
+            className={agency.plan === name ? "button primary" : "button"}
+            disabled={busy !== null}
+            onClick={() => applyPreset(name)}
+          >
+            {t("platform.detail.apply")} {name}
+          </button>
+        ))}
+        {agency.plan && <small style={{ color: "var(--muted)" }}>{t("platform.detail.currentPlan", { plan: agency.plan })}</small>}
+      </div>
+      {error && <Alert>{error}</Alert>}
+    </section>
   );
 }
 
@@ -335,6 +415,7 @@ export default function PlatformAgencyPage() {
       {tab === "summary" && <SummaryTab agency={agency} />}
       {tab === "clients" && <ClientsTab agency={agency} />}
       {tab === "usage" && <UsageTab agency={agency} />}
+      {tab === "plan" && <PlanTab agency={agency} />}
       {tab === "infrastructure" && <InfrastructureTab agency={agency} />}
     </PlatformShell>
   );

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool
 
 
 class PlatformAdminOut(BaseModel):
@@ -46,11 +46,28 @@ class PlatformAgencyOut(BaseModel):
     access_status: str
     access_blocked_at: datetime | None
     access_block_reason: str
+    features: dict[str, bool]
+    plan: str
 
 
 class PlatformAccessUpdate(BaseModel):
     status: Literal["active", "blocked"]
     reason: str | None = Field(default=None, max_length=500)
+
+
+class PlatformFeatureEntry(BaseModel):
+    key: str
+    default: bool
+
+
+class PlatformFeaturesOut(BaseModel):
+    catalog: list[PlatformFeatureEntry]
+    presets: dict[str, list[str]]
+
+
+class PlatformFeaturesUpdate(BaseModel):
+    features: dict[str, StrictBool]
+    plan: str | None = Field(default=None, max_length=40)
 
 
 class PlatformClientOut(BaseModel):

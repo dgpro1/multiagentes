@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, aliased, joinedload, object_session, selecti
 from ..config import get_settings
 from ..database import get_db, new_client_session, new_session, use_client
 from ..industries import catalog as industry_catalog
+from .. import agency_features
 from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTagLink, Conversation, Message, PortalUser, Team, WhatsAppChannel, WhatsAppCloudChannel, now_utc
 from ..portal_features import enabled_keys, ensure_enabled
 from ..portal_permissions import APPOINTMENTS_MANAGE, CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, FIELDS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, RESOURCES_MANAGE, SERVICES_MANAGE, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
@@ -250,19 +251,22 @@ def require_permission(key: str):
 
 
 def require_feature(key: str):
-    """Route dependency: the agency must have switched ``key`` on for this client.
+    """Route dependency: the agency must have switched ``key`` on for this client,
+    and — for functions that consume an agency module — the platform must have
+    kept that module on for the agency.
 
     It resolves the client exactly as every other portal route does (through
     ``_portal_client``, which FastAPI evaluates once per request), so an
     unauthenticated call still gets its 401 first. This is the server half of
-    the agency's per-client feature switches: hiding a screen in the web app is
-    only a courtesy, this is what actually refuses the call. It stacks with
-    ``require_permission``: the feature must be on for the client AND the role
-    must hold the permission.
+    the feature switches: hiding a screen is only a courtesy, this is what
+    actually refuses the call. It stacks with ``require_permission``.
     """
 
-    def dependency(client: Client = Depends(_portal_client)) -> None:
+    def dependency(client: Client = Depends(_portal_client), db: Session = Depends(get_db)) -> None:
         ensure_enabled(client, key)
+        module = agency_features.MODULE_OF_PORTAL.get(key)
+        if module is not None:
+            agency_features.ensure_enabled(db.get(Agency, client.agency_id), module)
 
     return dependency
 
@@ -405,7 +409,7 @@ def portal_login(slug: str, payload: PortalLoginRequest, response: Response, db:
         "user_name": portal_user.name.strip() or portal_user.email,
         "role": portal_user.role,
         "permissions": sorted(permissions_for(portal_user.role)),
-        "features": enabled_keys(client),
+        "features": agency_features.effective_portal_keys(client, agency),
     }
 
 
@@ -431,7 +435,7 @@ def portal_me(
         "user_name": (user.name.strip() or user.email) if user else None,
         "role": user.role if user else None,
         "permissions": sorted(permissions_for(user.role)) if user else [],
-        "features": enabled_keys(client),
+        "features": agency_features.effective_portal_keys(client, agency),
     }
 
 

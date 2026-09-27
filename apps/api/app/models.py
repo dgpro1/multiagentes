@@ -8,6 +8,7 @@ from sqlalchemy.orm import object_session, Mapped, mapped_column, relationship
 
 from .database import Base
 from .portal_features import defaults as portal_feature_defaults
+from .agency_features import defaults as agency_feature_defaults
 
 
 def new_uuid() -> uuid.UUID:
@@ -43,6 +44,11 @@ class Agency(Base):
     access_blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     access_block_reason: Mapped[str] = mapped_column(Text, default="", server_default="")
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=now_utc, onupdate=now_utc)
+    # Which modules this agency may use, set by the platform owner (read through
+    # app.agency_features.normalize; a missing key means its default). "plan"
+    # records which preset the switches started from, for reporting.
+    features: Mapped[dict] = mapped_column(JSON, default=agency_feature_defaults, server_default=json.dumps(agency_feature_defaults()))
+    plan: Mapped[str] = mapped_column(String(40), default="", server_default="")
 
     users: Mapped[list["User"]] = relationship(back_populates="agency", cascade="all, delete-orphan")
 

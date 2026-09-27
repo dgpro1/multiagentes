@@ -112,7 +112,7 @@ export function tabFromSegments<T extends string>(tabs: readonly T[], segments: 
 
 // The platform panel (superadmin): its own address space, resolved the same
 // way as clients — slugs in page addresses, the REST API keeps UUIDs.
-export const PLATFORM_AGENCY_TABS = ["summary", "clients", "usage", "infrastructure"] as const;
+export const PLATFORM_AGENCY_TABS = ["summary", "plan", "clients", "usage", "infrastructure"] as const;
 export type PlatformAgencyTab = (typeof PLATFORM_AGENCY_TABS)[number];
 
 /** A platform agency address: "/superadmin/agencies/{slug}" for the summary. */

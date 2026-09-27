@@ -955,6 +955,8 @@ export type PlatformAgency = {
   access_status: string;
   access_blocked_at: string | null;
   access_block_reason: string;
+  features: Record<string, boolean>;
+  plan: string;
 };
 
 export type PlatformInvitation = {
