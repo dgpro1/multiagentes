@@ -20,15 +20,20 @@ def verify_password(password: str, password_hash: str) -> bool:
 def create_access_token(user_id: str) -> str:
     settings = get_settings()
     expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_minutes)
-    return jwt.encode({"sub": user_id, "exp": expires}, settings.secret_key, algorithm="HS256")
+    return jwt.encode({"sub": user_id, "type": "agency", "exp": expires}, settings.secret_key, algorithm="HS256")
 
 
 def decode_access_token(token: str) -> str | None:
+    """An agency session, and only that. Tokens issued before session types
+    existed carry no ``type`` and are accepted as agency sessions, the only
+    thing they ever were; a portal or platform token is refused here."""
     try:
         payload = jwt.decode(token, get_settings().secret_key, algorithms=["HS256"])
-        return payload.get("sub")
     except jwt.PyJWTError:
         return None
+    if payload.get("type") not in (None, "agency"):
+        return None
+    return payload.get("sub")
 
 
 def create_portal_token(client_id: str, portal_slug: str, portal_user_id: str | None = None) -> str:
@@ -55,6 +60,30 @@ def decode_portal_token(token: str) -> dict | None:
         return payload
     except jwt.PyJWTError:
         return None
+
+
+def create_platform_token(admin_id: str, session_version: int) -> str:
+    """A platform session: its own type and audience, so it can never resolve
+    as an agency or portal session and theirs can never resolve as this. The
+    ``ver`` claim carries the account's session version, which the dependency
+    checks against the row on every request."""
+    settings = get_settings()
+    expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_minutes)
+    return jwt.encode(
+        {"sub": admin_id, "type": "platform", "aud": "platform", "ver": session_version, "exp": expires},
+        settings.secret_key,
+        algorithm="HS256",
+    )
+
+
+def decode_platform_token(token: str) -> dict | None:
+    try:
+        payload = jwt.decode(token, get_settings().secret_key, algorithms=["HS256"], audience="platform")
+    except jwt.PyJWTError:
+        return None
+    if payload.get("type") != "platform":
+        return None
+    return payload
 
 
 def _fernet() -> Fernet:

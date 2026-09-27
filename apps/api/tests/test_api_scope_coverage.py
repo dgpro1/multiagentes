@@ -26,6 +26,7 @@ CLOSED_PREFIXES = (
     "/api/messaging",  # provider webhook housekeeping
     "/api/portal",     # the portal has its own credential model
     "/api/mobile",     # and so does the mobile app
+    "/api/platform",   # the platform owner's own credential model (get_current_platform_admin)
     "/api/widget",     # the embeddable widget is public
     "/api/public",     # webhooks and public assets
     "/api/internal",   # the driver-agnostic internal API

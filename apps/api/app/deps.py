@@ -20,9 +20,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import Agency, ApiToken, User
+from .models import Agency, ApiToken, PlatformAdmin, User
 from .ratelimit import api_token_rate_limit
-from .security import decode_access_token
+from .security import decode_access_token, decode_platform_token
 from .services.api_credentials import digest
 
 # A busy token would otherwise write its own timestamp on every request.
@@ -278,3 +278,32 @@ def require(*needed: str):
     # Read by _declared_scopes: this marker is what opens a route to API tokens.
     dependency.api_scopes = required
     return dependency
+
+
+def get_current_platform_admin(
+    request: Request,
+    platform_access_token: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+) -> PlatformAdmin:
+    """The platform owner behind the platform cookie, nothing else.
+
+    A separate cookie, token type and audience from the agency session:
+    neither side's token resolves here (see security.decode_platform_token),
+    and bearer credentials are deliberately not read, so an ``ol_`` API token
+    or an agency bearer has no path onto the platform surface.
+    """
+    if not platform_access_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not signed in")
+    payload = decode_platform_token(platform_access_token)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="The session expired")
+    try:
+        admin_id = uuid.UUID(payload["sub"])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session") from exc
+    admin = db.get(PlatformAdmin, admin_id)
+    if not admin or not admin.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This account is no longer active")
+    if payload.get("ver") != admin.session_version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="The session expired")
+    return admin

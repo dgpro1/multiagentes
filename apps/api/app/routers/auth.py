@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import Agency, User
+from ..models import Agency, PlatformAdmin, User
 from ..ratelimit import login_rate_limit
 from ..schemas import LoginRequest, RegisterRequest, UserOut
 from ..security import create_access_token, hash_password, verify_password
@@ -29,17 +29,23 @@ def _set_session_cookie(response: Response, user: User) -> None:
 
 
 def _registration_open(db: Session) -> bool:
-    return db.scalar(select(Agency.id).limit(1)) is None
+    # First-run setup stays available only while the instance has neither an
+    # agency nor a platform account: provisioning the platform closes public
+    # registration even before the first agency exists.
+    return (
+        db.scalar(select(Agency.id).limit(1)) is None
+        and db.scalar(select(PlatformAdmin.id).limit(1)) is None
+    )
 
 
 @router.get("/status", dependencies=[Depends(login_rate_limit)])
 def auth_status(db: Session = Depends(get_db)):
-    # Public: lets the login page decide between first-run setup (no agency
-    # yet) and sign-in only (single-agency instance already configured).
-    has_agency = db.scalar(select(Agency.id).limit(1)) is not None
+    # Public: lets the login page decide between first-run setup (nothing
+    # exists yet) and sign-in only.
+    needs_setup = _registration_open(db)
     return {
-        "needs_setup": not has_agency,
-        "registration_open": not has_agency,
+        "needs_setup": needs_setup,
+        "registration_open": needs_setup,
     }
 
 

@@ -1765,3 +1765,94 @@ class WebhookDelivery(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     subscription: Mapped[WebhookSubscription] = relationship(back_populates="deliveries")
+
+
+class PlatformAdmin(Base):
+    """The platform owner, above every agency.
+
+    A separate identity from ``User`` on purpose: an agency user always
+    belongs to one agency and most routes assume that, while these accounts
+    belong to none. The same e-mail may exist in both tables; each login
+    domain resolves only its own.
+    """
+
+    __tablename__ = "platform_admins"
+    __table_args__ = (UniqueConstraint("email", name="uq_platform_admins_email"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    name: Mapped[str] = mapped_column(String(160))
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # Bumped to invalidate every session this account holds (a reset, a lockout).
+    session_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+class AgencyAdminInvitation(Base):
+    """An invitation for an agency's first administrator.
+
+    Only the token's digest is stored; the link itself leaves the platform
+    once, when it is shown. Single use, and re-issuing revokes the previous
+    one at the API layer.
+    """
+
+    __tablename__ = "agency_admin_invitations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    token_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("platform_admins.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    agency: Mapped[Agency] = relationship()
+
+
+class PlatformAuditEvent(Base):
+    """One platform-level action. The actor's name is kept beside the id so a
+    disabled or removed account never blanks the log's story."""
+
+    __tablename__ = "platform_audit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("platform_admins.id", ondelete="SET NULL"), nullable=True
+    )
+    actor_name: Mapped[str] = mapped_column(String(160), default="", server_default="")
+    action: Mapped[str] = mapped_column(String(80), index=True)
+    target_agency_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agencies.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    resource_type: Mapped[str] = mapped_column(String(60), default="", server_default="")
+    resource_id: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    # Python name "details" because "metadata" is reserved by SQLAlchemy's
+    # declarative base; the column itself is still "metadata".
+    details: Mapped[dict] = mapped_column("metadata", JSON, default=dict, server_default="{}")
+    request_id: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+
+
+class AgencySlugAlias(Base):
+    """An identifier an agency used to hold, kept so old addresses resolve.
+
+    Renaming an agency moves the previous slug here in the same transaction;
+    creating or renaming must also refuse a slug that is somebody's alias.
+    """
+
+    __tablename__ = "agency_slug_aliases"
+    __table_args__ = (UniqueConstraint("slug", name="uq_agency_slug_aliases_slug"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    slug: Mapped[str] = mapped_column(String(180))
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    agency: Mapped[Agency] = relationship()

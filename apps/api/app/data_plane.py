@@ -39,6 +39,7 @@ CONTROL_PLANE: frozenset[str] = frozenset({
     "social_webhook_events", "social_history_imports", "calendar_members", "calendar_oauth_states",
     "client_storage_connections", "client_data_stores", "data_store_oauth_states",
     "canned_responses", "usage_records", "social_outbox", "hunterai_pending_inbound",
+    "platform_admins", "agency_admin_invitations", "platform_audit_events", "agency_slug_aliases",
 })
 
 
