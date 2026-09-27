@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from ..api_scopes import DESCRIPTIONS, known
 from ..database import get_db
 from ..deps import person_only
-from ..models import ApiIntegration, ApiToken, User
+from ..models import Agency, ApiIntegration, ApiToken, User
 from ..ratelimit import RateLimiter
 from ..schemas_oauth import (
     OAuthAuthorizeRequest,
@@ -31,7 +31,7 @@ from ..schemas_oauth import (
     OAuthTokenRequest,
     OAuthTokenResponse,
 )
-from ..services import api_credentials
+from ..services import access_policy, api_credentials
 
 router = APIRouter(prefix="/oauth", tags=["OAuth"])
 
@@ -162,6 +162,8 @@ def _exchange_code(db: Session, payload: OAuthTokenRequest) -> OAuthTokenRespons
     _check_secret(integration, payload.client_secret)
     if integration.revoked_at is not None:
         raise _oauth_error("invalid_grant", "This integration was revoked")
+    if access_policy.blocked(db.get(Agency, integration.agency_id)):
+        raise _oauth_error("access_denied", access_policy.BLOCKED_DETAIL)
     code = _active_token(db, payload.code, api_credentials.AUTH_CODE)
     if code is None or code.integration_id != integration.id or code.redirect_uri != payload.redirect_uri.strip():
         raise _oauth_error("invalid_grant", "Unknown, expired or already used code")
@@ -187,6 +189,8 @@ def _rotate_refresh(db: Session, payload: OAuthTokenRequest) -> OAuthTokenRespon
     _check_secret(integration, payload.client_secret)
     if integration.revoked_at is not None:
         raise _oauth_error("invalid_grant", "This integration was revoked")
+    if access_policy.blocked(db.get(Agency, integration.agency_id)):
+        raise _oauth_error("access_denied", access_policy.BLOCKED_DETAIL)
     refresh = _active_token(db, payload.refresh_token, api_credentials.REFRESH)
     if refresh is None or refresh.integration_id != integration.id:
         raise _oauth_error("invalid_grant", "Unknown or expired refresh token")

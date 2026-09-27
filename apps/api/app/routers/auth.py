@@ -9,6 +9,7 @@ from ..models import Agency, PlatformAdmin, User
 from ..ratelimit import login_rate_limit
 from ..schemas import LoginRequest, RegisterRequest, UserOut
 from ..security import create_access_token, hash_password, verify_password
+from ..services.access_policy import ensure_agency_active
 from ..slugs import unique_slug
 
 
@@ -88,6 +89,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    ensure_agency_active(user.agency)
     _set_session_cookie(response, user)
     return user
 

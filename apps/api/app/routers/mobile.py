@@ -28,6 +28,7 @@ from ..models import Agency, Client, PortalUser, PushDevice, now_utc
 from ..portal_features import enabled_keys
 from ..portal_permissions import permissions_for
 from ..ratelimit import login_rate_limit
+from ..services import access_policy
 from ..services.notifications import configured_provider, push_enabled
 from ..services.mobile_privacy import MobilePrivacy, disclosure
 from ..security import create_portal_token, decode_portal_token, verify_password
@@ -42,6 +43,24 @@ API_VERSION = 2
 class MobileSignInRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
+    # When the same e-mail opens several portals, the app asks which one and
+    # signs in again naming it; without it, several matches answer a 409
+    # challenge instead of silently picking one.
+    portal_slug: str | None = Field(default=None, max_length=180)
+
+
+class MobilePortalChoice(BaseModel):
+    portal_slug: str
+    agency_name: str
+    client_name: str
+    portal_title: str
+
+
+class MobileSignInChallenge(BaseModel):
+    """The body of the 409: every portal this e-mail and password open, so the
+    app can ask the person instead of guessing."""
+
+    portals: list[MobilePortalChoice]
 
 
 class MobileBranding(BaseModel):
@@ -133,14 +152,20 @@ def mobile_sign_in(payload: MobileSignInRequest, db: Session = Depends(get_db)):
     """Resolve a portal from its credentials and issue a bearer token.
 
     An e-mail does not identify a portal on its own, so every candidate is
-    checked against the password and the first that verifies wins. The failure
-    response never says whether the address exists.
+    checked against the password. One verified portal answers with its
+    session; several answer a 409 challenge naming each, so the app asks the
+    person instead of guessing; none answer 401 (or 403 when the only match
+    belongs to a blocked agency). The failure response never says whether the
+    address exists.
     """
     email = payload.email.lower()
+    wanted_slug = (payload.portal_slug or "").strip() or None
 
     users = db.scalars(
         select(PortalUser).where(PortalUser.email == email, PortalUser.is_active.is_(True))
     ).all()
+    matches: list[tuple[Client, Agency, PortalUser]] = []
+    verified_but_blocked = False
     for user in users:
         if not verify_password(payload.password, user.password_hash):
             continue
@@ -148,9 +173,29 @@ def mobile_sign_in(payload: MobileSignInRequest, db: Session = Depends(get_db)):
         if not client or not client.portal_enabled or not client.is_active:
             continue
         agency = db.get(Agency, client.agency_id)
-        if agency:
-            return _session_for(client, agency, user, db)
+        if agency is None:
+            continue
+        if access_policy.blocked(agency):
+            verified_but_blocked = True
+            continue
+        if wanted_slug and client.portal_slug != wanted_slug:
+            continue
+        matches.append((client, agency, user))
 
+    if len(matches) == 1:
+        client, agency, user = matches[0]
+        return _session_for(client, agency, user, db)
+    if len(matches) > 1:
+        raise HTTPException(status_code=409, detail=MobileSignInChallenge(
+            portals=[MobilePortalChoice(
+                portal_slug=client.portal_slug,
+                agency_name=agency.name,
+                client_name=client.name,
+                portal_title=client.portal_title or f"{client.name} Inbox",
+            ) for client, agency, _user in matches],
+        ).model_dump())
+    if verified_but_blocked:
+        raise HTTPException(status_code=403, detail=access_policy.BLOCKED_DETAIL)
     raise HTTPException(status_code=401, detail="Incorrect e-mail or password")
 
 
@@ -175,6 +220,7 @@ def _resolve(db: Session, authorization: str | None) -> tuple[Client, Agency, Po
     agency = db.get(Agency, client.agency_id)
     if not agency:
         raise HTTPException(status_code=401, detail="This portal is no longer available")
+    access_policy.ensure_agency_active(agency)
     user = None
     raw_user = payload.get("pu")
     if raw_user:

@@ -23,6 +23,7 @@ from .database import get_db
 from .models import Agency, ApiToken, PlatformAdmin, User
 from .ratelimit import api_token_rate_limit
 from .security import decode_access_token, decode_platform_token
+from .services.access_policy import ensure_agency_active
 from .services.api_credentials import digest
 
 # A busy token would otherwise write its own timestamp on every request.
@@ -120,6 +121,7 @@ def _session_user(access_token: str | None, db: Session) -> User:
     user = db.get(User, parsed_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    ensure_agency_active(db.get(Agency, user.agency_id))
     return user
 
 
@@ -199,6 +201,7 @@ def _token_principal(db: Session, raw: str, request: Request) -> Principal:
     integration = token.integration
     if integration is None or integration.revoked_at is not None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This API integration was revoked")
+    ensure_agency_active(db.get(Agency, integration.agency_id))
     # Kommo's public limit is 7 requests per second, counted per credential.
     api_token_rate_limit.check(str(token.id))
     principal = Principal(

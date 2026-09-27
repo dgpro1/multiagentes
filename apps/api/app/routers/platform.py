@@ -6,6 +6,7 @@ an invitee opens are the only public part and live in
 
 import re
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
@@ -16,6 +17,7 @@ from ..database import get_db
 from ..deps import get_current_platform_admin
 from ..models import Agency, AgencySlugAlias, Agent, Client, PlatformAdmin, PlatformAuditEvent
 from ..schemas_platform import (
+    PlatformAccessUpdate,
     PlatformAgencyCreated,
     PlatformAgencyCreate,
     PlatformAgencyOut,
@@ -161,6 +163,43 @@ def update_agency(
         db, admin, "agency.updated", target_agency_id=agency.id,
         resource_type="agency", resource_id=str(agency.id), details={"fields": sorted(values)},
     )
+    db.commit()
+    db.refresh(agency)
+    return platform_service.agency_out(db, agency)
+
+
+@router.put("/agencies/{agency_id}/access", response_model=PlatformAgencyOut)
+def set_agency_access(
+    agency_id: uuid.UUID,
+    payload: PlatformAccessUpdate,
+    db: Session = Depends(get_db),
+    admin: PlatformAdmin = Depends(get_current_platform_admin),
+):
+    """Block or restore an agency's access. Blocking denies every credential
+    of the agency at its next request (sessions, tokens, portals, mobile,
+    OAuth, invitations); it never touches messaging, data stores or channels.
+    Restoring leaves every per-client and per-channel setting untouched."""
+    agency = db.get(Agency, agency_id)
+    if agency is None:
+        raise HTTPException(status_code=404, detail="Agency not found")
+    if payload.status == "blocked":
+        if agency.access_status != "blocked":
+            agency.access_status = "blocked"
+            agency.access_blocked_at = datetime.now(timezone.utc)
+            agency.access_block_reason = (payload.reason or "").strip()
+            platform_service.record_audit(
+                db, admin, "agency.blocked", target_agency_id=agency.id,
+                resource_type="agency", resource_id=str(agency.id),
+                details={"reason": agency.access_block_reason},
+            )
+    elif agency.access_status != "active":
+        agency.access_status = "active"
+        agency.access_blocked_at = None
+        agency.access_block_reason = ""
+        platform_service.record_audit(
+            db, admin, "agency.unblocked", target_agency_id=agency.id,
+            resource_type="agency", resource_id=str(agency.id),
+        )
     db.commit()
     db.refresh(agency)
     return platform_service.agency_out(db, agency)

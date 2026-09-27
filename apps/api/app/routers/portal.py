@@ -18,6 +18,7 @@ from ..models import Agency, Agent, CannedResponse, Client, Contact, ContactTagL
 from ..portal_features import enabled_keys, ensure_enabled
 from ..portal_permissions import APPOINTMENTS_MANAGE, CALENDAR_MANAGE, CANNED_MANAGE, CLIENT_MANAGE, CONTACTS_MANAGE, FIELDS_MANAGE, INBOX_DELETE, PIPELINE_MANAGE, PROFESSIONALS_MANAGE, REPORTS_VIEW, RESOURCES_MANAGE, SERVICES_MANAGE, TAGS_MANAGE, TEAMS_MANAGE, TEMPLATES_MANAGE, has_permission, permissions_for
 from ..ratelimit import login_rate_limit, public_asset_rate_limit
+from ..services.access_policy import ensure_agency_active
 from ..schemas import (
     ClientDetailsOut,
     ClientDetailsUpdate,
@@ -186,6 +187,7 @@ def _portal_client(
     client = db.scalar(select(Client).where(Client.id == client_id, Client.portal_slug == slug, Client.portal_enabled.is_(True)))
     if not client:
         raise HTTPException(status_code=401, detail="The portal is no longer available")
+    ensure_agency_active(db.get(Agency, client.agency_id))
     # A named session must stay tied to an active member of this portal.
     # Removing a member cannot turn their token into an anonymous legacy one.
     if payload.get("pu"):

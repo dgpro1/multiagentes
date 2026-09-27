@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -42,6 +43,14 @@ class PlatformAgencyOut(BaseModel):
     created_at: datetime
     client_count: int
     agent_count: int
+    access_status: str
+    access_blocked_at: datetime | None
+    access_block_reason: str
+
+
+class PlatformAccessUpdate(BaseModel):
+    status: Literal["active", "blocked"]
+    reason: str | None = Field(default=None, max_length=500)
 
 
 class PlatformClientOut(BaseModel):

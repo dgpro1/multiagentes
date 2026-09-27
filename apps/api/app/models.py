@@ -36,6 +36,13 @@ class Agency(Base):
     logo_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     logo_mime: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    # Access blocking, set by the platform owner (app/services/access_policy.py):
+    # "blocked" denies sessions, logins, tokens, portals, mobile sessions and
+    # invitations — never the messaging itself, which keeps running.
+    access_status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
+    access_blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    access_block_reason: Mapped[str] = mapped_column(Text, default="", server_default="")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=now_utc, onupdate=now_utc)
 
     users: Mapped[list["User"]] = relationship(back_populates="agency", cascade="all, delete-orphan")
 

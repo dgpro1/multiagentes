@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Agency, AgencyAdminInvitation, Agent, Client, PlatformAdmin, PlatformAuditEvent, User
 from ..security import hash_password
+from ..services import access_policy
 from ..services.api_credentials import digest
 from ..slugs import slug_free, slugify, unique_agency_slug
 
@@ -58,6 +59,9 @@ def agency_out(db: Session, agency: Agency) -> dict:
         "created_at": agency.created_at,
         "client_count": int(client_count),
         "agent_count": int(agent_count),
+        "access_status": agency.access_status,
+        "access_blocked_at": agency.access_blocked_at,
+        "access_block_reason": agency.access_block_reason,
     }
 
 
@@ -171,6 +175,8 @@ def accept_invitation(db: Session, raw: str, password: str, name: str | None = N
     )
     if invitation is None:
         raise HTTPException(status_code=404, detail="This invitation does not exist")
+    if access_policy.blocked(db.get(Agency, invitation.agency_id)):
+        raise HTTPException(status_code=403, detail=access_policy.BLOCKED_DETAIL)
     if invitation.revoked_at is not None or invitation.accepted_at is not None:
         raise HTTPException(status_code=410, detail="This invitation has already been used or was revoked")
     if invitation.expires_at <= datetime.now(timezone.utc):
