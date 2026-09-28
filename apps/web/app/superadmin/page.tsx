@@ -61,6 +61,35 @@ export default function PlatformOverviewPage() {
             </table>
           </div>
           <section style={{ marginTop: 24 }}>
+            <h2>{t("platform.overview.linesTitle")}</h2>
+            <p style={{ color: "var(--muted)", fontSize: 13 }}>{t("platform.overview.linesCopy")}</p>
+            <div className="table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("platform.overview.channelType")}</th>
+                    <th>{t("platform.overview.linesUsed")}</th>
+                    <th>{t("platform.overview.agenciesCapped")}</th>
+                    <th>{t("platform.overview.agenciesAtLimit")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.channels.map((row) => (
+                    <tr key={row.key}>
+                      <td>{t(`platform.detail.modules.${row.key}` as const)}</td>
+                      <td>{row.used}</td>
+                      <td>{row.agencies_capped}</td>
+                      <td style={{ color: row.agencies_at_limit > 0 ? "#b91c1c" : undefined }}>
+                        {row.agencies_at_limit}
+                        {row.agencies_over_limit > 0 ? ` (${t("platform.overview.agenciesOverLimit", { count: row.agencies_over_limit })})` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section style={{ marginTop: 24 }}>
             <h2>{t("platform.overview.recentTitle")}</h2>
             {data.recent_events.length === 0 ? (
               <EmptyState icon={<ScrollText size={20} />} title={t("platform.overview.recentEmpty")} description="" />

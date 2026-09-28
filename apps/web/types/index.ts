@@ -1,3 +1,7 @@
+// The countable channel types come from the mirror of the API catalog, so a key
+// that reaches a quota type is always one the API can count.
+import type { QuotaFeature } from "@/lib/agency-features";
+
 export type User = {
   id: string;
   name: string;
@@ -308,7 +312,7 @@ export type WidgetChannel = {
 /** How many lines of one channel type a client may connect: the agency's plan,
  * its own share of it, what it uses, and what is left. null means no limit. */
 export type ChannelAllowance = {
-  key: string;
+  key: QuotaFeature;
   label: string;
   agency_quota: number | null;
   allocation: number | null;
@@ -320,7 +324,7 @@ export type ChannelAllowance = {
 /** The agency's whole distribution: one entry per channel type (the plan and what
  * is connected) and one per client (what it uses and what it was assigned). */
 export type ChannelQuotaMatrix = {
-  types: { key: string; label: string; quota: number | null; used: number }[];
+  types: { key: QuotaFeature; label: string; quota: number | null; used: number }[];
   clients: { id: string; name: string; slug: string; used: Record<string, number>; allocations: Record<string, number> }[];
 };
 
@@ -1041,6 +1045,16 @@ export type PlatformOverview = {
   clients: number;
   agents: number;
   usage: PlatformUsageTotal;
+  /** Every channel type across the installation, with how many agencies capped it
+   * and how many are at or over their cap. */
+  channels: {
+    key: QuotaFeature;
+    label: string;
+    used: number;
+    agencies_capped: number;
+    agencies_at_limit: number;
+    agencies_over_limit: number;
+  }[];
   recent_events: PlatformAuditEvent[];
 };
 

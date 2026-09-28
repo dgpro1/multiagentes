@@ -199,10 +199,23 @@ class PlatformInfrastructureClient(BaseModel):
     storage: dict | None
 
 
+class PlatformChannelLine(BaseModel):
+    """One channel type across the whole installation: what is connected, how many
+    agencies capped it, and how many are at or over their cap — the platform's list
+    of who to talk to about a bigger plan."""
+    key: str
+    label: str
+    used: int
+    agencies_capped: int
+    agencies_at_limit: int
+    agencies_over_limit: int
+
+
 class PlatformOverviewOut(BaseModel):
     agencies: int
     blocked_agencies: int
     clients: int
     agents: int
     usage: PlatformUsageTotal
+    channels: list[PlatformChannelLine]
     recent_events: list[PlatformAuditEventOut]

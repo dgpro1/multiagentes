@@ -157,6 +157,16 @@ def _counts_by_client(db: Session, key: str, agency_id: uuid.UUID) -> dict[uuid.
     return {row[0]: int(row[1]) for row in db.execute(query)}
 
 
+def _counts_by_agency(db: Session, key: str) -> dict[uuid.UUID, int]:
+    """One query for every agency, for the platform's own view."""
+    model, provider = _rows(key)
+    query = _scoped(
+        select(model.agency_id, func.count()).select_from(model).group_by(model.agency_id),
+        model, provider,
+    )
+    return {row[0]: int(row[1]) for row in db.execute(query)}
+
+
 def used_by_agency(db: Session, agency_id: uuid.UUID, key: str) -> int:
     return _count(db, key, agency_id=agency_id)
 
@@ -180,13 +190,38 @@ def check(db: Session, agency: Agency, client: Client, key: str) -> None:
     The agency row is locked first: two simultaneous creations would otherwise
     both read "under the quota" and both insert, breaking the promise the
     platform made to the agency.
+
+    Which limit was hit decides what the message says, because the two have
+    different owners: the client's share is the agency's to change, the plan is
+    the platform's. When both are full, saying so is the only useful answer —
+    otherwise the agency reassigns lines that do not exist.
     """
     db.execute(select(Agency.id).where(Agency.id == agency.id).with_for_update())
 
     label = LABELS.get(key, key)
+    quota = quota_of(agency, key)
     allocation = allocation_of(client, key)
+
+    if quota == 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{label} lines are not included in this agency's plan. Ask the platform to raise the plan.",
+        )
+
     used_client = used_by_client(db, client.id, key)
-    if allocation is not None and used_client >= allocation:
+    used_agency = used_by_agency(db, agency.id, key)
+    client_full = allocation is not None and used_client >= allocation
+    plan_full = quota is not None and used_agency >= quota
+
+    if client_full and plan_full:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This client has used its {allocation} {label} line(s) and the agency has used all "
+                f"{quota} of its plan. Ask the platform to raise the plan."
+            ),
+        )
+    if client_full:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -194,10 +229,7 @@ def check(db: Session, agency: Agency, client: Client, key: str) -> None:
                 "Remove one, or assign it more from the agency's pool."
             ),
         )
-
-    quota = quota_of(agency, key)
-    used_agency = used_by_agency(db, agency.id, key)
-    if quota is not None and used_agency >= quota:
+    if plan_full:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -308,3 +340,35 @@ def matrix(db: Session, agency: Agency, only_client_id: uuid.UUID | None = None)
             for client in clients
         ],
     }
+
+
+def installation_summary(db: Session) -> list[dict]:
+    """Every channel type across the whole installation: what is connected, how
+    many agencies put a cap on it, and how many are at or over theirs. This is the
+    platform's list of who to talk to about a bigger plan, and it costs one query
+    per channel type."""
+    rows = db.execute(select(Agency.id, Agency.channel_quotas)).all()
+    quotas_by_agency = {row[0]: normalize(row[1]) for row in rows}
+    out: list[dict] = []
+    for key in CATALOG:
+        counts = _counts_by_agency(db, key)
+        capped = at_limit = over_limit = 0
+        for agency_id, quotas in quotas_by_agency.items():
+            quota = quotas.get(key)
+            if quota is None:
+                continue
+            capped += 1
+            mine = counts.get(agency_id, 0)
+            if mine >= quota:
+                at_limit += 1
+            if mine > quota:
+                over_limit += 1
+        out.append({
+            "key": key,
+            "label": LABELS.get(key, key),
+            "used": sum(counts.values()),
+            "agencies_capped": capped,
+            "agencies_at_limit": at_limit,
+            "agencies_over_limit": over_limit,
+        })
+    return out

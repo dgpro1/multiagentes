@@ -123,6 +123,31 @@ def test_an_allocation_above_the_pool_still_meets_the_pool(authenticated_client)
     assert _add_line(client, customer, agent).status_code == 409
 
 
+def test_when_both_limits_are_hit_the_message_says_so(authenticated_client):
+    """The client's share and the agency's plan have different owners, so a
+    message that only mentions the share sends the agency looking for lines that
+    are not there."""
+    client = authenticated_client
+    customer, agent = _client_with_agent(client)
+    _set_quota(_agency_id(client), "channels.whatsapp", 1)
+    _set_allocation(customer["id"], "channels.whatsapp", 1)
+    assert _add_line(client, customer, agent).status_code == 201
+    refused = _add_line(client, customer, agent)
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert "has used its 1" in detail and "the agency has used all 1" in detail
+    assert "raise the plan" in detail
+
+
+def test_a_type_the_plan_excludes_says_that_instead_of_zero(authenticated_client):
+    client = authenticated_client
+    customer, agent = _client_with_agent(client)
+    _set_quota(_agency_id(client), "channels.whatsapp", 0)
+    refused = _add_line(client, customer, agent)
+    assert refused.status_code == 409
+    assert "not included in this agency's plan" in refused.json()["detail"]
+
+
 # --- What does not consume a slot -------------------------------------------
 
 def test_deleting_a_line_frees_its_slot(authenticated_client):
@@ -243,3 +268,43 @@ def test_the_typescript_mirror_lists_the_same_countable_types():
     assert len(block) == 2, "could not find QUOTA_FEATURES in agency-features.ts"
     listed = re.findall(r'"(channels\.[a-z_]+)"', block[1].split("] as const", 1)[0])
     assert listed == list(channel_quotas.CATALOG), "apps/web/lib/agency-features.ts and app/channel_quotas.py drifted"
+
+
+def test_the_installation_summary_says_who_is_at_the_limit(authenticated_client):
+    """The platform's answer to "who do I call about a bigger plan?": how much is
+    connected per type across every agency, and how many capped agencies are at or
+    over their number."""
+    client = authenticated_client
+    agency_id = uuid.UUID(_agency_id(client))
+    with TestingSession() as db:
+        from app.models import Agent, Agency as AgencyModel, WhatsAppChannel
+
+        first = db.get(AgencyModel, agency_id)
+        first.channel_quotas = {"channels.whatsapp": 1}
+        under = AgencyModel(name="Bajo", slug="bajo", channel_quotas={"channels.whatsapp": 5})
+        over = AgencyModel(name="Pasado", slug="pasado", channel_quotas={"channels.whatsapp": 1})
+        uncapped = AgencyModel(name="Libre", slug="libre")
+        db.add_all([under, over, uncapped])
+        db.flush()
+        # first: 1 of 1 (at its limit); under: 1 of 5; over: 2 of 1 (over it); uncapped: 3, no plan
+        for agency, count in ((first, 1), (under, 1), (over, 2), (uncapped, 3)):
+            customer = Client(agency_id=agency.id, name=f"Cliente {agency.name}", portal_slug=f"cliente-{agency.slug}")
+            db.add(customer)
+            db.flush()
+            agent = Agent(agency_id=agency.id, client_id=customer.id, name="Bot", provider="openrouter",
+                          model="openai/gpt-5.6-luna")
+            db.add(agent)
+            db.flush()
+            for _ in range(count):
+                db.add(WhatsAppChannel(agency_id=agency.id, client_id=customer.id, agent_id=agent.id))
+        db.commit()
+        summary = channel_quotas.installation_summary(db)
+
+    whatsapp = next(row for row in summary if row["key"] == "channels.whatsapp")
+    assert whatsapp["used"] == 7
+    assert whatsapp["agencies_capped"] == 3
+    assert whatsapp["agencies_at_limit"] == 2
+    assert whatsapp["agencies_over_limit"] == 1
+    # A type nobody capped anywhere is reported too, so the columns are stable.
+    messenger = next(row for row in summary if row["key"] == "channels.messenger")
+    assert (messenger["used"], messenger["agencies_capped"]) == (0, 0)

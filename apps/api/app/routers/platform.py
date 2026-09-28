@@ -381,6 +381,7 @@ def overview(db: Session = Depends(get_db), admin: PlatformAdmin = Depends(get_c
         "clients": int(clients),
         "agents": int(agents),
         "usage": _usage_totals(db, None),
+        "channels": channel_quotas.installation_summary(db),
         "recent_events": [_audit_out(row) for row in recent],
     }
 
