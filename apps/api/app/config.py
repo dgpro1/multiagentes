@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # unaffected).
     evolution_api_url: str = ""
     evolution_api_key: str = ""
+    # Optional pool of deployments (comma-separated) for when one server is not
+    # enough. New QR lines are placed on the one serving the fewest lines; lines
+    # already paired keep the deployment they are on. Empty means the single
+    # evolution_api_url, which is the normal case.
+    evolution_api_urls: str = ""
     # Shared secret Evolution sends in the webhook Authorization header.
     evolution_webhook_secret: str = ""
     # Absolute URL Evolution calls with events. Inside Docker this is the API

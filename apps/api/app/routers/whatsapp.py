@@ -13,7 +13,8 @@ from ..config import get_settings
 from ..database import get_db, use_client
 from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
 from ..deps import confine, get_current_user, require
-from ..models import Agent, Client, Conversation, Message, User, WhatsAppChannel, now_utc
+from ..models import Agency, Agent, Client, Conversation, Message, User, WhatsAppChannel, now_utc
+from .. import channel_quotas
 from ..schemas import (
     WhatsAppChannelOut,
     WhatsAppChannelUpdate,
@@ -164,7 +165,12 @@ def create_channel(
     """Add another line to the client. It is linked afterwards by scanning its QR."""
     client = _owned_client(db, user, client_id)
     agent = _client_agent(db, user, client.id, payload.agent_id)
-    channel = WhatsAppChannel(agency_id=user.agency_id, client_id=client.id, agent_id=agent.id)
+    # The agency's plan and the client's share of it, both ceilings.
+    channel_quotas.check(db, db.get(Agency, user.agency_id), client, "channels.whatsapp")
+    channel = WhatsAppChannel(
+        agency_id=user.agency_id, client_id=client.id, agent_id=agent.id,
+        evolution_endpoint=evolution_driver.choose_endpoint(db),
+    )
     _apply_label(channel, payload)
     db.add(channel)
     db.commit()
@@ -196,7 +202,11 @@ async def configure_channel(
         )
         if not channel:
             agent = _client_agent(db, user, client.id, payload.agent_id)
-            channel = WhatsAppChannel(agency_id=user.agency_id, client_id=client.id, agent_id=agent.id)
+            channel_quotas.check(db, db.get(Agency, user.agency_id), client, "channels.whatsapp")
+            channel = WhatsAppChannel(
+                agency_id=user.agency_id, client_id=client.id, agent_id=agent.id,
+                evolution_endpoint=evolution_driver.choose_endpoint(db),
+            )
             db.add(channel)
     agent = _client_agent(db, user, channel.client_id, payload.agent_id)
     channel.agent_id = agent.id

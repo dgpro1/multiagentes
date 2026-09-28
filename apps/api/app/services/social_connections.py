@@ -15,8 +15,9 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..deps import confine, confined_client_id
-from ..models import Agent, Client, SocialChannel, SocialOAuthState, User, new_public_id, now_utc
+from ..models import Agency, Agent, Client, SocialChannel, SocialOAuthState, User, new_public_id, now_utc
 from ..security import decrypt_secret
+from .. import channel_quotas
 from . import messaging_provider as provider
 from . import messaging_profiles as profiles
 from . import portal_return
@@ -160,6 +161,7 @@ async def connect_account(db: Session, user: User, client_id, agent_id, provider
     username = remote.get("username") or account.get("username")
     try:
         if not channel:
+            channel_quotas.check(db, db.get(Agency, user.agency_id), client, f"channels.{provider_name}")
             channel = SocialChannel(agency_id=user.agency_id, client_id=client_id, agent_id=agent_id, provider=provider_name, webhook_verify_token=new_public_id())
             db.add(channel)
         channel.agent_id = agent_id

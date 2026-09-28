@@ -14,6 +14,8 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import WhatsAppChannel, now_utc
@@ -26,9 +28,24 @@ logger = logging.getLogger(__name__)
 _STATUS_MAP = {"open": "connected", "connecting": "connecting", "close": "reconnecting"}
 
 
-def configured() -> bool:
+def endpoints() -> list[str]:
+    """Every Evolution API deployment this installation talks to.
+
+    One URL is the normal case (``EVOLUTION_API_URL``). ``EVOLUTION_API_URLS``
+    adds more, comma-separated, for the day one server is not enough: new lines
+    then spread over the pool while the ones already paired stay where they are,
+    because a Baileys session cannot move without scanning the QR again.
+    """
     settings = get_settings()
-    return bool(settings.evolution_api_url.strip() and settings.evolution_api_key.strip())
+    pool = [item.strip().rstrip("/") for item in settings.evolution_api_urls.split(",") if item.strip()]
+    single = settings.evolution_api_url.strip().rstrip("/")
+    if single and single not in pool:
+        pool.insert(0, single)
+    return pool
+
+
+def configured() -> bool:
+    return bool(endpoints() and get_settings().evolution_api_key.strip())
 
 
 def enabled() -> bool:
@@ -36,6 +53,36 @@ def enabled() -> bool:
     QR lines. There is no other driver — an unconfigured deployment simply has
     no WhatsApp QR channel available."""
     return configured()
+
+
+def endpoint_for(channel: WhatsAppChannel | None) -> str:
+    """The deployment serving this line: what the line recorded when it was
+    created, or the installation's single URL (which is what every line created
+    before the column existed uses)."""
+    recorded = (getattr(channel, "evolution_endpoint", "") or "").strip().rstrip("/")
+    if recorded:
+        return recorded
+    pool = endpoints()
+    return pool[0] if pool else ""
+
+
+def choose_endpoint(db: Session) -> str:
+    """Where a NEW line should live: the deployment serving the fewest lines, so
+    adding a second one spreads the new lines over it instead of doubling up on
+    the first. Empty when nothing is configured."""
+    pool = endpoints()
+    if not pool:
+        return ""
+    if len(pool) == 1:
+        return pool[0]
+    counts = {url: 0 for url in pool}
+    for recorded, total in db.execute(
+        select(WhatsAppChannel.evolution_endpoint, func.count()).group_by(WhatsAppChannel.evolution_endpoint)
+    ):
+        url = (recorded or "").strip().rstrip("/") or pool[0]
+        if url in counts:
+            counts[url] += int(total)
+    return min(pool, key=lambda url: counts[url])
 
 
 def instance_name(channel: WhatsAppChannel) -> str:
@@ -53,12 +100,19 @@ def _headers() -> dict[str, str]:
     return {"apikey": get_settings().evolution_api_key.strip()}
 
 
-async def request(method: str, path: str, *, json: dict | None = None, timeout: float = 30) -> Any:
-    """Call the Evolution API, mapping connection/HTTP failures to HTTPException."""
-    if not configured():
+async def request(
+    method: str, path: str, *, channel: WhatsAppChannel, json: dict | None = None, timeout: float = 30
+) -> Any:
+    """Call the Evolution API deployment that serves ``channel``, mapping
+    connection/HTTP failures to HTTPException.
+
+    ``channel`` is required on purpose: every call in this module belongs to one
+    line, and resolving the endpoint from the line is what lets a second
+    deployment be added without touching the ones already paired.
+    """
+    base = endpoint_for(channel)
+    if not base or not get_settings().evolution_api_key.strip():
         raise HTTPException(status_code=409, detail="The Evolution API is not configured")
-    settings = get_settings()
-    base = settings.evolution_api_url.strip().rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.request(method, f"{base}{path}", headers=_headers(), json=json)
@@ -86,7 +140,7 @@ def _state_of(instance: dict) -> str | None:
 async def fetch_instance(channel: WhatsAppChannel) -> dict | None:
     """The Evolution instance record for this line, or None when absent."""
     try:
-        result = await request("GET", f"/instance/fetchInstances?instanceName={instance_name(channel)}")
+        result = await request("GET", f"/instance/fetchInstances?instanceName={instance_name(channel)}", channel=channel)
     except HTTPException as exc:
         if exc.status_code == 502:  # 404 from Evolution: not created yet
             return None
@@ -112,7 +166,7 @@ async def _create_instance(channel: WhatsAppChannel) -> dict:
             "headers": {"Authorization": f"Bearer {settings.evolution_webhook_secret.strip()}"},
         },
     }
-    return await request("POST", "/instance/create", json=payload)
+    return await request("POST", "/instance/create", json=payload, channel=channel)
 
 
 async def ensure_instance(channel: WhatsAppChannel) -> dict:
@@ -141,7 +195,7 @@ async def connect(channel: WhatsAppChannel) -> None:
     channel.last_error = None
     await ensure_instance(channel)
     try:
-        result = await request("GET", f"/instance/connect/{instance_name(channel)}", timeout=60)
+        result = await request("GET", f"/instance/connect/{instance_name(channel)}", timeout=60, channel=channel)
     except HTTPException as exc:
         channel.status = "error"
         channel.last_error = str(exc.detail)
@@ -154,7 +208,7 @@ async def connect(channel: WhatsAppChannel) -> None:
 async def disconnect(channel: WhatsAppChannel) -> None:
     """Log the phone out but keep the instance (a new QR can be requested)."""
     try:
-        await request("DELETE", f"/instance/logout/{instance_name(channel)}")
+        await request("DELETE", f"/instance/logout/{instance_name(channel)}", channel=channel)
     except HTTPException as exc:
         if exc.status_code != 502:  # logout of a never-connected instance 404s
             raise
@@ -171,7 +225,7 @@ async def delete_instance(channel: WhatsAppChannel) -> None:
     """Remove the Evolution instance entirely. Best-effort: the local row is
     going away regardless, and a missing instance is already the goal."""
     try:
-        await request("DELETE", f"/instance/delete/{instance_name(channel)}")
+        await request("DELETE", f"/instance/delete/{instance_name(channel)}", channel=channel)
     except HTTPException as exc:
         if exc.status_code != 502:  # 404: nothing left to delete
             raise
@@ -183,7 +237,7 @@ async def connection_state(channel: WhatsAppChannel) -> str:
     state = _state_of(instance) if instance else None
     if not state:
         try:
-            result = await request("GET", f"/instance/connectionState/{instance_name(channel)}")
+            result = await request("GET", f"/instance/connectionState/{instance_name(channel)}", channel=channel)
             state = (result.get("instance") or {}).get("state")
         except HTTPException:
             state = None
@@ -241,12 +295,12 @@ async def send_text(channel: WhatsAppChannel, chat_jid: str, text: str, *, quote
             "message": {"conversation": ""},
         }
     try:
-        result = await request("POST", f"/message/sendText/{instance_name(channel)}", json=payload)
+        result = await request("POST", f"/message/sendText/{instance_name(channel)}", json=payload, channel=channel)
     except HTTPException as exc:
         if quoted_external_id and exc.status_code == 502:
             # The quoted message may no longer be quotable; deliver plain text.
             payload.pop("quoted")
-            result = await request("POST", f"/message/sendText/{instance_name(channel)}", json=payload)
+            result = await request("POST", f"/message/sendText/{instance_name(channel)}", json=payload, channel=channel)
         else:
             raise
     return ((result.get("key") or {}).get("id")) if isinstance(result, dict) else None
@@ -274,7 +328,7 @@ async def send_media(
     }
     if filename:
         payload["fileName"] = filename
-    result = await request("POST", f"/message/sendMedia/{instance_name(channel)}", json=payload, timeout=90)
+    result = await request("POST", f"/message/sendMedia/{instance_name(channel)}", json=payload, timeout=90, channel=channel)
     return ((result.get("key") or {}).get("id")) if isinstance(result, dict) else None
 
 
@@ -289,14 +343,14 @@ async def mark_read(channel: WhatsAppChannel, chat_jid: str, message_ids: list[s
                     {"remoteJid": chat_jid, "id": item, "fromMe": False} for item in message_ids
                 ]
             },
-        )
+         channel=channel)
     if typing:
         try:
             await request(
                 "POST",
                 f"/chat/sendPresence/{instance_name(channel)}",
                 json={"number": chat_jid, "presence": "composing", "delay": 5000},
-            )
+             channel=channel)
         except HTTPException:
             pass  # presence is cosmetic
 
@@ -309,7 +363,7 @@ async def send_reaction(channel: WhatsAppChannel, chat_jid: str, external_messag
             "key": {"remoteJid": chat_jid, "fromMe": target_from_me, "id": external_message_id},
             "reaction": emoji,
         },
-    )
+     channel=channel)
 
 
 def settings_payload(channel: WhatsAppChannel) -> dict:
@@ -333,7 +387,7 @@ async def apply_settings(channel: WhatsAppChannel) -> None:
     """Push the line's toggles to the instance. Best-effort: an offline
     Evolution must not break configure/connect flows."""
     try:
-        await request("POST", f"/settings/set/{instance_name(channel)}", json=settings_payload(channel))
+        await request("POST", f"/settings/set/{instance_name(channel)}", json=settings_payload(channel), channel=channel)
     except HTTPException:
         logger.info("Evolution settings could not be applied for line %s", channel.id)
 
@@ -356,7 +410,7 @@ async def send_location(
         payload["name"] = name.strip()
     if address.strip():
         payload["address"] = address.strip()
-    result = await request("POST", f"/message/sendLocation/{instance_name(channel)}", json=payload)
+    result = await request("POST", f"/message/sendLocation/{instance_name(channel)}", json=payload, channel=channel)
     return ((result.get("key") or {}).get("id")) if isinstance(result, dict) else None
 
 
@@ -366,7 +420,7 @@ async def group_info(channel: WhatsAppChannel, group_jid: str) -> dict:
             "GET",
             f"/group/findGroupInfos/{instance_name(channel)}?groupJid={group_jid}",
             timeout=15,
-        )
+         channel=channel)
     except HTTPException:
         return {}  # a vanished or foreign group: the chat id stays the title
 
@@ -387,7 +441,7 @@ async def set_webhook(channel: WhatsAppChannel) -> None:
                 "headers": {"Authorization": f"Bearer {settings.evolution_webhook_secret.strip()}"},
             }
         },
-    )
+     channel=channel)
 
 
 async def restore_channel(channel: WhatsAppChannel) -> None:

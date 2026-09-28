@@ -19,6 +19,7 @@ from ..services import access_policy
 from ..services.api_credentials import digest
 from ..slugs import slug_free, slugify, unique_agency_slug
 from .. import agency_features
+from .. import channel_quotas
 
 INVITATION_PREFIX = "inv_"
 INVITATION_DAYS = 7
@@ -65,6 +66,8 @@ def agency_out(db: Session, agency: Agency) -> dict:
         "access_block_reason": agency.access_block_reason,
         "features": agency_features.normalize(agency.features),
         "plan": agency.plan,
+        "channel_quotas": {key: value for key, value in channel_quotas.normalize(agency.channel_quotas).items() if value is not None},
+        "channel_used": channel_quotas.used_map(db, agency.id),
     }
 
 

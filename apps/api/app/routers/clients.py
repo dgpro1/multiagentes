@@ -5,6 +5,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..api_scopes import (
+    CHANNELS_MANAGE,
+    CHANNELS_READ,
     CLIENTS_READ,
     CLIENTS_WRITE,
     TAGS_MANAGE,
@@ -16,10 +18,13 @@ from ..api_scopes import (
 )
 from ..database import get_db, use_client
 from ..deps import confined_client_id, get_current_user, require
-from ..models import Agent, Client, Contact, Conversation, PortalUser, PushDevice, User, new_domain_token, Team
+from ..models import Agency, Agent, Client, Contact, Conversation, PortalUser, PushDevice, User, new_domain_token, Team
 from ..portal_features import merged as merged_features
 from ..portal_permissions import DEFAULT_ROLE
+from .. import channel_quotas
 from ..schemas import (
+    ChannelAllowanceOut,
+    ChannelAllowanceUpdate,
     ClientDeletionPreview,
     ClientCreate,
     ClientDomainOut,
@@ -144,6 +149,45 @@ def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Dep
     client = _client(db, user, client_id)
     apply_details(db, client, payload.model_dump(exclude_unset=True))
     return _client(db, user, client_id)
+
+
+@router.get("/{client_id}/channel-allowances", response_model=list[ChannelAllowanceOut], dependencies=[Depends(require(CHANNELS_READ))])
+def get_channel_allowances(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """How many lines of each channel type this client may connect: the agency's
+    plan, the client's own share of it, and what it uses right now."""
+    client = _client(db, user, client_id)
+    return channel_quotas.allowance(db, db.get(Agency, user.agency_id), client)
+
+
+@router.put("/{client_id}/channel-allowances", response_model=list[ChannelAllowanceOut], dependencies=[Depends(require(CHANNELS_MANAGE))])
+def set_channel_allowances(
+    client_id: uuid.UUID,
+    payload: ChannelAllowanceUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Assign lines to one client. A number above the agency's own plan is
+    refused, because the pool is the hard wall. Promising more in total than the
+    pool holds is allowed on purpose: that is planning, and only the pool decides
+    what can actually connect. Lowering a number never destroys a line — the
+    lines already connected keep running and only new ones are refused."""
+    client = _client(db, user, client_id)
+    agency = db.get(Agency, user.agency_id)
+    wanted = channel_quotas.validate_patch(payload.allocations)
+    quotas = channel_quotas.normalize(agency.channel_quotas)
+    for key, value in wanted.items():
+        quota = quotas.get(key)
+        if value is not None and quota is not None and value > quota:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"The agency's plan allows {quota} {channel_quotas.LABELS.get(key, key)} line(s); "
+                    "ask the platform to raise the plan, or assign fewer."
+                ),
+            )
+    client.channel_allocations = channel_quotas.merge(client.channel_allocations, wanted)
+    db.commit()
+    return channel_quotas.allowance(db, agency, client)
 
 
 @router.post("/{client_id}/logo", response_model=ClientOut, dependencies=[Depends(require(CLIENTS_WRITE))])

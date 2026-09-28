@@ -49,6 +49,10 @@ class Agency(Base):
     # records which preset the switches started from, for reporting.
     features: Mapped[dict] = mapped_column(JSON, default=agency_feature_defaults, server_default=json.dumps(agency_feature_defaults()))
     plan: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    # How many lines of each channel type this agency may connect, set by the
+    # platform owner (read through app.channel_quotas.normalize; a missing key
+    # means unlimited, so an installation that never sets one behaves as before).
+    channel_quotas: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
     users: Mapped[list["User"]] = relationship(back_populates="agency", cascade="all, delete-orphan")
 
@@ -106,6 +110,10 @@ class Client(Base):
     portal_features: Mapped[dict] = mapped_column(
         JSON, default=portal_feature_defaults, server_default=json.dumps(portal_feature_defaults())
     )
+    # How many of the agency's lines this client may use per channel type,
+    # assigned by the agency (app/channel_quotas.py). A missing key means the
+    # client draws on the agency's pool without a cap of its own.
+    channel_allocations: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     # Upstream messaging profile grouping this client's Instagram and
     # Messenger accounts. WhatsApp numbers each live on their own profile
     # on the channel row instead, one number per profile.
@@ -331,6 +339,12 @@ class WhatsAppChannel(Base):
     display_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
     # The operator's own name for this line; display_name is what the phone reports.
     label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Which Evolution API deployment serves this line. Empty means the
+    # installation's single EVOLUTION_API_URL, which is what every existing line
+    # uses; when a second deployment is added, new lines record theirs here and
+    # the old ones keep the session they were paired on (a Baileys session
+    # cannot move between deployments without scanning the QR again).
+    evolution_endpoint: Mapped[str] = mapped_column(String(300), default="", server_default="")
     encrypted_auth_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     encrypted_qr: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

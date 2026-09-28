@@ -17,6 +17,7 @@ from ..database import get_db
 from ..deps import get_current_platform_admin
 from ..models import Agency, AgencySlugAlias, Agent, Client, PlatformAdmin, PlatformAuditEvent, UsageRecord
 from .. import agency_features
+from .. import channel_quotas
 from ..schemas_platform import (
     PlatformAccessUpdate,
     PlatformAgencyCreated,
@@ -78,6 +79,7 @@ def _client_out(db: Session, client: Client) -> dict:
         "data_mode": client.data_mode,
         "agent_count": int(agent_count),
         "created_at": client.created_at,
+        "allocations": {key: value for key, value in channel_quotas.normalize(client.channel_allocations).items() if value is not None},
     }
 
 
@@ -313,22 +315,32 @@ def set_agency_features(
     db: Session = Depends(get_db),
     admin: PlatformAdmin = Depends(get_current_platform_admin),
 ):
-    """The module switches, and which preset they came from. A ceiling: it
-    never rewrites what the agency and its clients chose below, it only caps
-    what the portal and mobile sessions expose."""
+    """The module switches, the line quotas and which preset the switches came
+    from. A ceiling: it never rewrites what the agency and its clients chose
+    below, it only caps what the portal and mobile sessions expose and how many
+    lines may be connected."""
     agency = db.get(Agency, agency_id)
     if agency is None:
         raise HTTPException(status_code=404, detail="Agency not found")
     previous = agency_features.normalize(agency.features)
+    previous_quotas = {key: value for key, value in channel_quotas.normalize(agency.channel_quotas).items() if value is not None}
     agency.features = agency_features.merged(agency.features, payload.features)
     if payload.plan is not None:
         if payload.plan and payload.plan not in agency_features.PRESETS:
             raise HTTPException(status_code=422, detail=f"Unknown plan: {payload.plan}")
         agency.plan = payload.plan
+    if payload.channel_quotas is not None:
+        agency.channel_quotas = channel_quotas.merge(agency.channel_quotas, payload.channel_quotas)
     platform_service.record_audit(
         db, admin, "agency.features_changed", target_agency_id=agency.id,
         resource_type="agency", resource_id=str(agency.id),
-        details={"previous": previous, "features": agency_features.normalize(agency.features), "plan": agency.plan},
+        details={
+            "previous": previous,
+            "features": agency_features.normalize(agency.features),
+            "plan": agency.plan,
+            "previous_channel_quotas": previous_quotas,
+            "channel_quotas": {key: value for key, value in channel_quotas.normalize(agency.channel_quotas).items() if value is not None},
+        },
     )
     db.commit()
     db.refresh(agency)
@@ -340,10 +352,15 @@ def feature_catalog(
     db: Session = Depends(get_db),
     admin: PlatformAdmin = Depends(get_current_platform_admin),
 ):
-    """The module catalogue and the named presets the panel offers."""
+    """The module catalogue, the named presets, and the channel types a number
+    can be put on."""
     return {
         "catalog": [{"key": key, "default": default} for key, default in agency_features.CATALOG],
         "presets": {name: list(keys) for name, keys in agency_features.PRESETS.items()},
+        "quotas": [
+            {"key": key, "label": channel_quotas.LABELS.get(key, key), "max": channel_quotas.MAX_QUOTA}
+            for key in channel_quotas.CATALOG
+        ],
     }
 
 
@@ -376,6 +393,7 @@ def agency_usage(
 ):
     if db.get(Agency, agency_id) is None:
         raise HTTPException(status_code=404, detail="Agency not found")
+    agency = db.get(Agency, agency_id)
     day = cast(func.timezone("UTC", UsageRecord.created_at), Date)
     rows = db.execute(
         select(
@@ -401,6 +419,7 @@ def agency_usage(
             }
             for row in rows
         ],
+        "channels": channel_quotas.usage(db, agency),
     }
 
 

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictInt
 
 
 class PlatformAdminOut(BaseModel):
@@ -48,6 +48,11 @@ class PlatformAgencyOut(BaseModel):
     access_block_reason: str
     features: dict[str, bool]
     plan: str
+    # Only the types the platform actually capped are listed; an absent key means
+    # unlimited. "channel_used" is what each type has connected right now, so the
+    # Plan tab can say "5 en uso de 5" without another request.
+    channel_quotas: dict[str, int]
+    channel_used: dict[str, int]
 
 
 class PlatformAccessUpdate(BaseModel):
@@ -60,14 +65,26 @@ class PlatformFeatureEntry(BaseModel):
     default: bool
 
 
+class PlatformQuotaEntry(BaseModel):
+    """A channel type the platform can put a number on."""
+    key: str
+    label: str
+    max: int
+
+
 class PlatformFeaturesOut(BaseModel):
     catalog: list[PlatformFeatureEntry]
     presets: dict[str, list[str]]
+    quotas: list[PlatformQuotaEntry]
 
 
 class PlatformFeaturesUpdate(BaseModel):
     features: dict[str, StrictBool]
     plan: str | None = Field(default=None, max_length=40)
+    # How many lines of each channel type the agency may connect; null (or an
+    # absent key) lifts the cap. Omitting the whole object leaves the numbers
+    # untouched, so the Plan tab can save switches without rewriting quotas.
+    channel_quotas: dict[str, StrictInt | None] | None = None
 
 
 class PlatformClientOut(BaseModel):
@@ -78,6 +95,9 @@ class PlatformClientOut(BaseModel):
     data_mode: str
     agent_count: int
     created_at: datetime
+    # How many lines of each channel type the agency gave this client; an absent
+    # key means it draws on the agency's pool without a cap of its own.
+    allocations: dict[str, int]
 
 
 class PlatformInvitationCreate(BaseModel):
@@ -147,9 +167,27 @@ class PlatformUsageDay(BaseModel):
     cost_usd: float | None
 
 
+class PlatformChannelUseByClient(BaseModel):
+    client_id: uuid.UUID
+    client_name: str
+    used: int
+    allocation: int | None
+
+
+class PlatformChannelUse(BaseModel):
+    """One channel type: what the plan allows, what is connected, and how the
+    agency spread it over its clients."""
+    key: str
+    label: str
+    used: int
+    quota: int | None
+    by_client: list[PlatformChannelUseByClient]
+
+
 class PlatformUsageOut(BaseModel):
     total: PlatformUsageTotal
     days: list[PlatformUsageDay]
+    channels: list[PlatformChannelUse]
 
 
 class PlatformInfrastructureClient(BaseModel):

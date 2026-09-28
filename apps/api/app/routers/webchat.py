@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 from ..database import get_db, use_client
 from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
 from ..deps import confine, get_current_user, require
-from ..models import Agent, Client, User, WidgetChannel
+from ..models import Agency, Agent, Client, User, WidgetChannel
 from ..schemas import WidgetChannelOut, WidgetChannelUpdate
+from .. import channel_quotas
 
 router = APIRouter(prefix="/webchat", tags=["Web chat"])
 
@@ -51,6 +52,7 @@ def configure_channel(
         raise HTTPException(status_code=400, detail="Select an agent that belongs to this client")
     channel = db.scalar(select(WidgetChannel).where(WidgetChannel.client_id == client.id))
     if not channel:
+        channel_quotas.check(db, db.get(Agency, user.agency_id), client, "channels.webchat")
         channel = WidgetChannel(agency_id=user.agency_id, client_id=client.id, agent_id=agent.id)
         db.add(channel)
     channel.agent_id = agent.id

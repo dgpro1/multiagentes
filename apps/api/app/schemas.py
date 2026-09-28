@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictInt, field_validator, model_validator
 
 from .portal_features import normalize as normalize_features
 from .schemas_professionals import check_weekly_hours
@@ -191,6 +191,25 @@ class ClientPortalUpdate(BaseModel):
     # Partial: only the keys sent change; the router merges them into what is
     # stored after checking them against app.portal_features.
     portal_features: dict[str, StrictBool] | None = None
+
+
+class ChannelAllowanceOut(BaseModel):
+    """One channel type from a client's point of view: the agency's plan, this
+    client's share of it, what it uses and what is left. ``None`` means no
+    limit — the agency has not capped it and/or this client draws on the pool."""
+    key: str
+    label: str
+    agency_quota: int | None
+    allocation: int | None
+    used: int
+    allowed: int | None
+    remaining: int | None
+
+
+class ChannelAllowanceUpdate(BaseModel):
+    # How many lines of each channel type this client may use; null lifts the
+    # cap. A number above the agency's own plan is refused.
+    allocations: dict[str, StrictInt | None]
 
 
 class AgentSummary(ORMModel):

@@ -45,7 +45,7 @@ def _stub_http(monkeypatch, *, state="close"):
     """Replace the Evolution HTTP layer with a fake that records calls."""
     calls = []
 
-    async def fake_request(method, path, *, json=None, timeout=30):
+    async def fake_request(method, path, *, channel=None, json=None, timeout=30):
         calls.append((method, path))
         if path.startswith("/instance/fetchInstances"):
             if not fake_request.instance_exists:
@@ -134,7 +134,7 @@ def test_connect_failure_marks_error(evolution_client, monkeypatch):
     client = evolution_client
     _customer, line = _setup_line(client)
 
-    async def failing(method, path, *, json=None, timeout=30):
+    async def failing(method, path, *, channel=None, json=None, timeout=30):
         from fastapi import HTTPException
 
         raise HTTPException(status_code=503, detail="The Evolution API service is not available")
@@ -307,7 +307,7 @@ def test_send_media_voice_note_uses_ptv(monkeypatch):
     _env(monkeypatch)
     seen = {}
 
-    async def fake_request(method, path, *, json=None, timeout=30):
+    async def fake_request(method, path, *, channel=None, json=None, timeout=30):
         seen["path"] = path
         seen["payload"] = json
         return {"key": {"id": "wamid-voice"}}
@@ -491,7 +491,7 @@ def test_mark_read_and_react(monkeypatch):
     _env(monkeypatch)
     paths = []
 
-    async def fake_request(method, path, *, json=None, timeout=30):
+    async def fake_request(method, path, *, channel=None, json=None, timeout=30):
         paths.append((method, path, json))
         return {}
 

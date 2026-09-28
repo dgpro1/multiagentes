@@ -7,12 +7,13 @@ from sqlalchemy.orm import Session
 from ..database import get_db, use_client
 from ..api_scopes import CHANNELS_MANAGE, CHANNELS_READ
 from ..deps import confine, get_current_user, require
-from ..models import Agent, Client, User, WhatsAppCloudChannel, new_public_id, now_utc
+from ..models import Agency, Agent, Client, User, WhatsAppCloudChannel, new_public_id, now_utc
 from ..schemas_whatsapp_cloud import WhatsAppCloudChannelOut, WhatsAppCloudChannelUpdate
 from ..services import messaging_provider as provider
 from ..services import messaging_profiles as profiles
 from ..services import portal_return
 from ..services.whatsapp_cloud import verify_account
+from .. import channel_quotas
 
 
 router = APIRouter(prefix="/whatsapp-cloud", tags=["WhatsApp Cloud"])
@@ -125,6 +126,7 @@ def create_channel(
     """Add another WhatsApp API number to the client. Linking the number
     itself happens on connect, through the provider's hosted page."""
     client = _owned_client(db, user, client_id)
+    channel_quotas.check(db, db.get(Agency, user.agency_id), client, "channels.whatsapp_cloud")
     channel = WhatsAppCloudChannel(
         agency_id=user.agency_id, client_id=client.id, agent_id=payload.agent_id, webhook_verify_token=new_public_id()
     )
@@ -196,6 +198,7 @@ def configure_channel(
             .order_by(WhatsAppCloudChannel.created_at).limit(1)
         )
         if not channel:
+            channel_quotas.check(db, db.get(Agency, user.agency_id), client, "channels.whatsapp_cloud")
             channel = WhatsAppCloudChannel(
                 agency_id=user.agency_id, client_id=client.id, agent_id=payload.agent_id, webhook_verify_token=new_public_id()
             )
