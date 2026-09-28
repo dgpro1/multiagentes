@@ -19,6 +19,11 @@
 #              backup service shows up as a failed cron job instead of nothing
 set -eu
 
+# Git Bash on Windows rewrites absolute /paths found in arguments; every path
+# handed to docker here is a path inside the container, so turn that off.
+MSYS_NO_PATHCONV=1
+export MSYS_NO_PATHCONV
+
 MODE="sync"
 case "${1:-}" in
   --check|check) MODE="check" ;;
@@ -37,6 +42,7 @@ say() { printf '%s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 command -v docker >/dev/null 2>&1 || fail "docker is not installed or not on PATH."
+docker info >/dev/null 2>&1 || fail "the Docker daemon is not reachable; start Docker (or the stack) and try again."
 
 volume="$(docker volume ls --filter name=db_backups --format '{{.Name}}' | head -n 1)"
 [ -n "$volume" ] || fail "no db_backups volume found: is the db-backup service deployed?"

@@ -11,6 +11,11 @@
 # a hope, not a backup. See docs/en/self-hosting.md ("Backups").
 set -eu
 
+# Git Bash on Windows rewrites absolute /paths found in arguments; every path
+# handed to docker here is a path inside the container, so turn that off.
+MSYS_NO_PATHCONV=1
+export MSYS_NO_PATHCONV
+
 NAME="${RESTORE_CHECK_NAME:-openlivery-restore-check}"
 IMAGE="${RESTORE_CHECK_IMAGE:-postgres:17.6-alpine}"
 PORT="${RESTORE_CHECK_PORT:-55432}"
@@ -24,24 +29,38 @@ say() { printf '%s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 command -v docker >/dev/null 2>&1 || fail "docker is not installed or not on PATH."
+docker info >/dev/null 2>&1 || fail "the Docker daemon is not reachable; start Docker (or the stack) and try again."
 
 # --- 1. The dump to rehearse -------------------------------------------------
-# The db-backup service writes plain SQL, gzipped, into BACKUP_DIR/last/ inside
-# the db_backups volume; a dump copied off the machine can be passed instead.
+# The db-backup service writes gzipped plain SQL (.sql.gz) into BACKUP_DIR/last/
+# inside the db_backups volume, so the restore has to gunzip first; a dump
+# copied off the machine can be passed instead, gzipped or not.
 fetch() { :; }
 if [ -z "$DUMP" ]; then
   volume="$(docker volume ls --filter name=db_backups --format '{{.Name}}' | head -n 1)"
   [ -n "$volume" ] || fail "no db_backups volume found; pass DUMP=/path/to/file.sql.gz"
   say "Reading the newest backup from volume $volume"
   in_container="$(docker run --rm -v "$volume":/backups:ro alpine:3 \
-    sh -c 'ls -1t /backups/last/*.sql.gz 2>/dev/null | head -n 1')"
-  [ -n "$in_container" ] || fail "the backups volume holds no .sql.gz file: has the db-backup service ever run successfully?"
+    sh -c 'ls -1t /backups/last/*.sql.gz /backups/last/*.sql 2>/dev/null | head -n 1')"
+  [ -n "$in_container" ] || fail "the backups volume holds no dump: has the db-backup service ever run successfully?"
   say "Dump: $in_container"
-  fetch() { docker run --rm -v "$volume":/backups:ro alpine:3 cat "$in_container"; }
+  case "$in_container" in
+    *.gz) fetch() { docker run --rm -v "$volume":/backups:ro alpine:3 gunzip -c "$in_container"; } ;;
+    *)    fetch() { docker run --rm -v "$volume":/backups:ro alpine:3 cat "$in_container"; } ;;
+  esac
 else
   [ -f "$DUMP" ] || fail "$DUMP does not exist"
   say "Dump: $DUMP"
-  fetch() { cat "$DUMP"; }
+  case "$DUMP" in
+    *.gz)
+      if command -v gunzip >/dev/null 2>&1; then
+        fetch() { gunzip -c "$DUMP"; }
+      else
+        fetch() { docker run --rm -i alpine:3 gunzip -c < "$DUMP"; }
+      fi
+      ;;
+    *) fetch() { cat "$DUMP"; } ;;
+  esac
 fi
 
 # --- 2. A throwaway database -------------------------------------------------
