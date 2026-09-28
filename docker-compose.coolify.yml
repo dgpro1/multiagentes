@@ -168,7 +168,10 @@ services:
     restart: unless-stopped
 
   # Daily dump of the main database into the backups volume (7 daily, 4 weekly,
-  # 6 monthly). Copy that volume off the server (Hetzner snapshot, rclone, ...).
+  # 6 monthly), plus a dump on every deploy. The image's own healthcheck fails
+  # when the schedule stalls, so Coolify can alert on an unhealthy service;
+  # scripts/backup-offsite.sh copies the volume off the server and
+  # scripts/restore-check.sh rehearses a restore.
   db-backup:
     image: prodrigestivill/postgres-backup-local:17
     environment:
@@ -177,6 +180,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-openlivery}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       SCHEDULE: ${BACKUP_SCHEDULE:-@daily}
+      # Dump once at start too, so a fresh deploy never waits a day for its first backup.
+      BACKUP_ON_START: "TRUE"
+      # The schedule is evaluated in this timezone.
+      TZ: ${BACKUP_TZ:-UTC}
       BACKUP_KEEP_DAYS: 7
       BACKUP_KEEP_WEEKS: 4
       BACKUP_KEEP_MONTHS: 6
@@ -184,6 +191,32 @@ services:
       - db_backups:/backups
     depends_on:
       db:
+        condition: service_healthy
+    mem_limit: 128m
+    logging: *logging
+    restart: unless-stopped
+
+  # Evolution API's own database also gets dumped: it holds the WhatsApp QR
+  # session and pairing state, and losing it means re-scanning every line by
+  # hand. The instance files live in the evolution_instances volume, which the
+  # server snapshots cover.
+  evolution-backup:
+    image: prodrigestivill/postgres-backup-local:17
+    environment:
+      POSTGRES_HOST: evolution-db
+      POSTGRES_DB: evolution
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD}
+      SCHEDULE: ${EVOLUTION_BACKUP_SCHEDULE:-${BACKUP_SCHEDULE:-@daily}}
+      BACKUP_ON_START: "TRUE"
+      TZ: ${BACKUP_TZ:-UTC}
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+    volumes:
+      - evolution_backups:/backups
+    depends_on:
+      evolution-db:
         condition: service_healthy
     mem_limit: 128m
     logging: *logging
@@ -212,3 +245,4 @@ volumes:
   evolution_redis_data:
   evolution_instances:
   db_backups:
+  evolution_backups:

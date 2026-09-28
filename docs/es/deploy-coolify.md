@@ -30,11 +30,54 @@ Coolify ejecuta el stack desde `docker-compose.coolify.yml`. Su proxy termina el
 
 ## Copias de seguridad
 
-El servicio `db-backup` guarda cada día un volcado comprimido de la base de datos principal en el volumen `db_backups` (7 diarios, 4 semanales, 6 mensuales). Una copia en el mismo servidor no es una copia de seguridad: activa las copias o snapshots de Hetzner y saca ese volumen del servidor. Para restaurar:
+Dos servicios vuelcan según agenda, cada uno en su propio volumen (7 diarios, 4 semanales, 6 mensuales):
+
+| Servicio | Volumen | Qué guarda |
+| --- | --- | --- |
+| `db-backup` | `db_backups` | La base principal: plataforma, agencias, cada cliente que siga central, PDFs de conocimiento, adjuntos, logos |
+| `evolution-backup` | `evolution_backups` | La base de Evolution API: el estado de sesión y emparejamiento de WhatsApp QR |
+
+Ambos vuelcan también al arrancar, así un despliegue nuevo tiene copia de inmediato. El
+healthcheck propio de la imagen falla cuando la agenda se detiene, así que un contenedor
+enfermo en Coolify es la alarma de que las copias pararon: activa las notificaciones de
+Coolify para verlo.
+
+**Una copia en el mismo servidor no es una copia de seguridad.** Dos cosas la convierten en una:
+
+```bash
+# Saca los volcados de la máquina; un Storage Box de Hetzner va bien (SFTP o WebDAV):
+#   rclone config create hetzner sftp host u123456.your-storagebox.de user u123456
+BACKUP_REMOTE=hetzner:openlivery ./scripts/backup-offsite.sh
+
+# Después, en `crontab -e` del servidor (fuera de Coolify, así una reinstalación de
+# Coolify no se lleva la copia externa):
+#   30 4 * * * cd /opt/openlivery && BACKUP_REMOTE=hetzner:openlivery ./scripts/backup-offsite.sh >> /var/log/openlivery-offsite.log 2>&1
+#    0 9 * * * cd /opt/openlivery && ./scripts/backup-offsite.sh --check >> /var/log/openlivery-offsite.log 2>&1
+```
+
+`--check` sale con error cuando el volcado más nuevo es más viejo que
+`BACKUP_MAX_AGE_HOURS` (26 por defecto), así una copia que se detuvo en silencio se
+convierte en un trabajo fallido del que te pueden avisar. Usa
+`BACKUP_RSYNC_TARGET=usuario@host:ruta` en lugar de `BACKUP_REMOTE` para rsync por SSH
+(puerto 23 en un Storage Box de Hetzner, `BACKUP_SSH_PORT`).
+
+**Ensaya la restauración**, cada mes y después de cada migración: una copia que nunca se
+restauró es una esperanza, no una copia.
+
+```bash
+make restore-test     # carga el volcado más nuevo en un contenedor descartable y cuenta filas
+```
+
+Para restaurar a mano:
 ```bash
 docker exec -i <contenedor db> psql -U openlivery openlivery < volcado.sql   # tras descomprimir
 ```
-Los archivos subidos (`backend_storage`) y las sesiones de WhatsApp (volúmenes `evolution_*`) también conviene incluirlos en los snapshots del servidor.
+
+Los archivos subidos (`backend_storage`) y los archivos de sesión de WhatsApp
+(`evolution_instances`) no están en estos volcados: mantén los snapshots de Hetzner para
+ellos. Una recuperación real necesita además la `ENCRYPTION_KEY` original y `.env.docker`
+— mira `docs/es/self-hosting.md`, "Copias de seguridad", para los procedimientos completos
+de exportación y restauración.
 
 ## Actualizar
 

@@ -296,6 +296,14 @@ descifrarse. El estado propio de Evolution API (`evolution-db`,
 WhatsApp QR y necesita su propia copia si quieres que las líneas QR
 sobrevivan a una restauración sin volver a escanear.
 
+Dos ayudantes automatizan la rutina alrededor de ese procedimiento.
+`scripts/backup-offsite.sh` saca el volumen de copias de la máquina — con `--check`
+sale con error cuando el volcado más nuevo es más viejo que `BACKUP_MAX_AGE_HOURS`, que es
+lo que debería llamar tu monitoreo. `scripts/restore-check.sh` (`make restore-test`) carga
+el volcado más nuevo en un contenedor PostgreSQL descartable, imprime la revisión de
+esquema que trae y cuenta las filas que una persona buscaría. Córrelo cada mes y después
+de cada migración; los procedimientos de abajo quedan para una recuperación real.
+
 Restaurar (reemplaza los datos de la base de destino, haz copia antes):
 
 ```bash

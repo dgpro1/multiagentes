@@ -30,11 +30,51 @@ Coolify runs the stack from `docker-compose.coolify.yml`. Its proxy terminates T
 
 ## Backups
 
-The `db-backup` service writes a compressed dump of the main database every day into the `db_backups` volume (7 daily, 4 weekly, 6 monthly). A backup on the same server is not a backup: turn on Hetzner backups or snapshots and copy that volume off the server. To restore:
+Two services dump on a schedule, each into its own volume (7 daily, 4 weekly, 6 monthly):
+
+| Service | Volume | What it holds |
+| --- | --- | --- |
+| `db-backup` | `db_backups` | The main database: platform, agencies, every client still central, knowledge PDFs, attachments, logos |
+| `evolution-backup` | `evolution_backups` | Evolution API's database: the WhatsApp QR session and pairing state |
+
+Both dump once when they start, so a fresh deploy has a backup immediately. The
+image's own healthcheck fails when the schedule stalls, so an unhealthy container
+in Coolify is the alarm that backups stopped — turn on Coolify notifications for it.
+
+**A backup on the same server is not a backup.** Two things make it one:
+
+```bash
+# Copy the dumps off the machine; a Hetzner Storage Box works well (SFTP or WebDAV):
+#   rclone config create hetzner sftp host u123456.your-storagebox.de user u123456
+BACKUP_REMOTE=hetzner:openlivery ./scripts/backup-offsite.sh
+
+# Then, in `crontab -e` on the server (outside Coolify, so a Coolify reinstall
+# cannot take the off-site copy with it):
+#   30 4 * * * cd /opt/openlivery && BACKUP_REMOTE=hetzner:openlivery ./scripts/backup-offsite.sh >> /var/log/openlivery-offsite.log 2>&1
+#    0 9 * * * cd /opt/openlivery && ./scripts/backup-offsite.sh --check >> /var/log/openlivery-offsite.log 2>&1
+```
+
+`--check` exits non-zero when the newest dump is older than `BACKUP_MAX_AGE_HOURS`
+(26 by default), so a backup that quietly stopped becomes a failed job you can be told
+about. Use `BACKUP_RSYNC_TARGET=user@host:path` instead of `BACKUP_REMOTE` to sync with
+rsync over SSH (port 23 on a Hetzner Storage Box, override with `BACKUP_SSH_PORT`).
+
+**Rehearse the restore**, monthly and after every migration: a backup that was never
+restored is a hope, not a backup.
+
+```bash
+make restore-test     # loads the newest dump into a throwaway container and counts rows
+```
+
+To restore by hand instead:
 ```bash
 docker exec -i <db container> psql -U openlivery openlivery < dump.sql   # after gunzip
 ```
-The uploaded files (`backend_storage`) and the WhatsApp sessions (`evolution_*` volumes) are also worth including in your server snapshots.
+
+The uploaded files (`backend_storage`) and the WhatsApp session files
+(`evolution_instances`) are not in these dumps: keep Hetzner snapshots on for them. A
+real recovery also needs the original `ENCRYPTION_KEY` and `.env.docker` — see
+`docs/en/self-hosting.md`, "Backups", for the full export and restore procedures.
 
 ## Updating
 

@@ -15,7 +15,7 @@ export API_PORT WEB_PORT DB_PORT BIND_HOST
 COMPOSE := docker compose --env-file .env.docker
 
 .DEFAULT_GOAL := help
-.PHONY: help env up pull down stop start restart build logs ps migrate test shell-api shell-db destroy
+.PHONY: help env up pull down stop start restart build logs ps migrate test shell-api shell-db backup-offsite backup-check restore-test destroy
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-11s\033[0m %s\n", $$1, $$2}'
@@ -68,6 +68,15 @@ shell-api: ## Open a shell in the api container
 
 shell-db: ## Open psql in the database container
 	$(COMPOSE) exec db sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
+
+backup-offsite: ## Copy the backups volume off this machine (needs BACKUP_REMOTE or BACKUP_RSYNC_TARGET)
+	./scripts/backup-offsite.sh
+
+backup-check: ## Fail when the newest backup is older than BACKUP_MAX_AGE_HOURS (for monitoring)
+	./scripts/backup-offsite.sh --check
+
+restore-test: ## Rehearse a restore of the newest backup into a throwaway container
+	./scripts/restore-check.sh
 
 destroy: ## DANGER: remove containers AND volumes (deletes all data)
 	$(COMPOSE) down --volumes --remove-orphans

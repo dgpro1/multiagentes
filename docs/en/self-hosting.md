@@ -293,6 +293,14 @@ Compose and may contain files from extensions or a customized installation.
 The procedure below archives it too; an empty archive is normal for an unmodified
 installation.
 
+Two helpers automate the routine around that procedure. `scripts/backup-offsite.sh`
+copies the backups volume off the machine — with `--check` it exits non-zero when the
+newest dump is older than `BACKUP_MAX_AGE_HOURS`, which is what monitoring should call.
+`scripts/restore-check.sh` (`make restore-test`) loads the newest dump into a throwaway
+PostgreSQL container, prints the schema revision it carries and counts the rows a person
+would look for. Run it monthly and after every migration; keep the procedures below for a
+real recovery.
+
 The following commands run from the installation's repository directory. This
 helper selects its Compose configuration; the file commands use the **API
 service's configured storage mount**, not a guessed Docker volume name:
