@@ -18,6 +18,7 @@ from .routers import (    agency,
     auth,
     calendar,
     catalog,
+    channel_quotas,
     data_store,
     clients,
     conversations,
@@ -237,6 +238,7 @@ async def v1_validation_exception_handler(request: Request, exc: RequestValidati
 app.include_router(auth.router, prefix="/api")
 app.include_router(agency.router, prefix="/api")
 app.include_router(clients.router, prefix="/api")
+app.include_router(channel_quotas.router, prefix="/api")
 app.include_router(industries.router, prefix="/api")
 app.include_router(integrations.router, prefix="/api")
 app.include_router(api_v1.router, prefix="/api")

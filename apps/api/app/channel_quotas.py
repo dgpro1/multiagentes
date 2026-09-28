@@ -260,3 +260,51 @@ def allowance(db: Session, agency: Agency, client: Client) -> list[dict]:
             "remaining": None if allowed is None else max(allowed - used, 0),
         })
     return out
+
+
+def matrix(db: Session, agency: Agency, only_client_id: uuid.UUID | None = None) -> dict:
+    """The whole distribution in one call, for the agency's planning screen: every
+    channel type with the plan and what is connected, and every client with what it
+    uses and what it was assigned. One query per type, never one per client.
+
+    ``only_client_id`` is the confinement of a token bound to a single client: it
+    then sees that client's row and the totals of that row, nothing else.
+    """
+    quotas = normalize(getattr(agency, "channel_quotas", None))
+    query = select(Client).where(Client.agency_id == agency.id).order_by(Client.name)
+    if only_client_id is not None:
+        query = query.where(Client.id == only_client_id)
+    clients = list(db.scalars(query))
+
+    per_client_used: dict[uuid.UUID, dict[str, int]] = {client.id: {} for client in clients}
+    per_client_allocations: dict[uuid.UUID, dict[str, int]] = {client.id: {} for client in clients}
+    types_out: list[dict] = []
+    for key in CATALOG:
+        counts = _counts_by_client(db, key, agency.id)
+        visible = 0
+        for client in clients:
+            used = counts.get(client.id, 0)
+            per_client_used[client.id][key] = used
+            visible += used
+            allocation = allocation_of(client, key)
+            if allocation is not None:
+                per_client_allocations[client.id][key] = allocation
+        types_out.append({
+            "key": key,
+            "label": LABELS.get(key, key),
+            "quota": quotas.get(key),
+            "used": visible,
+        })
+    return {
+        "types": types_out,
+        "clients": [
+            {
+                "id": client.id,
+                "name": client.name,
+                "slug": client.portal_slug,
+                "used": per_client_used[client.id],
+                "allocations": per_client_allocations[client.id],
+            }
+            for client in clients
+        ],
+    }

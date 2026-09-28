@@ -207,3 +207,51 @@ def test_another_agencys_client_is_not_reachable(authenticated_client):
     _as_b(client)
     assert client.get(f"/api/clients/{customer['id']}/channel-allowances").status_code == 404
     assert client.put(f"/api/clients/{customer['id']}/channel-allowances", json={"allocations": {"channels.whatsapp": 1}}).status_code == 404
+
+
+# --- The planning matrix -----------------------------------------------------
+
+def test_the_matrix_is_one_call_for_the_planning_screen(authenticated_client):
+    client = authenticated_client
+    agency_id = _agency_id(client)
+    first, first_agent = _client_and_agent(client, "Uno")
+    second, second_agent = _client_and_agent(client, "Dos")
+    from app.models import WhatsAppChannel
+
+    with TestingSession() as db:
+        agency = db.get(Agency, uuid.UUID(agency_id))
+        agency.channel_quotas = {"channels.whatsapp": 5}
+        for _ in range(2):
+            db.add(WhatsAppChannel(agency_id=uuid.UUID(agency_id), client_id=uuid.UUID(first["id"]),
+                                   agent_id=uuid.UUID(first_agent["id"])))
+        db.add(WhatsAppChannel(agency_id=uuid.UUID(agency_id), client_id=uuid.UUID(second["id"]),
+                               agent_id=uuid.UUID(second_agent["id"])))
+        db.commit()
+    assert client.put(f"/api/clients/{first['id']}/channel-allowances", json={"allocations": {"channels.whatsapp": 2}}).status_code == 200
+
+    matrix = client.get("/api/channel-quotas")
+    assert matrix.status_code == 200, matrix.text
+    body = matrix.json()
+    whatsapp = next(row for row in body["types"] if row["key"] == "channels.whatsapp")
+    assert (whatsapp["used"], whatsapp["quota"], whatsapp["label"]) == (3, 5, "WhatsApp QR")
+    # A type nobody capped and nobody uses is reported too, so the columns are stable.
+    empty = next(row for row in body["types"] if row["key"] == "channels.messenger")
+    assert (empty["used"], empty["quota"]) == (0, None)
+    rows = {row["name"]: row for row in body["clients"]}
+    assert rows["Uno"]["used"]["channels.whatsapp"] == 2
+    assert rows["Uno"]["allocations"] == {"channels.whatsapp": 2}
+    assert rows["Dos"]["used"]["channels.whatsapp"] == 1
+    assert rows["Dos"]["allocations"] == {}
+
+
+def test_the_matrix_can_be_confined_to_one_client(authenticated_client):
+    client = authenticated_client
+    agency_id = _agency_id(client)
+    first = _client(client, "Uno")
+    _client(client, "Dos")
+    with TestingSession() as db:
+        only = db.get(Client, uuid.UUID(first["id"]))
+        agency = db.get(Agency, uuid.UUID(agency_id))
+        # What a token bound to one client gets: that row, and totals of that row.
+        confined = channel_quotas.matrix(db, agency, only_client_id=only.id)
+    assert [row["name"] for row in confined["clients"]] == ["Uno"]

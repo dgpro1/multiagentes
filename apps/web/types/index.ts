@@ -317,6 +317,13 @@ export type ChannelAllowance = {
   remaining: number | null;
 };
 
+/** The agency's whole distribution: one entry per channel type (the plan and what
+ * is connected) and one per client (what it uses and what it was assigned). */
+export type ChannelQuotaMatrix = {
+  types: { key: string; label: string; quota: number | null; used: number }[];
+  clients: { id: string; name: string; slug: string; used: Record<string, number>; allocations: Record<string, number> }[];
+};
+
 export type WhatsAppCloudChannel = {
   id: string;
   client_id: string;

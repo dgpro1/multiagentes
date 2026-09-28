@@ -212,6 +212,29 @@ class ChannelAllowanceUpdate(BaseModel):
     allocations: dict[str, StrictInt | None]
 
 
+class ChannelQuotaType(BaseModel):
+    """One channel type in the planning matrix: the agency's plan and what is
+    connected right now."""
+    key: str
+    label: str
+    quota: int | None
+    used: int
+
+
+class ChannelQuotaClientRow(BaseModel):
+    id: uuid.UUID
+    name: str
+    # The page address of the client, so the matrix can link to it.
+    slug: str
+    used: dict[str, int]
+    allocations: dict[str, int]
+
+
+class ChannelQuotaMatrix(BaseModel):
+    types: list[ChannelQuotaType]
+    clients: list[ChannelQuotaClientRow]
+
+
 class AgentSummary(ORMModel):
     id: uuid.UUID
     name: str

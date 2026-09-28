@@ -59,6 +59,11 @@ const en = {
     linesTitle: "Lines",
     linesCopy: "How many lines of each type this client may connect, out of the agency's plan.",
     notIncluded: "Not included in the plan",
+    matrixTitle: "Lines per client",
+    matrixCopy: "Every client against every channel type: what each one uses, and how many lines it was assigned out of the agency's plan.",
+    planLabel: "Plan",
+    usedLabel: "In use",
+    matrixEmpty: "Create a client to start handing out lines.",
   },
   visibility: {
     shown: "Visibility switched on in the portal",
@@ -123,6 +128,11 @@ const es: typeof en = {
     linesTitle: "Líneas",
     linesCopy: "Cuántas líneas de cada tipo puede conectar este cliente, del plan de la agencia.",
     notIncluded: "No está incluido en el plan",
+    matrixTitle: "Líneas por cliente",
+    matrixCopy: "Cada cliente contra cada tipo de canal: qué usa y cuántas líneas tiene asignadas del plan de la agencia.",
+    planLabel: "Plan",
+    usedLabel: "En uso",
+    matrixEmpty: "Crea un cliente para empezar a repartir líneas.",
   },
   visibility: {
     shown: "Visibilidad activada en el portal",
