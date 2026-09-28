@@ -21,6 +21,25 @@ Docker stack; run `alembic upgrade head` on local setups).
 
 ### Added
 
+- **Platform: SUPERADMIN → AGENCIES → CLIENTS.** One installation now serves a platform owner
+  above many agencies. The owner is provisioned on the server with
+  `python -m app.cli.platform_admin create` (provisioning one closes public first-run setup);
+  the platform panel (`/superadmin`) lists and creates agencies, resolves their addresses by
+  slug (renames retire the old slug into `agency_slug_aliases`, so links never break), invites
+  each agency's first administrator through a one-time link (`/join/{token}`, transactional
+  acceptance), decides per agency which of its 24 modules may be used (`agencies.features`,
+  named presets; the ceiling caps the client portal through its single `require_feature` funnel
+  and the portal/mobile sessions carry the effective list), blocks and restores an agency's
+  access (`agencies.access_status` — sessions, logins, tokens, portals, mobile, OAuth and
+  invitations are denied; messaging and data stores keep running; revocation stays allowed),
+  and reads per-agency usage, infrastructure health and a platform audit log. Platform sessions
+  are their own identity (`platform_admins`), cookie and JWT type/audience; agency tokens now
+  carry a type and reject portal or platform tokens, legacy untyped tokens keep working as
+  agency sessions. Ambiguous mobile sign-in (one e-mail, several portals) answers a 409
+  challenge naming each portal instead of picking one. Migrations `0075_platform_accounts`,
+  `0076_agency_access` and `0077_agency_features`; every existing agency stays active with all
+  modules on.
+
 - **Lead merge.** A lead can absorb another (menu `...` on the lead card, "Merge with another lead..."):
   search by name, phone, email or `#number`, preview Primary vs Secondary (the older lead is the primary,
   roles can be swapped) and confirm. The primary keeps its budget (unless it is 0), its custom fields are

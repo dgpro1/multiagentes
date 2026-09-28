@@ -20,7 +20,10 @@ API share one origin.
 
 Only the gateway is meant to be public. For HTTPS, put your own reverse proxy in
 front of it (see [Go to production](#go-to-production-https)). One instance =
-**one agency** (the first registered user is its admin). WhatsApp QR is
+**one platform owner, many agencies**: provision the owner on the server with
+`python -m app.cli.platform_admin create` and create agencies from `/superadmin`;
+the first-run page only ever creates the first agency of an empty installation.
+WhatsApp QR is
 optional: without `EVOLUTION_API_URL`/`EVOLUTION_API_KEY` set, the rest of the
 app works and WhatsApp QR is simply unavailable.
 

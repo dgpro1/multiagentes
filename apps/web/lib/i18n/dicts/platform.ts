@@ -137,6 +137,19 @@ const en = {
     target: "Agency",
     when: "When",
   },
+  join: {
+    title: "Join {agency}",
+    subtitle: "You were invited to administer this agency. Choose your password to start.",
+    agency: "Agency",
+    email: "Your e-mail",
+    name: "Your name",
+    password: "Choose a password",
+    submit: "Create my account",
+    expired: "This invitation has expired. Ask the platform to send you a new one.",
+    used: "This invitation has already been used.",
+    unknown: "This invitation does not exist.",
+    loading: "Reading your invitation…",
+  },
 };
 
 const es: typeof en = {
@@ -276,6 +289,19 @@ const es: typeof en = {
     action: "Acción",
     target: "Agencia",
     when: "Cuándo",
+  },
+  join: {
+    title: "Únete a {agency}",
+    subtitle: "Te invitaron a administrar esta agencia. Elige tu contraseña para empezar.",
+    agency: "Agencia",
+    email: "Tu correo",
+    name: "Tu nombre",
+    password: "Elige una contraseña",
+    submit: "Crear mi cuenta",
+    expired: "Esta invitación ha expirado. Pide a la plataforma que te envíe una nueva.",
+    used: "Esta invitación ya fue usada.",
+    unknown: "Esta invitación no existe.",
+    loading: "Leyendo tu invitación…",
   },
 };
 

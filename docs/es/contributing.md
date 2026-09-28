@@ -6,11 +6,13 @@ Docker es la forma más rápida de ejecutar OpenLivery, pero para el desarrollo 
 
 ## Alcance de la instalación
 
-Cada instalación sirve a una agencia con múltiples espacios de clientes. La
-configuración inicial crea esa agencia y su propietario; después se cierra el
-registro público. No añadas configuración, rutas de API ni flujos de interfaz
-para registrar agencias adicionales. Conserva las comprobaciones de propiedad
-y los datos existentes al modificar la configuración inicial o el acceso.
+Cada instalación sirve a un dueño de plataforma por encima de muchas agencias. La
+configuración inicial solo crea la primera agencia de una instalación vacía; después
+se cierra el registro público. El dueño de plataforma se aprovisiona en el servidor con
+`python -m app.cli.platform_admin create` y crea más agencias desde el panel de
+plataforma. No añadas configuración, rutas de API ni flujos de interfaz que permitan
+al público registrar agencias o cuentas de plataforma. Conserva las comprobaciones de
+propiedad y los datos existentes al modificar la configuración inicial o el acceso.
 
 ## Requisitos previos
 

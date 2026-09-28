@@ -39,15 +39,20 @@ Para una instalación local sin Docker, las mismas variables van en un `.env` en
 
 ## Configuración de la agencia
 
-Cada instalación sirve a una agencia con múltiples espacios de clientes. En una
-instalación vacía, la pantalla de acceso permite crear la agencia y su propietario.
-Después solo permite iniciar sesión y la API rechaza registros de agencias
-adicionales, incluso si dos solicitudes intentan completar la configuración a la vez.
+Cada instalación sirve a un dueño de plataforma por encima de muchas agencias. En
+una instalación vacía, la pantalla de acceso permite crear la primera agencia y su
+propietario; alternativamente, aprovisiona primero al dueño de plataforma con
+`python -m app.cli.platform_admin create` (se ejecuta en el servidor), lo que cierra
+la configuración pública incluso antes de que exista agencia alguna. Cuando existe
+cualquiera de los dos, la pantalla solo permite iniciar sesión y la API rechaza
+registros de agencias adicionales, incluso si dos solicitudes intentan completar la
+configuración a la vez.
 
-Para atender más negocios, agrega clientes dentro de tu agencia. No hay un ajuste
-para reabrir el registro. La actualización conserva los usuarios y datos existentes;
-la antigua variable `ALLOW_MULTI_AGENCY` ya no tiene efecto y puede eliminarse de
-los archivos de configuración anteriores.
+Para atender más agencias, créalas desde el panel de plataforma (`/superadmin`) e
+invita al primer administrador de cada una. No hay un ajuste para reabrir el registro.
+La actualización conserva los usuarios y datos existentes; la antigua variable
+`ALLOW_MULTI_AGENCY` ya no tiene efecto y puede eliminarse de los archivos de
+configuración anteriores.
 
 ## Puertos del host
 

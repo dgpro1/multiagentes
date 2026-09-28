@@ -140,24 +140,28 @@ def test_remaining_client_resources_are_invisible_across_agencies(authenticated_
 def test_reports_never_cross_agencies(authenticated_client):
     import json
     import uuid
-    from datetime import date
+    from datetime import datetime, timezone
 
     from app.models import Client, UsageRecord
     from conftest import TestingSession
 
     client = authenticated_client
     customer = _client_a(client)
+    # A fixed UTC instant: the report filters by UTC midnight, so a record
+    # stamped "now" would fall outside the local date's range around UTC
+    # midnight and make the assertion time-dependent.
+    stamped = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
     with TestingSession() as db:
         owner = db.get(Client, uuid.UUID(customer["id"]))
         db.add(UsageRecord(
             agency_id=owner.agency_id, provider="openrouter", model="openai/gpt-5.6-luna",
-            input_tokens=10, output_tokens=5,
+            input_tokens=10, output_tokens=5, created_at=stamped,
         ))
         db.commit()
-    today = date.today().isoformat()
     _as_b(client)
-    theirs = client.get("/api/reports/costs", params={"from": today, "to": today})
+    theirs = client.get("/api/reports/costs", params={"from": "2026-01-15", "to": "2026-01-15"})
     assert theirs.status_code == 200, theirs.text
     assert "gpt-5.6-luna" not in json.dumps(theirs.json())
     _as_a(client)
-    assert "gpt-5.6-luna" in json.dumps(client.get("/api/reports/costs", params={"from": today, "to": today}).json())
+    ours = client.get("/api/reports/costs", params={"from": "2026-01-15", "to": "2026-01-15"})
+    assert "gpt-5.6-luna" in json.dumps(ours.json())

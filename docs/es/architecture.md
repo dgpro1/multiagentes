@@ -2,7 +2,7 @@
 
 > Read in English: [architecture.md](../en/architecture.md)
 
-Cada instalación de OpenLivery sirve a una agencia con múltiples espacios de clientes: tres servicios de aplicación más PostgreSQL, servidos a través de una puerta de enlace de origen único. La configuración inicial crea la agencia y su propietario; después se cierra el registro público. Esta página explica los servicios, el modelo de datos y los controles de acceso.
+Cada instalación de OpenLivery sirve a un dueño de plataforma que administra **muchas agencias**: tres servicios de aplicación más PostgreSQL, servidos a través de una puerta de enlace de origen único. El dueño de plataforma crea agencias, invita a su primer administrador, decide por agencia qué módulos puede usar y puede bloquear su acceso; cada agencia conserva sus propios espacios de clientes, agentes, canales y portales. La configuración inicial solo crea la primera agencia de una instalación vacía; después se cierra el registro público. Esta página explica los servicios, el modelo de datos y los controles de acceso.
 
 ## Los servicios
 
@@ -33,7 +33,9 @@ Como la aplicación es de origen único, el navegador habla con una ruta relativ
 
 ## El modelo de datos
 
-Cada registro cuelga de una agencia. La jerarquía, tal como se define en `apps/api/app/models.py`:
+Cada registro cuelga de una agencia, y por encima de las agencias está el dueño de plataforma
+(`PlatformAdmin`, con las tablas de invitaciones, auditoría y alias de slug). La jerarquía, tal
+como se define en `apps/api/app/models.py`:
 
 ```text
 Agency

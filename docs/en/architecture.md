@@ -2,7 +2,7 @@
 
 > Leer en español: [architecture.md](../es/architecture.md)
 
-One OpenLivery installation serves one agency with multiple client workspaces: three application services plus PostgreSQL, served through a single-origin gateway. First-run setup creates the agency and its owner, then public registration closes. This page explains the services, data model, and ownership checks.
+One OpenLivery installation serves a platform owner who runs **many agencies**: three application services plus PostgreSQL, served through a single-origin gateway. The platform owner creates agencies, invites their first administrator, decides per agency which of its modules may be used, and can block its access; each agency keeps its own client workspaces, agents, channels and portals. First-run setup only ever creates the first agency of an empty installation, then public registration closes. This page explains the services, data model, and ownership checks.
 
 ## The services
 
@@ -33,7 +33,9 @@ Because the app is single-origin, the browser talks to a relative `/api` path an
 
 ## The data model
 
-Every record hangs off an agency. The hierarchy, as defined in `apps/api/app/models.py`:
+Every record hangs off an agency, and above the agencies sits the platform owner
+(`PlatformAdmin`, with the invitation, audit and slug-alias tables). The hierarchy, as
+defined in `apps/api/app/models.py`:
 
 ```text
 Agency

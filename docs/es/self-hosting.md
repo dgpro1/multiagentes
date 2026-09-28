@@ -20,7 +20,10 @@ comparten un mismo origen.
 
 Solo el gateway está pensado para ser público. Para HTTPS, pon tu propio proxy
 inverso delante (mira [Pasar a producción](#pasar-a-producción-https)). Una
-instancia = **una agencia** (el primer usuario registrado es su administrador).
+instancia = **un dueño de plataforma, muchas agencias**: aprovisiónalo en el
+servidor con `python -m app.cli.platform_admin create` y crea agencias desde
+`/superadmin`; la página de primer arranque solo crea la primera agencia de una
+instalación vacía.
 WhatsApp QR es opcional: sin `EVOLUTION_API_URL`/`EVOLUTION_API_KEY`, el resto
 de la app funciona y WhatsApp QR simplemente no está disponible.
 

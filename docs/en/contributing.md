@@ -6,10 +6,13 @@ Docker is the fastest way to run OpenLivery, but for day-to-day development you 
 
 ## Installation scope
 
-Each installation serves one agency with multiple client workspaces. First-run
-setup creates that agency and its owner, then public registration closes. Do not
-add configuration, API routes, or UI flows for registering additional agencies.
-Keep ownership checks and existing data intact when changing setup or login.
+Each installation serves a platform owner above many agencies. First-run setup
+only ever creates the first agency of an empty installation, then public
+registration closes; the platform owner is provisioned on the server with
+`python -m app.cli.platform_admin create` and creates further agencies from the
+platform panel. Do not add configuration, API routes, or UI flows that let the
+public register agencies or platform accounts. Keep ownership checks and existing
+data intact when changing setup or login.
 
 ## Prerequisites
 

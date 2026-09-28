@@ -65,13 +65,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   // OpenLivery account at all, straight from the link the agency or the
   // client portal shared with them.
   const isConnect = pathname.startsWith("/connect/");
+  // The invitation an invitee opens has no session of any kind.
+  const isJoin = pathname.startsWith("/join/");
   // The platform panel has its own identity, session and shell; the agency
   // shell must not wrap it or force /login on it.
   const isSuperadmin = pathname.startsWith("/superadmin");
   const isExtraPublic = EXTRA_PUBLIC_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
-  const isBare = isLogin || isPortal || isWidget || isConnect || isSuperadmin || isExtraPublic;
+  const isBare = isLogin || isPortal || isWidget || isConnect || isJoin || isSuperadmin || isExtraPublic;
 
   // Check the session on entry and revalidate it on every navigation, without
   // taking the shell off screen to do it: `loading` starts true and is only ever

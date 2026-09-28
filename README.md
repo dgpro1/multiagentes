@@ -25,13 +25,15 @@
 
 ---
 
-One OpenLivery installation serves one agency. The agency creates AI agents for its
-clients, gives each client a branded portal, and talks to end users over
-WhatsApp or an embeddable web chat widget. Bring your own OpenRouter key and
-self-host the whole thing with one command.
+One OpenLivery installation serves a platform owner who runs many agencies. Each
+agency creates AI agents for its clients, gives each client a branded portal, and
+talks to end users over WhatsApp or an embeddable web chat widget. Bring your own
+OpenRouter key and self-host the whole thing with one command.
 
-First-run setup creates your agency and owner account, then public registration
-closes. Add as many client workspaces as your agency needs inside that installation.
+First-run setup only ever creates the first agency of an empty installation, then
+public registration closes. Provision the platform owner on the server
+(`python -m app.cli.platform_admin create`) and add as many agencies as you run
+from the platform panel (`/superadmin`); each agency adds its own client workspaces.
 
 ## Documentation
 
@@ -82,6 +84,9 @@ Full documentation lives in **[docs/](docs/)**. Every guide is written twice:
 - ✅ Per-client **portal** with its own login and Inbox, optionally served under the client's **own custom domain** (DNS-verified, automatic HTTPS)
 - ✅ **Dashboard** with activity, top agents, token usage by model and a date-range filter
 - ✅ Agency **white-label** (name, identifier, color, logo)
+- ✅ **Platform panel** — one superadmin view across every agency: create agencies, invite their
+  first administrator, switch which modules each agency may use, block and restore access,
+  per-agency usage and infrastructure, audit log
 
 ## Architecture
 

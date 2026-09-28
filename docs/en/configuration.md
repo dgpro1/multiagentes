@@ -39,13 +39,17 @@ For a non-Docker local setup, the same variables go in a `.env` at the repo root
 
 ## Agency setup
 
-Each installation serves one agency with multiple client workspaces. On an empty
-installation, the login page offers first-run setup for the agency and its owner.
-Once setup succeeds, the page offers sign-in only and the API rejects further
-agency registrations. Concurrent setup requests cannot create additional agencies.
+Each installation serves a platform owner above many agencies. On an empty
+installation, the login page offers first-run setup for the first agency and its
+owner; alternatively, provision the platform owner first with
+`python -m app.cli.platform_admin create` (run on the server), which closes public
+setup even before any agency exists. Once either exists, the page offers sign-in
+only and the API rejects further agency registrations. Concurrent setup requests
+cannot create additional agencies.
 
-To serve more businesses, add clients within your agency. There is no setting to
-reopen agency registration. Upgrading preserves existing users and data; the
+To serve more agencies, create them from the platform panel (`/superadmin`) and
+invite each one's first administrator. There is no setting to reopen public agency
+registration. Upgrading preserves existing users and data; the
 removed `ALLOW_MULTI_AGENCY` environment variable has no effect and can be deleted
 from older configuration files.
 

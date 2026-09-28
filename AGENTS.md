@@ -6,7 +6,7 @@ repo already uses in `apps/web`.
 
 ## Project
 
-One OpenLivery installation serves one agency, which creates and manages AI agents for multiple clients, with a chat playground, client portals, and messaging integrations. First-run setup creates the agency and its owner, then public registration closes permanently. Do not add a setting, endpoint, or UI flow for registering additional agencies. Three services + PostgreSQL:
+One OpenLivery installation serves a platform owner above many agencies: the SUPERADMIN panel (`/superadmin`) creates agencies, invites their first administrator through a one-time link, decides per agency which of its modules may be used (`app/agency_features.py`, capped through the portal's `require_feature` funnel) and can block its access (`app/services/access_policy.py`). Each agency keeps creating and managing AI agents for its own clients, with a chat playground, client portals, and messaging integrations. The platform owner is provisioned on the server with `python -m app.cli.platform_admin create`; first-run setup only ever creates the first agency of an empty installation, then public registration closes permanently. Do not add a setting, endpoint, or UI flow that lets the public register agencies or platform accounts. Three services + PostgreSQL:
 
 - `apps/api/` — FastAPI (Python 3.12) + SQLAlchemy + Alembic
 - `apps/web/` — Next.js 16 (App Router) + React 19 + TypeScript + Tailwind
