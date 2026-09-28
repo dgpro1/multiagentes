@@ -957,6 +957,10 @@ export type PlatformAgency = {
   access_block_reason: string;
   features: Record<string, boolean>;
   plan: string;
+  // Only the channel types the platform capped are listed; a missing key means
+  // unlimited. channel_used is how many are connected right now.
+  channel_quotas: Record<string, number>;
+  channel_used: Record<string, number>;
 };
 
 export type PlatformInvitation = {

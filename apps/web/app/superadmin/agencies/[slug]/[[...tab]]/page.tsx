@@ -10,7 +10,7 @@ import { PlatformShell } from "@/components/platform-shell";
 import { Alert, EmptyState, PageHead } from "@/components/ui";
 import { SectionTabs } from "@/components/section-tabs";
 import { PLATFORM_AGENCY_TABS, platformAgencyPath, tabFromSegments } from "@/lib/routes";
-import { AGENCY_FEATURES, AGENCY_PRESETS, PRESET_NAMES, type AgencyFeature } from "@/lib/agency-features";
+import { AGENCY_FEATURES, AGENCY_PRESETS, PRESET_NAMES, isQuotaFeature, type AgencyFeature, type QuotaFeature } from "@/lib/agency-features";
 import type { PlatformAgency, PlatformClient, PlatformInfrastructureClient, PlatformInvitation, PlatformUsage } from "@/types";
 
 function tokens(value: number): string {
@@ -33,8 +33,17 @@ function StatusPill({ status }: { status: string }) {
 function PlanTab({ agency }: { agency: PlatformAgency }) {
   const t = useT();
   const [features, setFeatures] = useState<Record<string, boolean>>(agency.features);
+  // Only the types the platform capped are here; a missing key means unlimited.
+  const [quotas, setQuotas] = useState<Record<string, number>>(agency.channel_quotas);
+  const [used, setUsed] = useState<Record<string, number>>(agency.channel_used);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+
+  function adopt(body: PlatformAgency) {
+    setFeatures(body.features);
+    setQuotas(body.channel_quotas);
+    setUsed(body.channel_used);
+  }
 
   async function put(next: Record<string, boolean>, plan?: string) {
     setBusy("all");
@@ -44,7 +53,25 @@ function PlanTab({ agency }: { agency: PlatformAgency }) {
         method: "PUT",
         body: JSON.stringify(plan === undefined ? { features: next } : { features: next, plan }),
       });
-      setFeatures(body.features);
+      adopt(body);
+    } catch (err) {
+      setError(messageFrom(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** One number changes; the switches ride along unchanged, because the endpoint
+   * saves the plan in one transaction. null lifts the cap. */
+  async function putQuota(key: QuotaFeature, value: number | null) {
+    setBusy(key);
+    setError("");
+    try {
+      const body = await api<PlatformAgency>(`/platform/agencies/${agency.id}/features`, {
+        method: "PUT",
+        body: JSON.stringify({ features, channel_quotas: { [key]: value } }),
+      });
+      adopt(body);
     } catch (err) {
       setError(messageFrom(err));
     } finally {
@@ -67,24 +94,78 @@ function PlanTab({ agency }: { agency: PlatformAgency }) {
       <div className="section-copy" style={{ marginBottom: 14 }}>
         <h2>{t("platform.detail.planTitle")}</h2>
         <p>{t("platform.detail.planCopy")}</p>
+        <p style={{ color: "var(--muted)", fontSize: 13 }}>{t("platform.detail.quotaHint")}</p>
       </div>
       <div className="stitch-feature-grid">
         {AGENCY_FEATURES.map((entry) => {
           const on = features[entry.key] ?? entry.default;
+          // Narrowed here so the handlers below keep the quota type.
+          const quotaKey = isQuotaFeature(entry.key) ? entry.key : null;
+          const quota = quotaKey ? quotas[quotaKey] : undefined;
+          const unlimited = quota === undefined;
+          const inUse = quotaKey ? used[quotaKey] ?? 0 : 0;
+          const over = !unlimited && inUse > (quota ?? 0);
+          const stepDisabled = busy !== null || !on;
           return (
             <div key={entry.key} className="stitch-feature-tile">
-              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
-                {t(`platform.detail.modules.${entry.key}` as const)}
-              </span>
-              <label className="stitch-switch">
-                <input
-                  type="checkbox"
-                  checked={on}
-                  disabled={busy !== null}
-                  onChange={(event) => toggle(entry.key, event.target.checked)}
-                />
-                <span className="stitch-slider" />
-              </label>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
+                  {t(`platform.detail.modules.${entry.key}` as const)}
+                </span>
+                <label className="stitch-switch">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    disabled={busy !== null}
+                    onChange={(event) => toggle(entry.key, event.target.checked)}
+                  />
+                  <span className="stitch-slider" />
+                </label>
+              </div>
+              {quotaKey && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <button
+                      type="button"
+                      className="button"
+                      style={{ padding: "2px 9px", lineHeight: 1.2 }}
+                      aria-label={t("platform.detail.fewerLines")}
+                      disabled={stepDisabled || unlimited}
+                      onClick={() => void putQuota(quotaKey, Math.max(0, (quota ?? 0) - 1))}
+                    >
+                      −
+                    </button>
+                    <span style={{ minWidth: 34, textAlign: "center", fontWeight: 700, color: unlimited ? "var(--muted)" : "var(--ink)" }}>
+                      {unlimited ? "∞" : quota}
+                    </span>
+                    <button
+                      type="button"
+                      className="button"
+                      style={{ padding: "2px 9px", lineHeight: 1.2 }}
+                      aria-label={t("platform.detail.moreLines")}
+                      disabled={stepDisabled || unlimited}
+                      onClick={() => void putQuota(quotaKey, (quota ?? 0) + 1)}
+                    >
+                      +
+                    </button>
+                    <button
+                      type="button"
+                      disabled={stepDisabled}
+                      onClick={() => void putQuota(quotaKey, unlimited ? 0 : null)}
+                      style={{ marginLeft: 2, background: "none", border: "none", cursor: stepDisabled ? "default" : "pointer", color: stepDisabled ? "var(--muted)" : "var(--accent, #0d9488)", fontSize: 12, padding: 0 }}
+                    >
+                      {unlimited ? t("platform.detail.setLimit") : t("platform.detail.unlimited")}
+                    </button>
+                  </div>
+                  <small style={{ display: "block", marginTop: 4, color: over ? "#b91c1c" : "var(--muted)" }}>
+                    {unlimited
+                      ? t("platform.detail.inUseFree", { used: inUse })
+                      : over
+                        ? t("platform.detail.overLimit", { used: inUse, quota: quota as number })
+                        : t("platform.detail.inUseOf", { used: inUse, quota: quota as number })}
+                  </small>
+                </div>
+              )}
             </div>
           );
         })}

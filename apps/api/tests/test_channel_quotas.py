@@ -233,3 +233,13 @@ def test_the_catalog_matches_the_channel_modules():
 
     assert set(channel_quotas.CATALOG) <= set(agency_features.KEYS)
     assert all(key.startswith("channels.") for key in channel_quotas.CATALOG)
+
+
+def test_the_typescript_mirror_lists_the_same_countable_types():
+    """The platform's Plan tab keeps its own list — it must not grow a quota row
+    for a channel the API cannot count — so the two are compared here."""
+    source = (pathlib.Path(__file__).resolve().parents[2] / "web" / "lib" / "agency-features.ts").read_text(encoding="utf-8")
+    block = source.split("export const QUOTA_FEATURES", 1)
+    assert len(block) == 2, "could not find QUOTA_FEATURES in agency-features.ts"
+    listed = re.findall(r'"(channels\.[a-z_]+)"', block[1].split("] as const", 1)[0])
+    assert listed == list(channel_quotas.CATALOG), "apps/web/lib/agency-features.ts and app/channel_quotas.py drifted"
