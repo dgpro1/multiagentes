@@ -26,6 +26,7 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
   const { clientId: id, loadClient } = useChannelClient();
   const backLabel = useBackToChannels();
   const [client, setClient] = useState<Client | null>(null);
+  const resolvedId = client?.id ?? id;
   const [config, setConfig] = useState<SocialConfig[SocialProvider] | null>(null);
   const [lines, setLines] = useState<SocialChannel[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -43,7 +44,8 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
   const [historyPollFailed, setHistoryPollFailed] = useState(false);
   const channel = adding ? null : lines.find((line) => line.id === selectedId) ?? null;
   // The selected account's routes; with none selected, the client's, which adds one.
-  const path = `/social/${provider}/channels/${channel?.id ?? id}`;
+  // After the screen has resolved the client, use its id — never the scope's empty id.
+  const resolvedPath = (channelId: string | null) => `/social/${provider}/channels/${channelId ?? resolvedId}`;
   const Icon = provider === "instagram" ? Instagram : Facebook;
 
   const upsert = useCallback((current: SocialChannel) => {
@@ -81,13 +83,16 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
   }, [api, provider]);
 
   const load = useCallback(async () => {
+    let active = true;
     setLoading(true); setError("");
     try {
-      const [owner, setup, items] = await Promise.all([
-        loadClient(),
+      const owner = await loadClient();
+      if (!active) return;
+      const [setup, items] = await Promise.all([
         api<SocialConfig>("/social/config"),
-        api<SocialChannel[]>(`/social/${provider}/clients/${id}/channels`),
+        api<SocialChannel[]>(`/social/${provider}/clients/${owner.id}/channels`),
       ]);
+      if (!active) return;
       setClient(owner); setConfig(setup[provider]); setLines(items);
       const wanted = requestedLine();
       const line = items.find((item) => item.id === wanted.line) ?? null;
@@ -102,9 +107,10 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
         clean.searchParams.delete("messaging_status");
         window.history.replaceState(window.history.state, "", clean.pathname + clean.search + clean.hash);
       }
-    } catch (err) { setError(messageFrom(err)); }
-    finally { setLoading(false); }
-  }, [id, api, loadClient, provider, applyChannel, startAdding, showList, loadHistory]);
+    } catch (err) { if (active) setError(messageFrom(err)); }
+    finally { if (active) setLoading(false); }
+    return () => { active = false; };
+  }, [api, loadClient, provider, applyChannel, startAdding, showList, loadHistory]);
   useEffect(() => { void load(); }, [load]);
 
   // The hosted page approves in another tab; reload when coming back.
@@ -149,7 +155,7 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
     if (!agentId) return;
     await run(async () => {
       const result = await api<{ authorization_url: string }>(`/social/${provider}/oauth/start`, {
-        method: "POST", body: JSON.stringify({ client_id: id, agent_id: agentId, next_path: hrefFor.type(provider) }),
+        method: "POST", body: JSON.stringify({ client_id: resolvedId, agent_id: agentId, next_path: hrefFor.type(provider) }),
       });
       window.open(result.authorization_url, "_blank", "noopener");
       setPendingApproval(true);
@@ -159,7 +165,7 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
   async function verifySaved() {
     if (!channel) return;
     await run(async () => {
-      applyChannel(await api<SocialChannel>(`${path}/connect`, { method: "POST" }));
+      applyChannel(await api<SocialChannel>(resolvedPath(channel.id), { method: "POST" }));
       setSaved(true);
     });
   }
@@ -167,7 +173,7 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
   async function saveDetails() {
     if (!channel) return;
     await run(async () => {
-      applyChannel(await api<SocialChannel>(path, { method: "PATCH", body: JSON.stringify({ agent_id: agentId, label: label.trim() }) }));
+      applyChannel(await api<SocialChannel>(resolvedPath(channel.id), { method: "PATCH", body: JSON.stringify({ agent_id: agentId, label: label.trim() }) }));
       setSaved(true);
     });
   }
@@ -175,7 +181,7 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
   async function importHistory() {
     if (importing || !channel) return;
     await run(async () => {
-      setHistoryJob(await api<SocialHistoryJob>(`${path}/import-history`, { method: "POST", body: "{}" }));
+      setHistoryJob(await api<SocialHistoryJob>(resolvedPath(channel.id) + "/import-history", { method: "POST", body: "{}" }));
       setHistoryPollFailed(false);
     });
   }
@@ -183,7 +189,7 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
   async function disconnect() {
     if (!channel) return;
     await run(async () => {
-      await api(`${path}/disconnect`, { method: "POST" });
+      await api(resolvedPath(channel.id) + "/disconnect", { method: "POST" });
       // The account is gone; back to the list. With none left the empty
       // list stays: "add account" is the way in, never an automatic
       // landing on the form.

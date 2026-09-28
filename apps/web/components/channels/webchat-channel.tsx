@@ -37,30 +37,49 @@ function WebChatScreen() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const loadChannel = api<WidgetChannel>(`/webchat/channels/${id}`)
-      .then((current) => {
-        setChannel(current);
-        setAgentId(current.agent_id);
-        setEnabled(current.is_enabled);
-        setGreeting(current.greeting);
-        setColor(current.color || "#075985");
-        setPosition(current.position);
+    let active = true;
+    setLoading(true);
+    setError("");
+    loadClient()
+      .then((owner) => {
+        if (!active) return;
+        setClient(owner);
+        return owner;
+      })
+      .then((owner) => {
+        if (!active || !owner) return;
+        const path = `/webchat/channels/${owner.id}`;
+        return api<WidgetChannel>(path);
+      })
+      .then((channel) => {
+        if (!active) return;
+        if (channel) {
+          setChannel(channel);
+          setAgentId(channel.agent_id);
+          setEnabled(channel.is_enabled);
+          setGreeting(channel.greeting);
+          setColor(channel.color || "#075985");
+          setPosition(channel.position);
+        } else {
+          setChannel(null);
+        }
       })
       .catch((err) => {
-        if (!(err instanceof ApiError && err.status === 404)) throw err;
-        setChannel(null);
-      });
-    Promise.all([
-      loadClient().then((item) => { setClient(item); setAgentId((value) => value || item.agents[0]?.id || ""); }),
-      loadChannel,
-    ]).catch((err) => setError(messageFrom(err))).finally(() => setLoading(false));
-  }, [id, api, loadClient]);
+        if (err instanceof ApiError && err.status === 404) {
+          if (active) setChannel(null);
+          return;
+        }
+        if (active) setError(messageFrom(err));
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [api, loadClient]);
 
   async function save() {
     if (!agentId) return;
     setBusy(true); setError("");
     try {
-      setChannel(await api<WidgetChannel>(`/webchat/channels/${id}`, { method: "PUT", body: JSON.stringify({ agent_id: agentId, is_enabled: enabled, greeting, color, position }) }));
+      setChannel(await api<WidgetChannel>(`/webchat/channels/${client?.id ?? id}`, { method: "PUT", body: JSON.stringify({ agent_id: agentId, is_enabled: enabled, greeting, color, position }) }));
       toast.success(t("clients.webchat.saved"));
     } catch (err) { setError(messageFrom(err)); } finally { setBusy(false); }
   }

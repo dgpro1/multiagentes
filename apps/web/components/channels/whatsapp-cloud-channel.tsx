@@ -77,9 +77,16 @@ function WhatsAppCloudScreen() {
   const startAdding = useCallback((owner: Client | null) => { show(null, owner); setAdding(true); }, [show]);
 
   useEffect(() => {
-    Promise.all([loadClient(), api<WhatsAppCloudChannel[]>(`/whatsapp-cloud/clients/${id}/channels`)])
-      .then(([owner, items]) => {
-        setClient(owner); setLines(items);
+    let active = true;
+    setLoading(true);
+    setError("");
+    loadClient()
+      .then(async (owner) => {
+        if (!active) return;
+        const items = await api<WhatsAppCloudChannel[]>(`/whatsapp-cloud/clients/${owner.id}/channels`);
+        if (!active) return;
+        setClient(owner);
+        setLines(items);
         const wanted = requestedLine();
         const line = items.find((item) => item.id === wanted.line) ?? null;
         if (wanted.adding) startAdding(owner); else show(line, owner);
@@ -92,8 +99,10 @@ function WhatsAppCloudScreen() {
           window.history.replaceState(window.history.state, "", clean.pathname + clean.search + clean.hash);
         }
       })
-      .catch((err) => setError(messageFrom(err))).finally(() => setLoading(false));
-  }, [id, api, loadClient, show, startAdding]);
+      .catch((err) => { if (active) setError(messageFrom(err)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [api, loadClient, show, startAdding]);
 
   // The hosted page approves in another tab; refresh when coming back.
   useEffect(() => {
@@ -118,7 +127,7 @@ function WhatsAppCloudScreen() {
     const payload = JSON.stringify({ agent_id: agentId, label: label.trim() });
     const saved = channel
       ? await api<WhatsAppCloudChannel>(`/whatsapp-cloud/channels/${channel.id}`, { method: "PUT", body: payload })
-      : await api<WhatsAppCloudChannel>(`/whatsapp-cloud/clients/${id}/channels`, { method: "POST", body: payload });
+      : await api<WhatsAppCloudChannel>(`/whatsapp-cloud/clients/${client?.id ?? id}/channels`, { method: "POST", body: payload });
     upsert(saved); setAdding(false); setSelectedId(saved.id); rememberLine(saved.id);
     setAgentId(saved.agent_id); setLabel(saved.label || "");
     return saved;

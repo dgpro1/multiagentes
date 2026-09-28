@@ -69,15 +69,24 @@ function WhatsAppScreen() {
   const startAdding = useCallback((owner: Client | null) => { show(null, owner); setAdding(true); }, [show]);
 
   useEffect(() => {
-    Promise.all([loadClient(), api<WhatsAppChannel[]>(`/whatsapp/clients/${id}/channels`)])
-      .then(([owner, items]) => {
-        setClient(owner); setLines(items);
+    let active = true;
+    setLoading(true);
+    setError("");
+    loadClient()
+      .then(async (owner) => {
+        if (!active) return;
+        const items = await api<WhatsAppChannel[]>(`/whatsapp/clients/${owner.id}/channels`);
+        if (!active) return;
+        setClient(owner);
+        setLines(items);
         const wanted = requestedLine();
         const line = items.find((item) => item.id === wanted.line) ?? null;
         if (wanted.adding) startAdding(owner); else show(line, owner);
       })
-      .catch((err) => setError(messageFrom(err))).finally(() => setLoading(false));
-  }, [id, api, loadClient, show, startAdding]);
+      .catch((err) => { if (active) setError(messageFrom(err)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [api, loadClient, show, startAdding]);
 
   // The selected line is polled while it exists: the QR and the connection state come from Evolution API.
   const channelId = channel?.id ?? null;
@@ -97,7 +106,7 @@ function WhatsAppScreen() {
     });
     const saved = channel
       ? await api<WhatsAppChannel>(`/whatsapp/channels/${channel.id}`, { method: "PUT", body })
-      : await api<WhatsAppChannel>(`/whatsapp/clients/${id}/channels`, { method: "POST", body });
+      : await api<WhatsAppChannel>(`/whatsapp/clients/${client?.id ?? id}/channels`, { method: "POST", body });
     upsert(saved); setAdding(false); setSelectedId(saved.id); rememberLine(saved.id);
     return saved;
   }

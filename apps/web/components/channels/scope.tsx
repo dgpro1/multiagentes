@@ -44,6 +44,8 @@ export type ChannelsScope = {
   hrefFor: ChannelHrefs;
   /** The client whose channels these are (the name is empty in the agency until the page has loaded it). */
   client: { id: string; slug: string; name: string };
+  /** The client has been resolved to its UUID for the agency address (always true in the portal). */
+  clientReady: boolean;
 };
 
 const ScopeContext = createContext<ChannelsScope | null>(null);
@@ -51,8 +53,15 @@ const ScopeContext = createContext<ChannelsScope | null>(null);
 export function ChannelsScopeProvider({ apiBase = "", hrefFor, client, children }: { apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; slug: string; name: string } | null; children: ReactNode }) {
   const params = useParams<{ slug?: string }>();
   const key = client?.slug ?? params.slug ?? "";
+  const resolved = Boolean(client?.id);
   const value = useMemo<ChannelsScope>(
-    () => ({ apiBase, portal: apiBase !== "", hrefFor: hrefFor ?? agencyChannelHrefs(key), client: { id: client?.id ?? "", slug: key, name: client?.name ?? "" } }),
+    () => ({
+      apiBase,
+      portal: apiBase !== "",
+      hrefFor: hrefFor ?? agencyChannelHrefs(key),
+      client: { id: client?.id ?? "", slug: key, name: client?.name ?? "" },
+      clientReady: resolved,
+    }),
     [apiBase, hrefFor, client?.id, key, client?.name],
   );
   return <ScopeContext.Provider value={value}>{children}</ScopeContext.Provider>;
@@ -64,11 +73,20 @@ export function useChannelsScope(): ChannelsScope {
   return scope;
 }
 
-/** `api()` with the scope's prefix in front of every path. */
+/** `api()` with the scope's prefix in front of every path.
+ *
+ * Cheap guard against the class of bug where a screen asks for
+ * `clients//channels` because it used the unresolved client id. */
 export function useChannelsApi() {
   const { apiBase } = useChannelsScope();
   return useMemo(() => ({
-    api: <T,>(path: string, options?: RequestInit) => rawApi<T>(`${apiBase}${path}`, options),
+    api: <T,>(path: string, options?: RequestInit) => {
+      const joined = `${apiBase}${path}`;
+      if (joined.includes("//") || joined.endsWith("/channels/")) {
+        throw new Error(`channels: refuse malformed path “${joined}” — the screen is using an unresolved client id`);
+      }
+      return rawApi<T>(joined, options);
+    },
   }), [apiBase]);
 }
 
@@ -77,7 +95,7 @@ export function useChannelsApi() {
  * has only the list route, of which its own client is the one row it may see. */
 export function useChannelClient() {
   const t = useT();
-  const { portal, client } = useChannelsScope();
+  const { portal, client, clientReady } = useChannelsScope();
   const { api } = useChannelsApi();
   const loadClient = useCallback(async (): Promise<Client> => {
     if (!portal) {
@@ -88,7 +106,7 @@ export function useChannelClient() {
     if (!own) throw new ApiError(t("social.loadFailed"), 404);
     return own;
   }, [api, portal, client.id, client.slug, t]);
-  return { clientId: client.id, loadClient };
+  return { clientId: client.id, clientReady, loadClient };
 }
 
 /** The label of the link that leads from a channel page back to the client's channels. */
