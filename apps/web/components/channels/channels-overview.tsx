@@ -12,9 +12,10 @@ import { accountName, ChannelIcon } from "@/lib/channels";
 import { useT } from "@/lib/i18n";
 import { CHANNEL_TYPES, type ChannelType } from "@/lib/routes";
 import { ChannelsScopeProvider, useChannelsApi, useChannelsScope, type ChannelHrefs } from "@/components/channels/scope";
-import { FEATURE_OF_CHANNEL_TYPE, normalizeFeatures } from "@/lib/portal-features";
+import { CHANNEL_TYPE_OF_FEATURE, FEATURE_OF_CHANNEL_TYPE, normalizeFeatures } from "@/lib/portal-features";
+import { QuotaStepper } from "@/components/quota-stepper";
 import { useToast } from "@/components/toast";
-import type { Client, SocialChannel, WhatsAppChannel, WhatsAppCloudChannel, WidgetChannel } from "@/types";
+import type { ChannelAllowance, Client, SocialChannel, WhatsAppChannel, WhatsAppCloudChannel, WidgetChannel } from "@/types";
 
 type ChannelState = "loading" | "off" | "pending" | "connected" | "disconnected";
 type ChannelStatus = { state: ChannelState; detail?: string };
@@ -75,6 +76,11 @@ function ChannelsOverview({
   const has = (type: ChannelType) => types.includes(type);
   const [states, setStates] = useState<Partial<Record<ChannelType, ChannelStatus>> | null>(null);
   const [busyFeature, setBusyFeature] = useState<string | null>(null);
+  const [allowances, setAllowances] = useState<ChannelAllowance[] | null>(null);
+  const [busyAllowance, setBusyAllowance] = useState<string | null>(null);
+  // How many lines of each type this client may use: the agency's business, so
+  // only its own view asks (the portal passes no clientData).
+  const managesLines = Boolean(clientData && onClientChange);
   const typesKey = types.join(",");
 
   useEffect(() => {
@@ -96,6 +102,32 @@ function ChannelsOverview({
     })).catch(() => {});
   }, [id, api, typesKey, t]);
 
+  useEffect(() => {
+    if (!managesLines) return;
+    let active = true;
+    api<ChannelAllowance[]>(`/clients/${id}/channel-allowances`)
+      .then((rows) => { if (active) setAllowances(rows); })
+      .catch(() => { if (active) setAllowances([]); });
+    return () => { active = false; };
+  }, [api, id, managesLines]);
+
+  /** One number changes; the API answers with the whole list, so the screen
+   * always shows what the server stored rather than what was clicked. */
+  async function setAllocation(key: string, value: number | null) {
+    if (!clientData) return;
+    setBusyAllowance(key);
+    try {
+      setAllowances(await api<ChannelAllowance[]>(`/clients/${clientData.id}/channel-allowances`, {
+        method: "PUT",
+        body: JSON.stringify({ allocations: { [key]: value } }),
+      }));
+    } catch (err) {
+      toast.error(messageFrom(err));
+    } finally {
+      setBusyAllowance(null);
+    }
+  }
+
   const stateOf = (type: ChannelType): ChannelState => states?.[type]?.state ?? "loading";
   const detailOf = (type: ChannelType): string => states?.[type]?.detail ?? "";
 
@@ -112,7 +144,7 @@ function ChannelsOverview({
         body: JSON.stringify({ portal_features: { [featKey]: checked } }),
       });
       onClientChange(updated);
-      toast.success(checked ? "Visibilidad activada en el portal" : "Visibilidad oculta en el portal");
+      toast.success(checked ? t("channels.visibility.shown") : t("channels.visibility.hidden"));
     } catch (err) {
       toast.error(messageFrom(err));
     } finally {
@@ -174,16 +206,14 @@ function ChannelsOverview({
             </div>
             <div className="stitch-banner-content">
               <div className="stitch-banner-title-row">
-                <h2 className="stitch-banner-title">
-                  Canales Conectados &amp; Visibilidad
-                </h2>
+                <h2 className="stitch-banner-title">{t("channels.banner.title")}</h2>
                 <span className="stitch-live-pill">
                   <span className="stitch-pulse-dot" />
-                  En vivo
+                  {t("channels.banner.live")}
                 </span>
               </div>
               <p className="stitch-banner-desc">
-                Estado de conexión y visibilidad en tiempo real para pacientes de {client.name}.
+                {t("channels.banner.description", { name: client.name })}
               </p>
             </div>
           </div>
@@ -191,15 +221,55 @@ function ChannelsOverview({
             <div className="stitch-stat-pill">
               <span className="stitch-stat-dot gray" />
               <span className="stitch-stat-num">{unlinkedCount}</span>
-              <span className="stitch-stat-label">Sin vincular</span>
+              <span className="stitch-stat-label">{t("channels.banner.unlinked")}</span>
             </div>
             <div className="stitch-stat-pill">
               <span className="stitch-stat-dot green" />
               <span className="stitch-stat-num">{activeCount}</span>
-              <span className="stitch-stat-label">Canales activos</span>
+              <span className="stitch-stat-label">{t("channels.banner.active")}</span>
             </div>
           </div>
         </div>
+      )}
+
+      {/* The agency's own screen also decides how many lines this client may use. */}
+      {managesLines && allowances && allowances.length > 0 && (
+        <section className="stitch-channel-card" style={{ marginBottom: 16 }}>
+          <div className="stitch-card-head">
+            <div className="stitch-card-identity">
+              <h3 className="stitch-card-title">{t("channels.quota.linesTitle")}</h3>
+            </div>
+          </div>
+          <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 4 }}>
+            {t("channels.quota.linesCopy")} {t("channels.quota.hint")}
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 12 }}>
+            {allowances.map((row) => {
+              const type = CHANNEL_TYPE_OF_FEATURE[row.key];
+              const label = type ? channelCards.find((card) => card.type === type)?.title ?? row.label : row.label;
+              const allowed = row.allowed;
+              const over = allowed !== null && row.used > allowed;
+              const line = row.agency_quota === 0
+                ? t("channels.quota.notIncluded")
+                : allowed === null
+                  ? t("channels.quota.inUseFree", { used: row.used })
+                  : over
+                    ? t("channels.quota.overLimit", { used: row.used, quota: allowed })
+                    : t("channels.quota.inUseOf", { used: row.used, quota: allowed });
+              return (
+                <div key={row.key} style={{ minWidth: 210, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{label}</span>
+                  <QuotaStepper
+                    value={row.allocation}
+                    disabled={busyAllowance !== null}
+                    onChange={(next) => void setAllocation(row.key, next)}
+                  />
+                  <small style={{ color: over ? "#b91c1c" : "var(--muted)" }}>{line}</small>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {/* Bento Grid of Channels */}

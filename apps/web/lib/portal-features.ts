@@ -45,6 +45,12 @@ export const FEATURE_OF_CHANNEL_TYPE: Record<ChannelType, PortalFeature> = {
   webchat: "channels.webchat",
 };
 
+/** The other way round, for the screens that start from a stored key (the line
+ * quotas, whose keys are the same channel functions). */
+export const CHANNEL_TYPE_OF_FEATURE: Record<string, ChannelType> = Object.fromEntries(
+  Object.entries(FEATURE_OF_CHANNEL_TYPE).map(([type, feature]) => [feature, type as ChannelType]),
+);
+
 /** The switches shown on each tab of the client page; the Portal tab shows all of them. */
 export const FEATURES_BY_CLIENT_TAB: Record<string, readonly PortalFeature[]> = {
   inbox: ["inbox"],

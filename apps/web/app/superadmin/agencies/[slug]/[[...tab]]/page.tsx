@@ -11,6 +11,7 @@ import { Alert, EmptyState, PageHead } from "@/components/ui";
 import { SectionTabs } from "@/components/section-tabs";
 import { PLATFORM_AGENCY_TABS, platformAgencyPath, tabFromSegments } from "@/lib/routes";
 import { AGENCY_FEATURES, AGENCY_PRESETS, PRESET_NAMES, isQuotaFeature, type AgencyFeature, type QuotaFeature } from "@/lib/agency-features";
+import { QuotaStepper } from "@/components/quota-stepper";
 import type { PlatformAgency, PlatformClient, PlatformInfrastructureClient, PlatformInvitation, PlatformUsage } from "@/types";
 
 function tokens(value: number): string {
@@ -94,7 +95,7 @@ function PlanTab({ agency }: { agency: PlatformAgency }) {
       <div className="section-copy" style={{ marginBottom: 14 }}>
         <h2>{t("platform.detail.planTitle")}</h2>
         <p>{t("platform.detail.planCopy")}</p>
-        <p style={{ color: "var(--muted)", fontSize: 13 }}>{t("platform.detail.quotaHint")}</p>
+        <p style={{ color: "var(--muted)", fontSize: 13 }}>{t("channels.quota.hint")}</p>
       </div>
       <div className="stitch-feature-grid">
         {AGENCY_FEATURES.map((entry) => {
@@ -124,45 +125,17 @@ function PlanTab({ agency }: { agency: PlatformAgency }) {
               </div>
               {quotaKey && (
                 <div style={{ marginTop: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <button
-                      type="button"
-                      className="button"
-                      style={{ padding: "2px 9px", lineHeight: 1.2 }}
-                      aria-label={t("platform.detail.fewerLines")}
-                      disabled={stepDisabled || unlimited}
-                      onClick={() => void putQuota(quotaKey, Math.max(0, (quota ?? 0) - 1))}
-                    >
-                      −
-                    </button>
-                    <span style={{ minWidth: 34, textAlign: "center", fontWeight: 700, color: unlimited ? "var(--muted)" : "var(--ink)" }}>
-                      {unlimited ? "∞" : quota}
-                    </span>
-                    <button
-                      type="button"
-                      className="button"
-                      style={{ padding: "2px 9px", lineHeight: 1.2 }}
-                      aria-label={t("platform.detail.moreLines")}
-                      disabled={stepDisabled || unlimited}
-                      onClick={() => void putQuota(quotaKey, (quota ?? 0) + 1)}
-                    >
-                      +
-                    </button>
-                    <button
-                      type="button"
-                      disabled={stepDisabled}
-                      onClick={() => void putQuota(quotaKey, unlimited ? 0 : null)}
-                      style={{ marginLeft: 2, background: "none", border: "none", cursor: stepDisabled ? "default" : "pointer", color: stepDisabled ? "var(--muted)" : "var(--accent, #0d9488)", fontSize: 12, padding: 0 }}
-                    >
-                      {unlimited ? t("platform.detail.setLimit") : t("platform.detail.unlimited")}
-                    </button>
-                  </div>
+                  <QuotaStepper
+                    value={quota ?? null}
+                    disabled={stepDisabled}
+                    onChange={(next) => void putQuota(quotaKey, next)}
+                  />
                   <small style={{ display: "block", marginTop: 4, color: over ? "#b91c1c" : "var(--muted)" }}>
                     {unlimited
-                      ? t("platform.detail.inUseFree", { used: inUse })
+                      ? t("channels.quota.inUseFree", { used: inUse })
                       : over
-                        ? t("platform.detail.overLimit", { used: inUse, quota: quota as number })
-                        : t("platform.detail.inUseOf", { used: inUse, quota: quota as number })}
+                        ? t("channels.quota.overLimit", { used: inUse, quota: quota as number })
+                        : t("channels.quota.inUseOf", { used: inUse, quota: quota as number })}
                   </small>
                 </div>
               )}

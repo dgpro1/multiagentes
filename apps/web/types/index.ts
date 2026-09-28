@@ -305,6 +305,18 @@ export type WidgetChannel = {
   updated_at: string;
 };
 
+/** How many lines of one channel type a client may connect: the agency's plan,
+ * its own share of it, what it uses, and what is left. null means no limit. */
+export type ChannelAllowance = {
+  key: string;
+  label: string;
+  agency_quota: number | null;
+  allocation: number | null;
+  used: number;
+  allowed: number | null;
+  remaining: number | null;
+};
+
 export type WhatsAppCloudChannel = {
   id: string;
   client_id: string;

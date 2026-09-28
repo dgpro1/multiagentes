@@ -37,6 +37,33 @@ const en = {
     configure: "Configure",
     selectClient: "Select a client",
   },
+  // The banner on a client's Channels tab.
+  banner: {
+    title: "Connected channels & visibility",
+    live: "Live",
+    unlinked: "Unlinked",
+    active: "Active channels",
+    description: "Real-time connection status and visibility for {name}.",
+  },
+  // Setting a number of lines: the labels are shared by the platform's Plan tab
+  // (an agency's quota) and the agency's Channels tab (a client's share of it).
+  quota: {
+    fewer: "One less",
+    more: "One more",
+    unlimited: "No limit",
+    setLimit: "Set a limit",
+    inUseOf: "{used} in use of {quota}",
+    inUseFree: "{used} in use, no limit",
+    overLimit: "{used} in use of {quota} — over the limit",
+    hint: "Nothing already connected is ever removed; only new lines are refused.",
+    linesTitle: "Lines",
+    linesCopy: "How many lines of each type this client may connect, out of the agency's plan.",
+    notIncluded: "Not included in the plan",
+  },
+  visibility: {
+    shown: "Visibility switched on in the portal",
+    hidden: "Visibility hidden in the portal",
+  },
 };
 
 const es: typeof en = {
@@ -76,6 +103,30 @@ const es: typeof en = {
     ownerPlaceholder: "Elige un cliente para configurar su widget",
     configure: "Configurar",
     selectClient: "Selecciona un cliente",
+  },
+  banner: {
+    title: "Canales conectados y visibilidad",
+    live: "En vivo",
+    unlinked: "Sin vincular",
+    active: "Canales activos",
+    description: "Estado de conexión y visibilidad en tiempo real para {name}.",
+  },
+  quota: {
+    fewer: "Una menos",
+    more: "Una más",
+    unlimited: "Sin límite",
+    setLimit: "Poner un límite",
+    inUseOf: "{used} en uso de {quota}",
+    inUseFree: "{used} en uso, sin límite",
+    overLimit: "{used} en uso de {quota} — por encima del límite",
+    hint: "Nada de lo ya conectado se quita nunca; solo se rechazan las líneas nuevas.",
+    linesTitle: "Líneas",
+    linesCopy: "Cuántas líneas de cada tipo puede conectar este cliente, del plan de la agencia.",
+    notIncluded: "No está incluido en el plan",
+  },
+  visibility: {
+    shown: "Visibilidad activada en el portal",
+    hidden: "Visibilidad oculta en el portal",
   },
 };
 
