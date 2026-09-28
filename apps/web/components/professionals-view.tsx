@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Copy, LoaderCircle, Pencil, Plus, Stethoscope, Trash2, X } from "lucide-react";
+import { Clock, Copy, LoaderCircle, Pencil, Plus, Stethoscope, Trash2, X } from "lucide-react";
 import { Alert, EmptyState, Modal } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
@@ -98,45 +98,112 @@ export function ProfessionalsView({ apiBase, canManage, timezone }: { apiBase: s
 
   return <>
     <div className="professionals-view">
-      <div className="portal-contacts-toolbar">
-        <span>{t("professionals.count", { count: items.length })}{timezone ? ` · ${t("professionals.timezoneNote", { timezone })}` : ""}</span>
-        {canManage && <button type="button" className="button primary small" onClick={() => openEditor("new")}><Plus size={15} /> {t("professionals.add")}</button>}
+      <div className="stitch-section-header">
+        <div>
+          <h2>{t("professionals.title")}</h2>
+          <p>{t("professionals.count", { count: items.length })}{timezone ? ` · ${t("professionals.timezoneNote", { timezone })}` : ""}</p>
+        </div>
+        {canManage && (
+          <button type="button" className="stitch-action-pill" onClick={() => openEditor("new")}>
+            <Plus size={16} /> <span>{t("professionals.add")}</span>
+          </button>
+        )}
       </div>
       {error && !editing && !deleting && <Alert>{error}</Alert>}
-      {loading ? <div className="no-conversations"><LoaderCircle className="spin" size={16} /></div>
-        : items.length ? <ul className="professionals-list">
-          {items.map((pro) => <li key={pro.id} className={`professionals-card${pro.is_active ? "" : " inactive"}`}>
-            <i className="professionals-dot" style={{ background: pro.color }} aria-hidden="true" />
-            <div className="professionals-info">
-              <strong>{pro.name}<span className={`mini-badge ${pro.is_active ? "human" : "resolved"}`}>{pro.is_active ? t("professionals.active") : t("professionals.inactive")}</span></strong>
-              {pro.role && <small>{pro.role}</small>}
-              <span className="professionals-hours">{summarizeHours(pro.weekly_hours, t)}</span>
-              <small>{t("professionals.slotSummary", { minutes: pro.slot_minutes })}</small>
+      {loading ? (
+        <div className="page-loading"><LoaderCircle className="spin" size={24} /></div>
+      ) : items.length ? (
+        <ul className="stitch-pros-grid">
+          {items.map((pro) => (
+            <li key={pro.id} className={`stitch-pro-card${pro.is_active ? "" : " inactive"}`}>
+              <div className="stitch-pro-card-head">
+                <div className="stitch-pro-card-lead">
+                  <div className="stitch-pro-avatar" style={{ borderColor: pro.color, color: pro.color }}>
+                    <Stethoscope size={20} />
+                  </div>
+                  <div className="stitch-pro-title-col">
+                    <div className="stitch-pro-name-row">
+                      <h3 className="stitch-pro-name">{pro.name}</h3>
+                      <span className={pro.is_active ? "stitch-badge-active" : "stitch-badge-inactive"}>
+                        {pro.is_active && <span className="stitch-badge-active-dot" />}
+                        {pro.is_active ? t("professionals.active") : t("professionals.inactive")}
+                      </span>
+                    </div>
+                    {pro.role && <p className="stitch-pro-role">{pro.role}</p>}
+                  </div>
+                </div>
+
+                {canManage && (
+                  <div className="stitch-card-actions">
+                    <button
+                      type="button"
+                      className="stitch-icon-btn"
+                      onClick={() => openEditor(pro)}
+                      title={t("professionals.edit")}
+                      aria-label={t("professionals.edit")}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="stitch-icon-btn danger"
+                      onClick={() => {
+                        setError("");
+                        setDeleting(pro);
+                      }}
+                      title={t("professionals.delete")}
+                      aria-label={t("professionals.delete")}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="stitch-pro-schedule-box">
+                <div className="stitch-pro-hours-row">
+                  <Clock size={13} />
+                  <span>{summarizeHours(pro.weekly_hours, t)}</span>
+                </div>
+                <div className="stitch-pro-slot-badge">
+                  {t("professionals.slotSummary", { minutes: pro.slot_minutes })}
+                </div>
+              </div>
+
               {services.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+                <div className="stitch-pro-services-row">
                   {pro.service_ids && pro.service_ids.length > 0 ? (
                     services
                       .filter((s) => pro.service_ids?.includes(s.id))
                       .map((s) => (
-                        <span key={s.id} className="mini-badge team" style={{ fontSize: "11px" }}>
+                        <span key={s.id} className="stitch-service-pill">
                           {s.name}
                         </span>
                       ))
                   ) : (
-                    <span className="muted" style={{ fontSize: "11px" }}>
+                    <span className="stitch-service-pill muted">
                       {t("professionals.allServices")}
                     </span>
                   )}
                 </div>
               )}
-            </div>
-            {canManage && <div className="professionals-actions">
-              <button type="button" className="icon-button" onClick={() => openEditor(pro)} title={t("professionals.edit")} aria-label={t("professionals.edit")}><Pencil size={15} /></button>
-              <button type="button" className="icon-button danger" onClick={() => { setError(""); setDeleting(pro); }} title={t("professionals.delete")} aria-label={t("professionals.delete")}><Trash2 size={15} /></button>
-            </div>}
-          </li>)}
+            </li>
+          ))}
         </ul>
-        : <EmptyState icon={<Stethoscope />} title={t("professionals.emptyTitle")} description={canManage ? t("professionals.emptyDescription") : t("professionals.emptyReadOnly")} />}
+      ) : (
+        <EmptyState
+          icon={<Stethoscope />}
+          title={t("professionals.emptyTitle")}
+          description={canManage ? t("professionals.emptyDescription") : t("professionals.emptyReadOnly")}
+          action={
+            canManage ? (
+              <button type="button" className="stitch-action-pill" onClick={() => openEditor("new")}>
+                <Plus size={16} /> <span>{t("professionals.add")}</span>
+              </button>
+            ) : undefined
+          }
+        />
+      )}
     </div>
 
     <Modal open={editing !== null} title={editing === "new" ? t("professionals.form.newTitle") : t("professionals.form.editTitle")} onClose={closeEditor}>

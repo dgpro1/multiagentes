@@ -237,7 +237,7 @@ def test_api_v1_exposes_number_and_html_link(authenticated_client: TestClient):
     token = client.post(f"/api/integrations/{integration['id']}/tokens", json={"expires_in_days": 30}).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
     conversation = customer_conversation(client, agent["id"])
-    expected = f"{get_settings().frontend_url.rstrip('/')}/clients/{customer['id']}/inbox/1"
+    expected = f"{get_settings().frontend_url.rstrip('/')}/clients/{customer['portal_slug']}/inbox/1"
 
     one = client.get(f"/api/v1/clients/{customer['id']}/conversations/{conversation['id']}", headers=headers).json()
     assert one["number"] == 1

@@ -7,10 +7,10 @@
 // it travels here instead of being hard-coded in each component. Same idea as
 // components/agents/scope.tsx.
 //
-//   Agency  apiBase ""                       links /clients/{id}/channels[/{type}]
+//   Agency  apiBase ""                       links /clients/{slug}/channels[/{type}]
 //   Portal  apiBase "/portal/{slug}/manage"  links /portal/{slug}/channels[/{type}]
 //
-// Outside a provider the agency scope applies, and the client is the `[id]` of
+// Outside a provider the agency scope applies, and the client is the `[slug]` of
 // the address, so the agency's route files stay one-liners.
 
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
@@ -27,8 +27,8 @@ export type ChannelHrefs = {
   type: (type: ChannelType) => string;
 };
 
-export function agencyChannelHrefs(clientId: string): ChannelHrefs {
-  return { overview: () => clientChannelPath(clientId), type: (type) => clientChannelPath(clientId, type) };
+export function agencyChannelHrefs(clientSlug: string): ChannelHrefs {
+  return { overview: () => clientChannelPath(clientSlug), type: (type) => clientChannelPath(clientSlug, type) };
 }
 
 /** The portal's addresses; `urlBase` comes from `portalBase(slug)` (empty on a client's own domain). */
@@ -43,18 +43,17 @@ export type ChannelsScope = {
   portal: boolean;
   hrefFor: ChannelHrefs;
   /** The client whose channels these are (the name is empty in the agency until the page has loaded it). */
-  client: { id: string; name: string };
+  client: { id: string; slug: string; name: string };
 };
 
 const ScopeContext = createContext<ChannelsScope | null>(null);
 
-export function ChannelsScopeProvider({ apiBase = "", hrefFor, client, children }: { apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; name: string } | null; children: ReactNode }) {
-  const params = useParams<{ id?: string }>();
-  const clientId = client?.id ?? params.id ?? "";
-  const clientName = client?.name ?? "";
+export function ChannelsScopeProvider({ apiBase = "", hrefFor, client, children }: { apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; slug: string; name: string } | null; children: ReactNode }) {
+  const params = useParams<{ slug?: string }>();
+  const key = client?.slug ?? params.slug ?? "";
   const value = useMemo<ChannelsScope>(
-    () => ({ apiBase, portal: apiBase !== "", hrefFor: hrefFor ?? agencyChannelHrefs(clientId), client: { id: clientId, name: clientName } }),
-    [apiBase, hrefFor, clientId, clientName],
+    () => ({ apiBase, portal: apiBase !== "", hrefFor: hrefFor ?? agencyChannelHrefs(key), client: { id: client?.id ?? "", slug: key, name: client?.name ?? "" } }),
+    [apiBase, hrefFor, client?.id, key, client?.name],
   );
   return <ScopeContext.Provider value={value}>{children}</ScopeContext.Provider>;
 }
@@ -74,20 +73,22 @@ export function useChannelsApi() {
 }
 
 /** The scope's client and how to load it with its agents. The agency reads
- * `/clients/{id}`; the portal has only the list route, of which its own client
- * is the one row it may see. */
+ * `/clients/{id}` (by UUID) or resolves its address slug first; the portal
+ * has only the list route, of which its own client is the one row it may see. */
 export function useChannelClient() {
   const t = useT();
   const { portal, client } = useChannelsScope();
   const { api } = useChannelsApi();
-  const id = client.id;
   const loadClient = useCallback(async (): Promise<Client> => {
-    if (!portal) return api<Client>(`/clients/${id}`);
-    const own = (await api<Client[]>("/clients")).find((row) => row.id === id);
+    if (!portal) {
+      if (client.id) return api<Client>(`/clients/${client.id}`);
+      return api<Client>(`/clients/by-slug/${encodeURIComponent(client.slug)}`);
+    }
+    const own = (await api<Client[]>("/clients")).find((row) => row.id === client.id);
     if (!own) throw new ApiError(t("social.loadFailed"), 404);
     return own;
-  }, [api, portal, id, t]);
-  return { clientId: id, loadClient };
+  }, [api, portal, client.id, client.slug, t]);
+  return { clientId: client.id, loadClient };
 }
 
 /** The label of the link that leads from a channel page back to the client's channels. */

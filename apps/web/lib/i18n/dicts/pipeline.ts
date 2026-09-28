@@ -31,6 +31,20 @@ const en = {
   quickLeadCreate: "Create lead",
   quickLeadCreated: "Lead created.",
   openThread: "Open conversation",
+  newDeal: "New lead",
+  viewKanban: "Board",
+  viewList: "List",
+  searchPlaceholderStitch: "Search deals, contacts or services...",
+  totalLeads: "Total leads: {count}",
+  humanSupport: "Human attention",
+  aiReplying: "AI Replying",
+  stage: "Stage",
+  contact: "Contact",
+  channel: "Channel",
+  value: "Value",
+  mode: "Mode",
+  updated: "Updated",
+  actions: "Actions",
 };
 
 const es: typeof en = {
@@ -64,6 +78,20 @@ const es: typeof en = {
   quickLeadCreate: "Crear lead",
   quickLeadCreated: "Lead creado.",
   openThread: "Abrir conversación",
+  newDeal: "Nuevo lead",
+  viewKanban: "Tablero",
+  viewList: "Lista",
+  searchPlaceholderStitch: "Buscar negocios, contactos o servicios...",
+  totalLeads: "Total leads: {count}",
+  humanSupport: "Atención humana",
+  aiReplying: "IA Respondiendo",
+  stage: "Etapa",
+  contact: "Contacto",
+  channel: "Canal",
+  value: "Valor",
+  mode: "Modo",
+  updated: "Actualizado",
+  actions: "Acciones",
 };
 
 export const pipeline = { en, es };

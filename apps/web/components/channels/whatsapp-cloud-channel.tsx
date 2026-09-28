@@ -35,7 +35,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
 /** A client's WhatsApp API numbers. One is selected at a time and the panels
  * below configure that one; "add another number" starts a new one. Numbers
  * are linked on a hosted authorization page opened in a new tab. */
-export function WhatsAppCloudChannelView({ apiBase, hrefFor, client }: { apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; name: string } | null }) {
+export function WhatsAppCloudChannelView({ apiBase, hrefFor, client }: { apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; slug: string; name: string } | null }) {
   return <ChannelsScopeProvider apiBase={apiBase} hrefFor={hrefFor} client={client}><WhatsAppCloudScreen /></ChannelsScopeProvider>;
 }
 

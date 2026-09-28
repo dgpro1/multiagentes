@@ -11,8 +11,8 @@
 //            /portal/{slug}/api
 //            /portal/{slug}/details          the client's own business details
 //            /portal/{slug}/professionals    the staff and their weekly hours
-//   Agency   /clients/{id}[/{tab}]           /clients/{id}/inbox/{number}
-//            /clients/{id}/channels/{whatsapp|whatsapp-cloud|instagram|messenger|webchat}
+//   Agency   /clients/{slug}[/{tab}]         /clients/{slug}/inbox/{number}
+//            /clients/{slug}/channels/{whatsapp|whatsapp-cloud|instagram|messenger|webchat}
 //            /agents/{id}[/{tab}]
 //
 // A client's own domain serves the portal from the root (proxy.ts rewrites it to
@@ -79,9 +79,12 @@ export function portalChannelPath(base: string, type?: ChannelType | null): stri
   return type ? `${base}/channels/${type}` : `${base}/channels`;
 }
 
+/** A legacy agency address names the client by UUID; current ones use its slug. */
+export const CLIENT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** A client's channel address in the agency panel: the Channels tab, or one channel type's page. */
-export function clientChannelPath(clientId: string, type?: ChannelType | null): string {
-  return type ? `/clients/${clientId}/channels/${type}` : `/clients/${clientId}/channels`;
+export function clientChannelPath(clientSlug: string, type?: ChannelType | null): string {
+  return type ? `/clients/${clientSlug}/channels/${type}` : `/clients/${clientSlug}/channels`;
 }
 
 /** A portal agent address: the list, `"new"` for the wizard, or an agent with its tab ("basics" is the bare id). */
@@ -91,10 +94,10 @@ export function portalAgentPath(base: string, agentId?: string | null, tab: Agen
   return `${base}/agents/${agentId}/${tab}`;
 }
 
-/** A client's address in the agency panel; "details" is the bare `/clients/{id}`. */
-export function clientPath(id: string, tab: ClientTab = "details", leadNumber?: number | string | null): string {
-  if (tab === "details") return `/clients/${id}`;
-  return `/clients/${id}/${tab}${tab === "inbox" && leadNumber ? `/${leadNumber}` : ""}`;
+/** A client's address in the agency panel; "details" is the bare `/clients/{slug}`. */
+export function clientPath(slug: string, tab: ClientTab = "details", leadNumber?: number | string | null): string {
+  if (tab === "details") return `/clients/${slug}`;
+  return `/clients/${slug}/${tab}${tab === "inbox" && leadNumber ? `/${leadNumber}` : ""}`;
 }
 
 /** An agent's address; "basics" is the bare `/agents/{id}`. */

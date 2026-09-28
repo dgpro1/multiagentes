@@ -19,7 +19,7 @@ import { AgentsScopeProvider, useAgentsApi, useAgentsScope, type AgentHrefs } fr
 const STEP_KEYS = ["agents.wizard.s1", "agents.wizard.s2", "agents.wizard.s3", "agents.wizard.s4", "agents.wizard.s5"] as const;
 
 /** The create-agent wizard, shared by the agency panel and the client portal (see scope.tsx). */
-export function AgentWizardView({ apiBase, hrefFor, client }: { apiBase?: string; hrefFor?: AgentHrefs; client?: { id: string; name: string } | null }) {
+export function AgentWizardView({ apiBase, hrefFor, client }: { apiBase?: string; hrefFor?: AgentHrefs; client?: { id: string; slug: string; name: string } | null }) {
   return <AgentsScopeProvider apiBase={apiBase} hrefFor={hrefFor} client={client}><AgentWizard /></AgentsScopeProvider>;
 }
 

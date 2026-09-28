@@ -115,6 +115,25 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db), user: Us
     return _client(db, user, client.id)
 
 
+@router.get("/by-slug/{slug}", response_model=ClientOut, dependencies=[Depends(require(CLIENTS_READ))])
+def get_client_by_slug(slug: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """One client by its portal slug: the agency panel addresses clients by
+    slug (`/clients/{slug}`), while the API keeps UUIDs everywhere else."""
+    query = (
+        select(Client)
+        .options(selectinload(Client.agents))
+        .where(Client.portal_slug == slug, Client.agency_id == user.agency_id)
+    )
+    # A client's portal admin reaches only its own client; see PortalActor.
+    if (only_client := confined_client_id(user)) is not None:
+        query = query.where(Client.id == only_client)
+    client = db.scalar(query)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    use_client(db, client)
+    return client
+
+
 @router.get("/{client_id}", response_model=ClientOut, dependencies=[Depends(require(CLIENTS_READ))])
 def get_client(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return _client(db, user, client_id)

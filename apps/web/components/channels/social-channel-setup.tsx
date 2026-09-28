@@ -15,7 +15,7 @@ import type { Client, SocialChannel, SocialConfig, SocialHistoryJob, SocialProvi
  * one is picked from there (or named by `?line=<id>`) and the panels below
  * then configure that one. `?new`, or an empty list, starts another through
  * the hosted authorization page, opened in a new tab. */
-export function SocialChannelSetup({ provider, apiBase, hrefFor, client }: { provider: SocialProvider; apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; name: string } | null }) {
+export function SocialChannelSetup({ provider, apiBase, hrefFor, client }: { provider: SocialProvider; apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; slug: string; name: string } | null }) {
   return <ChannelsScopeProvider apiBase={apiBase} hrefFor={hrefFor} client={client}><SocialScreen provider={provider} /></ChannelsScopeProvider>;
 }
 

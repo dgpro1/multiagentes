@@ -46,13 +46,23 @@ export function StorageConnectForm({ onConnect, exampleBucket = "my-business-fil
   ];
 
   return <div className="storage-connect">
-    <p className="field-help">{t("resources.connect.intro")}</p>
+    <p className="field-help" style={{ margin: "0 0 4px 0", fontSize: 13, color: "var(--muted)" }}>{t("resources.connect.intro")}</p>
     <ol className="storage-steps">
-      {steps.map(([title, copy]) => <li key={title}><strong>{title}</strong><span>{copy}</span></li>)}
+      {steps.map(([title, copy], idx) => (
+        <li key={title} className="storage-step-tile">
+          <div className="storage-step-badge">{idx + 1}</div>
+          <div className="storage-step-text">
+            <strong>{title}</strong>
+            <span>{copy}</span>
+          </div>
+        </li>
+      ))}
     </ol>
-    <a className="button secondary small" href="https://dash.cloudflare.com/?to=/:account/r2/overview" target="_blank" rel="noreferrer">
-      <ExternalLink size={14} /> {t("resources.connect.openCloudflare")}
-    </a>
+    <div style={{ marginBottom: 12 }}>
+      <a className="button secondary small" style={{ borderRadius: 9999, display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px" }} href="https://dash.cloudflare.com/?to=/:account/r2/overview" target="_blank" rel="noreferrer">
+        <ExternalLink size={14} /> {t("resources.connect.openCloudflare")}
+      </a>
+    </div>
     <form className="modal-form" onSubmit={submit} autoComplete="off">
       <div className="form-grid">
         <label>{t("resources.connect.accountId")}<input name="account_id" required minLength={32} maxLength={32} spellCheck={false} placeholder="0123456789abcdef0123456789abcdef" /><span className="field-help">{t("resources.connect.accountIdHint")}</span></label>
@@ -63,8 +73,8 @@ export function StorageConnectForm({ onConnect, exampleBucket = "my-business-fil
         <label>{t("resources.connect.secret")}<PasswordInput name="secret_access_key" required minLength={8} maxLength={256} autoComplete="new-password" /></label>
       </div>
       {error && <Alert>{error}</Alert>}
-      <div className="modal-actions">
-        <button className="button primary" disabled={busy}>
+      <div className="modal-actions" style={{ justifyContent: "flex-start", marginTop: 14 }}>
+        <button className="stitch-action-pill" style={{ background: "#00876c" }} disabled={busy}>
           {busy ? <><LoaderCircle className="spin" size={16} /> {t("resources.connect.testing")}</> : <><PlugZap size={16} /> {t("resources.connect.submit")}</>}
         </button>
       </div>

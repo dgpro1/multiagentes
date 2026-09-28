@@ -24,7 +24,7 @@ const stateKeys: Record<WhatsAppChannel["status"], { label: I18nKey; copy: I18nK
 /** A client's WhatsApp QR lines. The page opens on the list of them; one is
  * picked from there (or named by `?line=<id>`) and the panels below then
  * configure that one. `?new`, or an empty list, starts another. */
-export function WhatsAppChannelView({ apiBase, hrefFor, client }: { apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; name: string } | null }) {
+export function WhatsAppChannelView({ apiBase, hrefFor, client }: { apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; slug: string; name: string } | null }) {
   return <ChannelsScopeProvider apiBase={apiBase} hrefFor={hrefFor} client={client}><WhatsAppScreen /></ChannelsScopeProvider>;
 }
 

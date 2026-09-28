@@ -149,44 +149,104 @@ export function ResourcesView({ apiBase, canManage }: { apiBase: string; canMana
   return <>
     <StoragePanel apiBase={apiBase} storage={storage} canManage={canManage} onChange={setStorage} friendly={friendly} />
 
-    <div className="section-head" style={{ marginTop: 20 }}>
+    <div className="stitch-section-header" style={{ marginTop: 24 }}>
       <div><h2>{t("resources.title")}</h2><p>{t("resources.subtitle")}</p></div>
       {canManage && <div className="header-actions">
-        <button type="button" className="button secondary" onClick={() => openEditor("link")}><Link2 size={16} /> {t("resources.addLink")}</button>
-        <button type="button" className="button primary" disabled={!connected} title={connected ? undefined : t("resources.uploadNeedsStorage")} onClick={() => openEditor("file")}><Upload size={16} /> {t("resources.addFile")}</button>
+        <button type="button" className="button secondary small" style={{ borderRadius: "9999px" }} onClick={() => openEditor("link")}><Link2 size={15} /> {t("resources.addLink")}</button>
+        <button type="button" className="stitch-action-pill" disabled={!connected} title={connected ? undefined : t("resources.uploadNeedsStorage")} onClick={() => openEditor("file")}><Upload size={15} /> <span>{t("resources.addFile")}</span></button>
       </div>}
     </div>
     {canManage && storage && !connected && <Alert type="info">{t("resources.uploadNeedsStorage")}</Alert>}
 
-    <div className="table-shell" style={{ marginTop: 12 }}>
-      {loading ? <div className="page-loading"><LoaderCircle className="spin" size={24} /></div>
-        : items.length ? <ul className="professionals-list">
-          {items.map((row) => <li key={row.id} className={`professionals-card${row.is_active ? "" : " inactive"}`}>
-            {row.kind === "file" && row.media_kind === "image" && connected
-              ? <img className="resource-thumb" src={fileUrl(row)} alt="" loading="lazy" />
-              : <div className="resource-thumb resource-icon">{iconOf(row)}</div>}
-            <div className="professionals-info" style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <strong>{row.name}</strong>
-                <span className={`mini-badge ${row.is_active ? "human" : "resolved"}`}>{row.is_active ? t("resources.active") : t("resources.inactive")}</span>
-                <span className="mini-badge channel-badge">{row.kind === "link" ? t("resources.kindLink") : t(`resources.kind.${row.media_kind ?? "file"}`)}</span>
-                <code className="resource-token">[Recurso: {row.name}]</code>
+    {loading ? (
+      <div className="page-loading"><LoaderCircle className="spin" size={24} /></div>
+    ) : items.length ? (
+      <ul className="stitch-resources-grid">
+        {items.map((row) => (
+          <li key={row.id} className={`stitch-resource-card${row.is_active ? "" : " inactive"}`}>
+            <div className="stitch-resource-card-head">
+              <div className="stitch-resource-card-lead">
+                {row.kind === "file" && row.media_kind === "image" && connected ? (
+                  <img className="stitch-resource-thumb" src={fileUrl(row)} alt="" loading="lazy" />
+                ) : (
+                  <div className="stitch-resource-icon-box">{iconOf(row)}</div>
+                )}
+                <div className="stitch-resource-title-col">
+                  <div className="stitch-resource-name-row">
+                    <h3 className="stitch-resource-name">{row.name}</h3>
+                    <span className={row.is_active ? "stitch-badge-active" : "stitch-badge-inactive"}>
+                      {row.is_active && <span className="stitch-badge-active-dot" />}
+                      {row.is_active ? t("resources.active") : t("resources.inactive")}
+                    </span>
+                    <span className="stitch-badge-modality">
+                      {row.kind === "link" ? t("resources.kindLink") : t(`resources.kind.${row.media_kind ?? "file"}`)}
+                    </span>
+                  </div>
+                  <code className="resource-token" style={{ alignSelf: "flex-start", marginTop: 2 }}>[Recurso: {row.name}]</code>
+                </div>
               </div>
-              {row.description && <small style={{ color: "var(--muted)" }}>{row.description}</small>}
-              <small className="resource-meta">
-                {row.kind === "link"
-                  ? <a href={row.url ?? "#"} target="_blank" rel="noreferrer">{row.url}</a>
-                  : <>{row.filename} · {formatBytes(row.size_bytes)}{connected && <> · <a href={fileUrl(row)} target="_blank" rel="noreferrer">{t("resources.open")}</a></>}</>}
-              </small>
+
+              {canManage && (
+                <div className="stitch-card-actions">
+                  <button
+                    type="button"
+                    className="stitch-icon-btn"
+                    onClick={() => openEditor(row)}
+                    title={t("resources.edit")}
+                    aria-label={t("resources.edit")}
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="stitch-icon-btn danger"
+                    onClick={() => setDeleting(row)}
+                    title={t("resources.delete")}
+                    aria-label={t("resources.delete")}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              )}
             </div>
-            {canManage && <div className="professionals-actions">
-              <button type="button" className="icon-button" onClick={() => openEditor(row)} title={t("resources.edit")} aria-label={t("resources.edit")}><Pencil size={15} /></button>
-              <button type="button" className="icon-button danger" onClick={() => setDeleting(row)} title={t("resources.delete")} aria-label={t("resources.delete")}><Trash2 size={15} /></button>
-            </div>}
-          </li>)}
-        </ul>
-        : <EmptyState icon={<HardDrive />} title={t("resources.emptyTitle")} description={canManage ? t("resources.emptyDescription") : t("resources.emptyReadOnly")} />}
-    </div>
+
+            {row.description && (
+              <p className="stitch-resource-description">{row.description}</p>
+            )}
+
+            <div className="stitch-resource-meta-row">
+              <span className="stitch-resource-meta-info">
+                {row.kind === "link" ? (
+                  <a href={row.url ?? "#"} target="_blank" rel="noreferrer" className="stitch-resource-link">
+                    {row.url}
+                  </a>
+                ) : (
+                  <>
+                    <span>{row.filename}</span>
+                    <span>·</span>
+                    <span>{formatBytes(row.size_bytes)}</span>
+                    {connected && (
+                      <>
+                        <span>·</span>
+                        <a href={fileUrl(row)} target="_blank" rel="noreferrer" className="stitch-resource-link">
+                          {t("resources.open")}
+                        </a>
+                      </>
+                    )}
+                  </>
+                )}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <EmptyState
+        icon={<HardDrive />}
+        title={t("resources.emptyTitle")}
+        description={canManage ? t("resources.emptyDescription") : t("resources.emptyReadOnly")}
+      />
+    )}
     {!editing && error && <Alert>{error}</Alert>}
 
     <Modal open={editing !== null} title={editing === "file" ? t("resources.form.newFileTitle") : editing === "link" ? t("resources.form.newLinkTitle") : t("resources.form.editTitle")} onClose={closeEditor}>
@@ -297,16 +357,24 @@ function StoragePanel({ apiBase, storage, canManage, onChange, friendly }: {
   const statusLabel = connected ? t("resources.storage.connected") : storage.status === "error" ? t("resources.storage.error") : t("resources.storage.pending");
   const usedPct = Math.min(100, Math.round((storage.used_bytes / Math.max(1, storage.quota_mb * MB)) * 100));
 
-  return <section className="storage-panel">
-    <div className="section-head">
-      <div>
-        <h2><HardDrive size={18} /> {t("resources.storage.title")} <span className={`mini-badge ${connected ? "human" : storage.status === "error" ? "danger" : "resolved"}`}>{statusLabel}</span></h2>
-        <p>{t("resources.storage.subtitle")}</p>
+  return <section className="storage-panel stitch-card">
+    <div className="stitch-section-header" style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 14, background: "#e6f4f1", color: "#00876c", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <HardDrive size={22} />
+        </div>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--ink)" }}>{t("resources.storage.title")}</h2>
+            <span className={`mini-badge ${connected ? "human" : storage.status === "error" ? "danger" : "resolved"}`}>{statusLabel}</span>
+          </div>
+          <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--muted)" }}>{t("resources.storage.subtitle")}</p>
+        </div>
       </div>
       {canManage && connected && <div className="header-actions">
-        <button type="button" className="button secondary small" onClick={check} disabled={checking}>{checking ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} {t("resources.storage.check")}</button>
-        <button type="button" className="button secondary small" onClick={() => setReplacing((v) => !v)}><Pencil size={14} /> {t("resources.storage.reconnect")}</button>
-        <button type="button" className="button danger small" onClick={() => setConfirmDisconnect(true)}><Unplug size={14} /> {t("resources.storage.disconnect")}</button>
+        <button type="button" className="button secondary small" style={{ borderRadius: 9999 }} onClick={check} disabled={checking}>{checking ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} {t("resources.storage.check")}</button>
+        <button type="button" className="button secondary small" style={{ borderRadius: 9999 }} onClick={() => setReplacing((v) => !v)}><Pencil size={14} /> {t("resources.storage.reconnect")}</button>
+        <button type="button" className="button danger small" style={{ borderRadius: 9999 }} onClick={() => setConfirmDisconnect(true)}><Unplug size={14} /> {t("resources.storage.disconnect")}</button>
       </div>}
     </div>
 

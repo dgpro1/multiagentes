@@ -176,76 +176,50 @@ export function ServicesView({
 
   return (
     <>
-      <div className="section-head">
+      <div className="stitch-section-header">
         <div>
           <h2>{t("services.title")}</h2>
           <p>{t("services.count", { count: items.length })}</p>
         </div>
         {canManage && (
-          <button type="button" className="button primary" onClick={() => openEditor("new")}>
-            <Plus size={16} /> {t("services.add")}
+          <button type="button" className="stitch-action-pill" onClick={() => openEditor("new")}>
+            <Plus size={16} /> <span>{t("services.add")}</span>
           </button>
         )}
       </div>
 
-      <div className="table-shell" style={{ marginTop: 12 }}>
-        {loading ? (
-          <div className="page-loading">
-            <LoaderCircle className="spin" size={24} />
-          </div>
-        ) : items.length ? (
-          <ul className="professionals-list">
-            {items.map((svc) => (
-              <li key={svc.id} className="professionals-card">
-                <div
-                  className="professionals-avatar"
-                  style={{ background: "#2563eb", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
-                >
-                  <Briefcase size={20} />
-                </div>
-                <div className="professionals-info" style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <strong>{svc.name}</strong>
-                    <span className={`mini-badge ${svc.is_active ? "human" : "resolved"}`}>
-                      {svc.is_active ? t("services.active") : t("services.inactive")}
-                    </span>
-                    <span className="mini-badge channel-badge" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      {modalityIcon(svc.modality)} {t(`services.modality.${svc.modality}`)}
-                    </span>
+      {loading ? (
+        <div className="page-loading">
+          <LoaderCircle className="spin" size={24} />
+        </div>
+      ) : items.length ? (
+        <ul className="stitch-services-grid">
+          {items.map((svc) => (
+            <li key={svc.id} className="stitch-service-card">
+              <div className="stitch-service-card-head">
+                <div className="stitch-service-card-lead">
+                  <div className="stitch-service-icon-box">
+                    <Briefcase size={22} />
                   </div>
-
-                  {svc.description && (
-                    <small style={{ color: "var(--muted)", margin: "4px 0" }}>{svc.description}</small>
-                  )}
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 4, fontSize: 13 }}>
-                    <span style={{ fontWeight: 600, color: "var(--foreground)" }}>
-                      {svc.currency} {svc.price.toFixed(2)}
-                    </span>
-                    <span style={{ color: "var(--muted)", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <Clock size={13} /> {t("services.durationMinutes", { minutes: svc.duration_minutes })}
-                    </span>
-                    {svc.requires_deposit && (
-                      <span className="mini-badge" style={{ background: "rgba(234, 88, 12, 0.12)", color: "#ea580c" }}>
-                        {svc.deposit_amount !== null
-                          ? t("services.depositBadge", { amount: `${svc.currency} ${svc.deposit_amount.toFixed(2)}` })
-                          : t("services.deposit")}
+                  <div className="stitch-service-title-col">
+                    <h3 className="stitch-service-title">{svc.name}</h3>
+                    <div className="stitch-service-badges-row">
+                      <span className={svc.is_active ? "stitch-badge-active" : "stitch-badge-inactive"}>
+                        {svc.is_active && <span className="stitch-badge-active-dot" />}
+                        {svc.is_active ? t("services.active") : t("services.inactive")}
                       </span>
-                    )}
+                      <span className="stitch-badge-modality">
+                        {modalityIcon(svc.modality)} {t(`services.modality.${svc.modality}`)}
+                      </span>
+                    </div>
                   </div>
-
-                  {svc.requirements && (
-                    <small style={{ color: "var(--muted-dark)", marginTop: 4, display: "block" }}>
-                      <strong>{t("services.requirements")}:</strong> {svc.requirements}
-                    </small>
-                  )}
                 </div>
 
                 {canManage && (
-                  <div className="professionals-actions">
+                  <div className="stitch-card-actions">
                     <button
                       type="button"
-                      className="icon-button"
+                      className="stitch-icon-btn"
                       onClick={() => openEditor(svc)}
                       title={t("services.edit")}
                       aria-label={t("services.edit")}
@@ -254,7 +228,7 @@ export function ServicesView({
                     </button>
                     <button
                       type="button"
-                      className="icon-button danger"
+                      className="stitch-icon-btn danger"
                       onClick={() => {
                         setError("");
                         setDeleting(svc);
@@ -266,24 +240,52 @@ export function ServicesView({
                     </button>
                   </div>
                 )}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <EmptyState
-            icon={<Briefcase />}
-            title={t("services.emptyTitle")}
-            description={canManage ? t("services.emptyDescription") : t("services.emptyReadOnly")}
-            action={
-              canManage ? (
-                <button type="button" className="button primary" onClick={() => openEditor("new")}>
-                  <Plus size={16} /> {t("services.add")}
-                </button>
-              ) : undefined
-            }
-          />
-        )}
-      </div>
+              </div>
+
+              {svc.description && (
+                <p className="stitch-service-description">{svc.description}</p>
+              )}
+
+              {svc.requirements && (
+                <div className="stitch-service-requirements">
+                  <strong>{t("services.requirements")}:</strong> {svc.requirements}
+                </div>
+              )}
+
+              <div className="stitch-service-meta-row">
+                <span className="stitch-service-price">
+                  {svc.currency} {svc.price.toFixed(2)}
+                </span>
+                <div className="stitch-service-meta-pills">
+                  <span className="stitch-service-duration">
+                    <Clock size={13} /> {t("services.durationMinutes", { minutes: svc.duration_minutes })}
+                  </span>
+                  {svc.requires_deposit && (
+                    <span className="stitch-service-deposit">
+                      {svc.deposit_amount !== null
+                        ? t("services.depositBadge", { amount: `${svc.currency} ${svc.deposit_amount.toFixed(2)}` })
+                        : t("services.deposit")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <EmptyState
+          icon={<Briefcase />}
+          title={t("services.emptyTitle")}
+          description={canManage ? t("services.emptyDescription") : t("services.emptyReadOnly")}
+          action={
+            canManage ? (
+              <button type="button" className="stitch-action-pill" onClick={() => openEditor("new")}>
+                <Plus size={16} /> <span>{t("services.add")}</span>
+              </button>
+            ) : undefined
+          }
+        />
+      )}
 
       {/* Editor Modal */}
       <Modal

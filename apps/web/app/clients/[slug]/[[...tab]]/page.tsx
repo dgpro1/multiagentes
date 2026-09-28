@@ -10,36 +10,22 @@ import { ApiIntegrations } from "@/components/api-integrations";
 import { CalendarView } from "@/components/calendar-view";
 import { PipelineBoard } from "@/components/pipeline-board";
 import { ClientDetails } from "@/components/client-details";
+import { ClientInbox } from "@/components/client-inbox";
 import { ProfessionalsView } from "@/components/professionals-view";
 import { ServicesView } from "@/components/services-view";
 import { ResourcesView } from "@/components/resources-view";
 import { DataStorePanel } from "@/components/data-store-panel";
-import { GrowingTextarea } from "@/components/growing-textarea";
-import { LeadCard } from "@/components/lead-card/lead-card";
-import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
-import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
-import { AppointmentModal } from "@/components/appointment-modal";
-import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
-import { VariablesPopover } from "@/components/variables-popover";
-import { formatTime } from "@/lib/datetime";
-import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
-import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
-import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
-import { RichText } from "@/components/rich-text";
 import { TeamsView } from "@/app/portal/[slug]/teams";
 import { TagsView } from "@/app/portal/[slug]/tags";
 import { TemplatesView } from "@/app/portal/[slug]/templates";
 import { FormSkeleton, ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
 import { PasswordInput } from "@/components/password-input";
-import { ChannelDots, channelLabel, isSocialChannel, leadChannels, MessageChannelMark } from "@/lib/channels";
-import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
-import { SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
-import { api, apiUrl, messageFrom } from "@/lib/api";
-import { CLIENT_TABS, clientPath, tabFromSegments, type ClientTab } from "@/lib/routes";
+import { api, messageFrom } from "@/lib/api";
+import { CLIENT_TABS, CLIENT_UUID_RE, clientPath, tabFromSegments, type ClientTab } from "@/lib/routes";
 import { useLanguage, useT } from "@/lib/i18n";
 import { businessLabel, useIndustries } from "@/lib/industries";
-import type { Attachment, Client, ClientDomain, Conversation, PortalRole, PortalUser } from "@/types";
+import type { Client, ClientDomain, PortalRole, PortalUser } from "@/types";
 import { ChannelsOverviewView } from "@/components/channels/channels-overview";
 import { PortalFeatureToggle } from "@/components/portal-feature-toggle";
 import { FEATURES_BY_CLIENT_TAB } from "@/lib/portal-features";
@@ -49,7 +35,7 @@ type Tab = ClientTab;
 export default function ClientDetailPage() {
   const { t, lang } = useLanguage();
   const toast = useToast();
-  const { id, tab: segments } = useParams<{ id: string; tab?: string[] }>();
+  const { slug, tab: segments } = useParams<{ slug: string; tab?: string[] }>();
   const router = useRouter();
   // The address is the source of truth for the tab (and, in the inbox, the open lead): reload,
   // Back/Forward and shared links all agree (lib/routes.ts).
@@ -59,8 +45,24 @@ export default function ClientDetailPage() {
   const catalog = useIndustries();
   const [client, setClient] = useState<Client | null>(null);
   const [domain, setDomain] = useState<ClientDomain | null>(null);
-  // An unknown first segment goes to the default tab, and a legacy /clients/{id}?tab=channels
-  // (older channel pages and API redirects still build it) moves to /clients/{id}/channels;
+  // The address names the client by slug. A legacy UUID address resolves the
+  // client once and moves to its slug, keeping tab, query and hash.
+  useEffect(() => {
+    let cancelled = false;
+    const path = CLIENT_UUID_RE.test(slug) ? `/clients/${slug}` : `/clients/by-slug/${encodeURIComponent(slug)}`;
+    api<Client>(path).then((loaded) => {
+      if (cancelled) return;
+      setClient(loaded);
+      api<ClientDomain>(`/clients/${loaded.id}/domain`).then(setDomain).catch(() => {});
+      if (loaded.portal_slug !== slug) {
+        const rest = segments ? `/${segments.join("/")}` : "";
+        router.replace(`/clients/${loaded.portal_slug}${rest}${window.location.search}${window.location.hash}`);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [slug]);
+  // An unknown first segment goes to the default tab, and a legacy /clients/{slug}?tab=channels
+  // (older channel pages and API redirects still build it) moves to /clients/{slug}/channels;
   // either way the rest of the query is kept.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -72,17 +74,25 @@ export default function ClientDetailPage() {
       params.delete("tab");
     }
     const query = params.toString();
-    router.replace(`${clientPath(id, target)}${query ? `?${query}` : ""}${window.location.hash}`);
-  }, [route.known, route.tab, id, router]);
+    router.replace(`${clientPath(client?.portal_slug ?? slug, target)}${query ? `?${query}` : ""}${window.location.hash}`);
+  }, [route.known, route.tab, slug, client?.portal_slug, router]);
   const [busy, setBusy] = useState(false);
-  const load = () => api<Client>(`/clients/${id}`).then(setClient);
-  useEffect(() => { load(); api<ClientDomain>(`/clients/${id}/domain`).then(setDomain); }, [id]);
 
   async function savePortal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true);
     const data = new FormData(event.currentTarget);
     const payload: Record<string, unknown> = { portal_enabled: data.get("portal_enabled") === "on", portal_slug: data.get("portal_slug"), portal_title: data.get("portal_title") };
-    try { setClient(await api<Client>(`/clients/${id}/portal`, { method: "PATCH", body: JSON.stringify(payload) })); toast.success(t("clients.detail.portalUpdated")); }
+    // The form only renders once the client is loaded, so client.id is set;
+    // the slug fallback covers the unreachable unloaded case for the types.
+    try {
+      const saved = await api<Client>(`/clients/${client?.id ?? slug}/portal`, { method: "PATCH", body: JSON.stringify(payload) });
+      setClient(saved);
+      if (!CLIENT_UUID_RE.test(slug) && saved.portal_slug !== slug) {
+        const rest = segments ? `/${segments.join("/")}` : "";
+        router.replace(`/clients/${saved.portal_slug}${rest}${window.location.search}${window.location.hash}`);
+      }
+      toast.success(t("clients.detail.portalUpdated"));
+    }
     catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
   }
 
@@ -94,34 +104,145 @@ export default function ClientDetailPage() {
   const defaultPortalUrl = `${origin}/portal/${client.portal_slug}`;
   const portalUrl = domain?.verified && domain.domain ? `https://${domain.domain}` : defaultPortalUrl;
   return <div className="page">
-    <Link href="/clients" className="back-link"><ArrowLeft size={17} /> {t("clients.detail.back")}</Link>
-    <header className="entity-header"><div className="entity-avatar xl">{client.name.slice(0, 2).toUpperCase()}</div><div><div className="title-line"><h1>{client.name}</h1><StatusBadge active={client.is_active} /></div><p>{businessLabel(catalog, client, lang) || t("clients.detail.industryUndefined")} · {client.agents.length === 1 ? t("clients.detail.agentOne", { count: client.agents.length }) : t("clients.detail.agentMany", { count: client.agents.length })}</p></div><div className="header-actions"><Link href={`/agents/new?client=${client.id}`} className="button primary"><Bot size={17} /> {t("clients.detail.newAgent")}</Link></div></header>
+    <div className="stitch-breadcrumb-bar">
+      <Link href="/clients" className="stitch-back-pill">
+        <ArrowLeft size={16} /> <span>{t("clients.detail.back")}</span>
+      </Link>
+    </div>
+
+    <header className="stitch-client-hero">
+      <div className="stitch-hero-left">
+        <div className="stitch-hero-avatar">
+          {client.name.slice(0, 2).toUpperCase()}
+        </div>
+        <div className="stitch-hero-text">
+          <div className="stitch-hero-name-row">
+            <h1 className="stitch-hero-name">{client.name}</h1>
+            <StatusBadge active={client.is_active} />
+          </div>
+          <p className="stitch-hero-sub">
+            {businessLabel(catalog, client, lang) || t("clients.detail.industryUndefined")} · {client.agents.length === 1 ? t("clients.detail.agentOne", { count: client.agents.length }) : t("clients.detail.agentMany", { count: client.agents.length })}
+          </p>
+        </div>
+      </div>
+      <div>
+        <Link href={`/agents/new?client=${client.id}`} className="stitch-hero-cta">
+          <Bot size={16} /> <span>{t("clients.detail.newAgent")}</span>
+        </Link>
+      </div>
+    </header>
+
     <SectionTabs<Tab> className="client-tabs" value={tab} tabs={[
-      { id: "details", label: t("clients.detail.tabDetails"), icon: Settings2, href: clientPath(client.id, "details") },
-      { id: "agents", label: t("clients.detail.tabAgents"), icon: Bot, badge: client.agents.length, href: clientPath(client.id, "agents") },
-      { id: "channels", label: t("clients.detail.tabChannels"), icon: Radio, href: clientPath(client.id, "channels") },
-      { id: "inbox", label: t("clients.detail.tabInbox"), icon: Inbox, href: clientPath(client.id, "inbox") },
-      { id: "teams", label: t("clients.detail.tabTeams"), icon: Users, href: clientPath(client.id, "teams") },
-      { id: "professionals", label: t("clients.detail.tabProfessionals"), icon: Stethoscope, href: clientPath(client.id, "professionals") },
-      { id: "services", label: t("clients.detail.tabServices"), icon: Briefcase, href: clientPath(client.id, "services") },
-      { id: "library", label: t("clients.detail.tabLibrary"), icon: HardDrive, href: clientPath(client.id, "library") },
-      { id: "database", label: t("clients.detail.tabDatabase"), icon: Database, href: clientPath(client.id, "database") },
-      { id: "tags", label: t("clients.detail.tabTags"), icon: Tag, href: clientPath(client.id, "tags") },
-      { id: "templates", label: t("clients.detail.tabTemplates"), icon: FileText, href: clientPath(client.id, "templates") },
-      { id: "calendar", label: t("clients.detail.tabCalendar"), icon: CalendarIcon, href: clientPath(client.id, "calendar") },
-      { id: "pipeline", label: t("clients.detail.tabPipeline"), icon: GitBranch, href: clientPath(client.id, "pipeline") },
-      { id: "api", label: t("clients.detail.tabApi"), icon: KeyRound, href: clientPath(client.id, "api") },
-      { id: "portal", label: t("clients.detail.tabPortal"), icon: Globe2, href: clientPath(client.id, "portal") },
+      { id: "details", label: t("clients.detail.tabDetails"), icon: Settings2, href: clientPath(client.portal_slug, "details") },
+      { id: "agents", label: t("clients.detail.tabAgents"), icon: Bot, badge: client.agents.length, href: clientPath(client.portal_slug, "agents") },
+      { id: "channels", label: t("clients.detail.tabChannels"), icon: Radio, badge: 4, href: clientPath(client.portal_slug, "channels") },
+      { id: "inbox", label: t("clients.detail.tabInbox"), icon: Inbox, href: clientPath(client.portal_slug, "inbox") },
+      { id: "teams", label: t("clients.detail.tabTeams"), icon: Users, href: clientPath(client.portal_slug, "teams") },
+      { id: "professionals", label: t("clients.detail.tabProfessionals"), icon: Stethoscope, href: clientPath(client.portal_slug, "professionals") },
+      { id: "services", label: t("clients.detail.tabServices"), icon: Briefcase, href: clientPath(client.portal_slug, "services") },
+      { id: "library", label: t("clients.detail.tabLibrary"), icon: HardDrive, href: clientPath(client.portal_slug, "library") },
+      { id: "database", label: t("clients.detail.tabDatabase"), icon: Database, href: clientPath(client.portal_slug, "database") },
+      { id: "tags", label: t("clients.detail.tabTags"), icon: Tag, href: clientPath(client.portal_slug, "tags") },
+      { id: "templates", label: t("clients.detail.tabTemplates"), icon: FileText, href: clientPath(client.portal_slug, "templates") },
+      { id: "calendar", label: t("clients.detail.tabCalendar"), icon: CalendarIcon, href: clientPath(client.portal_slug, "calendar") },
+      { id: "pipeline", label: t("clients.detail.tabPipeline"), icon: GitBranch, href: clientPath(client.portal_slug, "pipeline") },
+      { id: "api", label: t("clients.detail.tabApi"), icon: KeyRound, href: clientPath(client.portal_slug, "api") },
+      { id: "portal", label: t("clients.detail.tabPortal"), icon: Globe2, href: clientPath(client.portal_slug, "portal") },
     ]} />
 
-    {FEATURES_BY_CLIENT_TAB[tab] && <PortalFeatureToggle client={client} keys={FEATURES_BY_CLIENT_TAB[tab]} onChange={setClient} title={tab === "portal" ? t("clients.detail.portalFeaturesTitle") : undefined} />}
+    {tab !== "channels" && FEATURES_BY_CLIENT_TAB[tab] && (
+      <PortalFeatureToggle
+        client={client}
+        keys={FEATURES_BY_CLIENT_TAB[tab]}
+        onChange={setClient}
+        title={tab === "portal" ? t("clients.detail.portalFeaturesTitle") : undefined}
+        extra={
+          tab === "agents" ? (
+            <div className="stitch-banner-stat-pill">
+              <strong>{t("clients.detail.tabAgents")}</strong>
+              <span>
+                {client.agents.length === 1
+                  ? t("clients.detail.agentOne", { count: client.agents.length })
+                  : t("clients.detail.agentMany", { count: client.agents.length })}
+              </span>
+            </div>
+          ) : undefined
+        }
+      />
+    )}
     {tab === "details" && <ClientDetails mode="agency" clientId={client.id} client={client} onChange={setClient} />}
 
-    {tab === "agents" && (client.agents.length ? <div className="table-shell"><table className="data-table"><thead><tr><th>{t("clients.detail.colAgent")}</th><th>{t("clients.detail.colStatus")}</th><th /></tr></thead><tbody>{client.agents.map((agent) => <tr key={agent.id}><td><Link className="entity-cell" href={`/agents/${agent.id}`}><span className="agent-avatar"><Bot size={18} /></span><strong>{agent.name}</strong></Link></td><td><StatusBadge active={agent.is_active} /></td><td><Link className="row-arrow" href={`/agents/${agent.id}`}><ArrowRight size={17} /></Link></td></tr>)}</tbody></table></div> : <EmptyState icon={<Bot />} title={t("clients.detail.agentsEmptyTitle")} description={t("clients.detail.agentsEmptyDescription")} action={<Link href={`/agents/new?client=${client.id}`} className="button primary">{t("clients.detail.createAgent")}</Link>} />)}
+    {tab === "agents" && (client.agents.length ? (
+      <ul className="stitch-agents-grid">
+          {client.agents.map((agent) => (
+            <li key={agent.id} className="stitch-agent-card">
+              <div className="stitch-agent-card-head">
+                <div className="stitch-agent-card-lead">
+                  <div className="stitch-agent-icon-box">
+                    <Bot size={22} />
+                  </div>
+                  <div className="stitch-agent-title-col">
+                    <h3 className="stitch-agent-name">{agent.name}</h3>
+                    <div className="stitch-agent-badges-row">
+                      <span className={agent.is_active ? "stitch-badge-active" : "stitch-badge-inactive"}>
+                        {agent.is_active && <span className="stitch-badge-active-dot" />}
+                        {agent.is_active ? "Activo" : "Inactivo"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
 
-    {tab === "channels" && <ChannelsOverviewView client={{ id: client.id, name: client.name }} />}
+                <Link
+                  href={`/agents/${agent.id}`}
+                  className="stitch-config-btn"
+                  title="Configurar agente"
+                >
+                  <span>Configurar</span>
+                  <ArrowRight size={14} />
+                </Link>
+              </div>
 
-    {tab === "inbox" && <ClientInbox clientId={client.id} urlNumber={leadNumber} />}
+              <div className="stitch-agent-card-foot">
+                <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                  Agente conversacional
+                </span>
+                <Link
+                  href={`/agents/${agent.id}`}
+                  style={{ fontSize: "12.5px", fontWeight: 600, color: "#00876c", display: "inline-flex", alignItems: "center", gap: "4px", textDecoration: "none" }}
+                >
+                  <span>Ver detalles</span>
+                  <ArrowRight size={13} />
+                </Link>
+              </div>
+            </li>
+          ))}
+        </ul>
+    ) : (
+      <EmptyState
+        icon={<Bot />}
+        title={t("clients.detail.agentsEmptyTitle")}
+        description={t("clients.detail.agentsEmptyDescription")}
+        action={
+          <Link href={`/agents/new?client=${client.id}`} className="stitch-action-pill">
+            <Bot size={16} /> <span>{t("clients.detail.createAgent")}</span>
+          </Link>
+        }
+      />
+    ))}
+
+    {tab === "channels" && (
+      <ChannelsOverviewView
+        client={{ id: client.id, slug: client.portal_slug, name: client.name }}
+        clientData={client}
+        onClientChange={setClient}
+      />
+    )}
+
+    {tab === "inbox" && (
+      <div className="embedded-portal-view client-inbox-view" style={{ "--portal-color": "#00876c" } as React.CSSProperties}>
+        <ClientInbox clientId={client.id} clientName={client.name} portalSlug={client.portal_slug} urlNumber={leadNumber} />
+      </div>
+    )}
 
     {/* Teams and WhatsApp templates are the client's own, managed here or from its portal; the views are the portal's, pointed at the agency routes. */}
     {tab === "teams" && <div className="embedded-portal-view"><TeamsView base={`/clients/${client.id}`} /></div>}
@@ -132,7 +253,7 @@ export default function ClientDetailPage() {
     {tab === "tags" && <div className="embedded-portal-view"><TagsView base={`/clients/${client.id}/contact-tags`} canManage /></div>}
     {tab === "templates" && <div className="embedded-portal-view"><TemplatesView base={`/clients/${client.id}`} /></div>}
     {tab === "calendar" && <CalendarView base={`/clients/${client.id}`} canManage />}
-    {tab === "pipeline" && <PipelineBoard base={`/clients/${client.id}`} canManage />}
+    {tab === "pipeline" && <div className="embedded-portal-view client-pipeline-view"><PipelineBoard base={`/clients/${client.id}`} canManage clientName={client.name} /></div>}
     {tab === "api" && <div className="embedded-portal-view"><ApiIntegrations clientId={client.id} clientName={client.name} /></div>}
     {tab === "portal" && <><form className="page-form" onSubmit={savePortal}><section className="form-section"><div className="section-copy"><h2>{t("clients.detail.portalTitle")}</h2><p>{t("clients.detail.portalCopy")}</p></div><div className="form-fields"><label>{t("clients.detail.portalTitleLabel")}<input name="portal_title" defaultValue={client.portal_title} placeholder={t("clients.detail.portalTitlePlaceholder", { name: client.name })} /></label><label>{t("clients.detail.portalUrl")}<div className="slug-input"><span>{origin.replace(/^https?:\/\//, "")}/portal/</span><input name="portal_slug" defaultValue={client.portal_slug} /></div></label><div className="url-preview"><code>{portalUrl}</code><button type="button" onClick={() => navigator.clipboard.writeText(portalUrl)}><Copy size={15} /> {t("clients.detail.copy")}</button>{client.portal_enabled && <a href={portalUrl} target="_blank"><ExternalLink size={15} /> {t("clients.detail.open")}</a>}</div><label className="switch-row"><span><strong>{t("clients.detail.publishPortal")}</strong><small>{t("clients.detail.publishPortalHint")}</small></span><input name="portal_enabled" type="checkbox" defaultChecked={client.portal_enabled} /></label></div></section><div className="form-footer"><button className="button primary" disabled={busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />} {t("clients.detail.savePortal")}</button></div></form><PortalUsers clientId={client.id} /><PortalDomain clientId={client.id} domain={domain} onChange={setDomain} /></>}
   </div>;
@@ -289,243 +410,3 @@ function PortalDomain({ clientId, domain, onChange }: { clientId: string; domain
   </div></section>;
 }
 
-function ClientInbox({ clientId, urlNumber }: { clientId: string; urlNumber?: number }) {
-  const { t, lang } = useLanguage();
-  const toast = useToast();
-  const router = useRouter();
-  const [items, setItems] = useState<Conversation[]>([]);
-  const [selected, setSelected] = useState<Conversation | null>(null);
-  const [busy, setBusy] = useState(false);
-  // A lead that absorbed others has several threads: the composer picks one and every reply names it.
-  const replyVia = useReplyVia(selected);
-  const owners = useAttachmentOwners(selected);
-  const policy = useReplyPolicy(replyVia.policyConversation);
-  // The lead card beside the thread.
-  const { open: leadPanelOpen, setOpen: setLeadOpen, overlay: leadOverlay, attachLayout: attachLead } = useLeadPanel();
-  const closeLead = useCallback(() => setLeadOpen(false), [setLeadOpen]);
-  const leadScope = useMemo(() => agencyLeadScope(clientId), [clientId]);
-  const selectedId = selected?.id;
-  const attachmentUrl = useCallback((attachment: Attachment) => apiUrl(`/conversations/${owners.get(attachment.id) ?? selectedId}/attachments/${attachment.id}`), [selectedId, owners]);
-  const leadOpen = Boolean(selected) && leadPanelOpen;
-  const load = async () => { setItems(await api<Conversation[]>(`/conversations?client_id=${clientId}`)); };
-  const [loadedInbox, setLoadedInbox] = useState(false);
-  useEffect(() => { load().catch(() => {}).finally(() => setLoadedInbox(true)); }, [clientId]);
-  // The lead in the address decides which thread is open (Back, Forward and pasted links land here);
-  // a click below fetches the thread first, so the selection already matches by the time the address changes.
-  useEffect(() => {
-    if (urlNumber === undefined) { setSelected(null); return; }
-    if (selected?.number === urlNumber) return;
-    let cancelled = false;
-    api<Conversation>(`/clients/${clientId}/conversations/number/${urlNumber}`)
-      .then((detail) => {
-        if (cancelled) return;
-        setSelected(detail);
-        // An old number of a merged lead answers with the primary: move the address to it.
-        if (detail.number !== urlNumber) router.replace(clientPath(clientId, "inbox", detail.number));
-      })
-      .catch(() => { if (!cancelled) router.replace(clientPath(clientId, "inbox")); });
-    return () => { cancelled = true; };
-    // Only the address drives this; `selected` is read to skip a lead that is already open.
-  }, [urlNumber, clientId]);
-  async function choose(item: { id: string }) {
-    const detail = await api<Conversation>(`/conversations/${item.id}`);
-    setSelected(detail);
-    if (detail.number !== urlNumber) router.push(clientPath(clientId, "inbox", detail.number));
-  }
-  async function mode(next: "ai" | "human") { if (!selected) return; setSelected(await api<Conversation>(`/conversations/${selected.id}/mode`, { method: "PATCH", body: JSON.stringify({ mode: next }) })); await load(); }
-  const composerRef = useRef<HTMLTextAreaElement>(null);
-  const [composerMode, setComposerMode] = useState<ComposerMode>("chat");
-  const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
-  const [variablesOpen, setVariablesOpen] = useState(false);
-  const [variablesQuery, setVariablesQuery] = useState("");
-  const [draft, setDraft] = useState("");
-
-  function insertTextAtCursor(text: string, replaceTriggerChar?: string) {
-    const field = composerRef.current;
-    if (!field) return;
-    const start = field.selectionStart ?? field.value.length;
-    const end = field.selectionEnd ?? start;
-    const full = field.value;
-    const before = full.slice(0, start);
-    const after = full.slice(end);
-
-    let newBefore = before;
-    const lastBracket = before.lastIndexOf("[");
-    if (lastBracket !== -1) {
-      const textBetween = before.slice(lastBracket + 1);
-      if (!textBetween.includes("]") && !textBetween.includes("\n")) {
-        newBefore = before.slice(0, lastBracket);
-      }
-    } else if (replaceTriggerChar && before.endsWith(replaceTriggerChar)) {
-      newBefore = before.slice(0, before.length - replaceTriggerChar.length);
-    }
-
-    const nextVal = newBefore + text + after;
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
-    if (setter) {
-      setter.call(field, nextVal);
-    } else {
-      field.value = nextVal;
-    }
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    setDraft(nextVal);
-    setVariablesQuery("");
-    setVariablesOpen(false);
-    const newPos = newBefore.length + text.length;
-    setTimeout(() => {
-      field.focus();
-      field.setSelectionRange(newPos, newPos);
-    }, 0);
-  }
-
-  async function sendNote(content: string) {
-    if (!selected || busy || !content.trim()) return;
-    setBusy(true);
-    try {
-      setSelected(await api<Conversation>(`/conversations/${selected.id}/notes`, {
-        method: "POST",
-        body: JSON.stringify({ content: content.trim() }),
-      }));
-      if (composerRef.current) composerRef.current.value = "";
-      setDraft("");
-      setComposerMode("chat");
-      await load();
-    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); composerRef.current?.focus(); }
-  }
-
-  async function reply(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selected || busy) return;
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const content = (data.get("content") as string) || draft;
-    if (composerMode === "note") {
-      await sendNote(content);
-      return;
-    }
-    if (!policy.canReply) return;
-    setBusy(true);
-    try {
-      setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: content.trim(), ...replyVia.payload }) }));
-      form.reset();
-      setDraft("");
-      await load();
-    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
-  }
-  if (!loadedInbox) return <ListRowsSkeleton rows={5} />;
-  if (!items.length) return <EmptyState icon={<Inbox />} title={t("clients.detail.inboxEmptyTitle")} description={t("clients.detail.inboxEmptyDescription")} />;
-  return <div ref={attachLead} className={`inbox-layout${leadOpen ? " has-lead" : ""}${leadOverlay ? " lead-overlay" : ""}`}><aside className="inbox-list"><header><strong>{t("clients.detail.conversations")}</strong><span>{items.length}</span></header>{items.map((item) => <button key={item.id} className={selected?.id === item.id ? "active" : ""} onClick={() => choose(item)}><span className="entity-avatar tiny"><UserRound size={15} /></span><span><strong>{item.title}</strong><small>#{item.number} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel, t)} · {item.mode === "human" ? t("clients.detail.modeHuman") : t("clients.detail.modeAi")}</small></span></button>)}</aside><section className="inbox-thread">{selected && <><header><LeadAvatarButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)} /><div><strong>{selected.title}</strong><small>#{selected.number} · {channelLabel(selected.channel, t)}</small></div><button className={`mode-toggle ${selected.mode}`} onClick={() => mode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("clients.detail.takeControl") : t("clients.detail.returnToAi")}</button></header><div className="inbox-messages">{selected.messages?.map((message) => {
-    if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
-    if (isAppointmentActivity(message)) return <AppointmentActivityCard key={message.id} message={message} />;
-    const stamp = formatTime(message.created_at, lang);
-    if (message.kind === "note") {
-      return (
-        <div key={message.id} className="internal-note-card">
-          <div className="internal-note-header">
-            <Lock size={12} />
-            <span>{message.sender_name || t("clients.detail.senderAgent")} · {t("inbox.internalNoteBadge")}</span>
-            <time>{stamp}</time>
-          </div>
-          <div className="internal-note-content">
-            <RichText text={message.content} />
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div key={message.id} className={`inbox-message ${message.role}`}>
-        <small>{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{message.sender_name || (message.role === "assistant" ? t("clients.detail.senderAgent") : t("clients.detail.senderVisitor"))}</small>
-        <p><RichText text={message.content} /></p>
-      </div>
-    );
-  })}</div><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
-  <div className={`composer-box${composerMode === "note" ? " note-mode" : ""}`} style={{ position: "relative", margin: "10px 16px 14px" }}>
-    <UnifiedComposerTop
-      mode={composerMode}
-      onModeChange={setComposerMode}
-      threads={replyVia.threads}
-      channel={replyVia.thread?.channel ?? selected.channel}
-      via={replyVia.via}
-      onViaChange={replyVia.setVia}
-      onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
-      onOpenAppointmentModal={() => setAppointmentModalOpen(true)}
-    />
-    <VariablesPopover
-      open={variablesOpen}
-      onClose={() => { setVariablesOpen(false); setVariablesQuery(""); }}
-      onSelect={(val) => insertTextAtCursor(val)}
-      query={variablesQuery}
-      contactValues={{
-        contact_name: selected.contact_name || selected.title,
-        contact_phone: selected.contact_phone || (isSocialChannel(selected.channel) ? "" : (selected.external_chat_id || "").split("@")[0]),
-        contact_email: selected.contact_email,
-      }}
-      leadNumber={selected.number}
-      dealValue={selected.deal_value}
-      channel={selected.channel}
-    />
-    <form className="inbox-composer" style={{ border: "none", padding: "8px 12px 10px", margin: 0 }} onSubmit={reply}>
-      <GrowingTextarea
-        ref={composerRef}
-        name="content"
-        placeholder={
-          composerMode === "note"
-            ? (t("inbox.composerNotePlaceholder") || "Escribe una nota interna para el equipo...")
-            : selected.mode === "human"
-            ? t("clients.detail.composerHuman")
-            : t("clients.detail.composerLocked")
-        }
-        disabled={composerMode === "note" ? busy : (!policy.canReply || busy)}
-        required={composerMode === "note" ? true : true}
-        onChange={(e) => {
-          const val = e.target.value;
-          setDraft(val);
-          const cursor = e.target.selectionStart ?? val.length;
-          const before = val.slice(0, cursor);
-          const lastBracket = before.lastIndexOf("[");
-          if (lastBracket !== -1) {
-            const textBetween = before.slice(lastBracket + 1);
-            if (!textBetween.includes("]") && !textBetween.includes("\n") && textBetween.length <= 30) {
-              setVariablesQuery(textBetween);
-              setVariablesOpen(true);
-              return;
-            }
-          }
-          if (variablesQuery) {
-            setVariablesQuery("");
-            setVariablesOpen(false);
-          }
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "[" || e.code === "BracketLeft") {
-            setVariablesOpen(true);
-            setVariablesQuery("");
-          }
-          if (variablesOpen && e.key === "Escape") {
-            setVariablesOpen(false);
-            setVariablesQuery("");
-          }
-        }}
-      />
-      <button
-        className={composerMode === "note" ? (draft.trim() ? "button primary small" : "button small") : ""}
-        style={composerMode === "note" ? { backgroundColor: draft.trim() ? "#f59e0b" : undefined, borderColor: draft.trim() ? "#f59e0b" : undefined, color: draft.trim() ? "#fff" : undefined } : undefined}
-        disabled={composerMode === "note" ? (busy || !draft.trim()) : (!policy.canReply || busy)}
-      >
-        {composerMode === "note" ? (t("inbox.composerSaveNote") || "Guardar nota") : t("clients.detail.send")}
-      </button>
-    </form>
-  </div></>}{!selected && <div className="inline-empty"><Inbox size={22} /><div><strong>{t("clients.detail.selectConversation")}</strong></div></div>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { load().catch(() => {}); }} onMerged={(primary) => { void choose({ id: primary.conversation_id }).catch(() => {}); load().catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}{appointmentModalOpen && selected && (
-    <AppointmentModal
-      open={appointmentModalOpen}
-      onClose={() => setAppointmentModalOpen(false)}
-      base={`/clients/${clientId}`}
-      conversationId={selected.id}
-      contactId={selected.contact_id}
-      onSuccess={() => {
-        void choose({ id: selected.id });
-        load().catch(() => {});
-      }}
-    />
-  )}</div>;
-}

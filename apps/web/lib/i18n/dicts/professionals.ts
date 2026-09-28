@@ -2,6 +2,7 @@
 // clinic) and the weekly hours each one works. Shared by the agency's client
 // page and the client portal.
 const en = {
+  title: "Professionals",
   count: "{count} professionals",
   add: "Add professional",
   timezoneNote: "Times are in {timezone}.",
@@ -58,6 +59,7 @@ const en = {
 };
 
 const es: typeof en = {
+  title: "Profesionales",
   count: "{count} profesionales",
   add: "Agregar profesional",
   timezoneNote: "Los horarios están en {timezone}.",

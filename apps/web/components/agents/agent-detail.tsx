@@ -30,7 +30,7 @@ type Tab = AgentTab;
 const LEGACY_TAB_ALIASES: Record<string, Tab> = { details: "basics", integrations: "tools" };
 
 /** One agent's editor, shared by the agency panel and the client portal (see scope.tsx). `segments` is what follows the id in the address (the tab). */
-export function AgentDetailView({ id, segments, apiBase, hrefFor, client }: { id: string; segments?: string[]; apiBase?: string; hrefFor?: AgentHrefs; client?: { id: string; name: string } | null }) {
+export function AgentDetailView({ id, segments, apiBase, hrefFor, client }: { id: string; segments?: string[]; apiBase?: string; hrefFor?: AgentHrefs; client?: { id: string; slug: string; name: string } | null }) {
   return <AgentsScopeProvider apiBase={apiBase} hrefFor={hrefFor} client={client}><AgentDetail id={id} segments={segments} /></AgentsScopeProvider>;
 }
 
@@ -182,7 +182,7 @@ function AgentDetail({ id, segments }: { id: string; segments?: string[] }) {
     try {
       await api(`/agents/${id}`, { method: "DELETE" });
       toast.success(t("agents.detail.deletedNotice"));
-      router.push(hrefFor.afterDelete(agent.client_id));
+      router.push(hrefFor.afterDelete(agent.client.portal_slug));
     } catch (err) { setDeleteError(messageFrom(err)); setBusy(false); }
   }
 
@@ -229,7 +229,7 @@ function AgentDetail({ id, segments }: { id: string; segments?: string[] }) {
   const business = portal ? "" : businessLabel(catalog, agent.client, lang);
   return <div className="page agent-detail-page">
     <Link href={hrefFor.list()} className="back-link"><ArrowLeft size={16} /> {t("agents.detail.back")}</Link>
-    <header className="agent-detail-head"><div className="agent-title-wrap"><span className="agent-avatar xl"><Bot size={29} /></span><div><div className="title-line"><h1>{agent.name}</h1><span className={agent.is_active ? "pill purple" : "pill"}>{agent.is_active ? t("agents.detail.published") : t("agents.detail.unpublished")}</span></div><p>{hrefFor.client ? <Link href={hrefFor.client(agent.client_id)} className="table-link">{agent.client.name}</Link> : agent.client.name}{business ? ` · ${business}` : ""}</p></div></div><div className="header-actions"><button className={agent.is_active ? "button ghost" : "button primary"} onClick={togglePublish} disabled={busy}>{agent.is_active ? <><PowerOff size={16} /> {t("agents.detail.unpublish")}</> : <><Power size={16} /> {t("agents.detail.publish")}</>}</button><Link href={hrefFor.playground(agent.id)} className="button secondary"><MessageSquareText size={17} /> {t("agents.detail.openPlayground")}</Link></div></header>
+    <header className="agent-detail-head"><div className="agent-title-wrap"><span className="agent-avatar xl"><Bot size={29} /></span><div><div className="title-line"><h1>{agent.name}</h1><span className={agent.is_active ? "pill purple" : "pill"}>{agent.is_active ? t("agents.detail.published") : t("agents.detail.unpublished")}</span></div><p>{hrefFor.client ? <Link href={hrefFor.client(agent.client.portal_slug)} className="table-link">{agent.client.name}</Link> : agent.client.name}{business ? ` · ${business}` : ""}</p></div></div><div className="header-actions"><button className={agent.is_active ? "button ghost" : "button primary"} onClick={togglePublish} disabled={busy}>{agent.is_active ? <><PowerOff size={16} /> {t("agents.detail.unpublish")}</> : <><Power size={16} /> {t("agents.detail.publish")}</>}</button><Link href={hrefFor.playground(agent.id)} className="button secondary"><MessageSquareText size={17} /> {t("agents.detail.openPlayground")}</Link></div></header>
     {docToDelete && <ConfirmModal title={t("agents.detail.confirmDelete", { filename: docToDelete.filename })} confirmLabel={t("agents.detail.delete")} cancelLabel={t("common.cancel")} confirmIcon={<Trash2 size={15} />} onConfirm={() => removeDocument(docToDelete)} onClose={() => setDocToDelete(null)} />}
     <Modal open={deleteOpen} title={t("agents.detail.deleteTitle", { name: agent.name })} onClose={() => setDeleteOpen(false)}>
       <div className="modal-form">

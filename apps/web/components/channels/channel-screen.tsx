@@ -8,7 +8,7 @@ import type { ChannelHrefs } from "@/components/channels/scope";
 import type { ChannelType } from "@/lib/routes";
 
 /** One channel type's page, by its address segment (the portal picks it from the URL). */
-export function ChannelScreen({ type, apiBase, hrefFor, client }: { type: ChannelType; apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; name: string } | null }) {
+export function ChannelScreen({ type, apiBase, hrefFor, client }: { type: ChannelType; apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; slug: string; name: string } | null }) {
   const scope = { apiBase, hrefFor, client };
   switch (type) {
     case "whatsapp": return <WhatsAppChannelView {...scope} />;

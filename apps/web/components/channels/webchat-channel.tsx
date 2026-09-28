@@ -14,7 +14,7 @@ import { ChannelsScopeProvider, useBackToChannels, useChannelClient, useChannels
 import { useT } from "@/lib/i18n";
 import type { Client, WidgetChannel } from "@/types";
 
-export function WebChatChannelView({ apiBase, hrefFor, client }: { apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; name: string } | null }) {
+export function WebChatChannelView({ apiBase, hrefFor, client }: { apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; slug: string; name: string } | null }) {
   return <ChannelsScopeProvider apiBase={apiBase} hrefFor={hrefFor} client={client}><WebChatScreen /></ChannelsScopeProvider>;
 }
 

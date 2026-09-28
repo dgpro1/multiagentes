@@ -230,7 +230,7 @@ def _contact_out(contact: Contact) -> dict:
     }
 
 
-def _conversation_out(conversation: Conversation, request: Request) -> dict:
+def _conversation_out(conversation: Conversation, request: Request, client_slug: str) -> dict:
     return {
         "id": str(conversation.id),
         "number": conversation.number,
@@ -246,7 +246,7 @@ def _conversation_out(conversation: Conversation, request: Request) -> dict:
         "updated_at": conversation.updated_at,
         "_links": {
             **_self(request),
-            "html": f"{get_settings().frontend_url.rstrip('/')}/clients/{conversation.client_id}/inbox/{conversation.number}",
+            "html": f"{get_settings().frontend_url.rstrip('/')}/clients/{client_slug}/inbox/{conversation.number}",
         },
     }
 
@@ -455,7 +455,7 @@ def v1_list_conversations(
         query = query.where(Conversation.status == status)
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     rows = db.scalars(query.order_by(Conversation.updated_at.desc()).offset((page - 1) * limit).limit(limit)).all()
-    return _page(request, [_conversation_out(row, request) for row in rows], total, page, limit)
+    return _page(request, [_conversation_out(row, request, client.portal_slug) for row in rows], total, page, limit)
 
 
 @router.get("/clients/{client_id}/conversations/{conversation_id}", dependencies=[Depends(require(INBOX_READ))])
@@ -464,7 +464,7 @@ def v1_get_conversation(
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     client = _agency_client(db, user, client_id)
-    return _conversation_out(_client_conversation(db, client, conversation_id), request)
+    return _conversation_out(_client_conversation(db, client, conversation_id), request, client.portal_slug)
 
 
 @router.post("/clients/{client_id}/conversations/{conversation_id}/reply", dependencies=[Depends(require(INBOX_REPLY))])
@@ -494,7 +494,7 @@ async def v1_reply(
             queue_message(db, conversation, message)
             conversation.updated_at = now_utc()
             db.commit()
-            body = jsonable_encoder({**_conversation_out(lead, request), "message_id": str(message.id)})
+            body = jsonable_encoder({**_conversation_out(lead, request, client.portal_slug), "message_id": str(message.id)})
             complete(db, receipt, status=200, body=body)
             return JSONResponse(status_code=200, content=body)
         external_message_id = await send_channel_message(db, conversation, content)
@@ -503,7 +503,7 @@ async def v1_reply(
         note_reply(conversation)
         conversation.updated_at = now_utc()
         db.commit()
-        body = jsonable_encoder(_conversation_out(lead, request))
+        body = jsonable_encoder(_conversation_out(lead, request, client.portal_slug))
         complete(db, receipt, status=200, body=body)
         return JSONResponse(status_code=200, content=body)
     except HTTPException:
@@ -522,7 +522,7 @@ def v1_set_mode(
     changed = set_mode(db, conversation, payload.mode, actor=user.name)
     if changed:
         db.commit()
-    return _conversation_out(conversation, request)
+    return _conversation_out(conversation, request, client.portal_slug)
 
 
 @router.patch("/clients/{client_id}/conversations/{conversation_id}/status", dependencies=[Depends(require(INBOX_MANAGE))])
@@ -536,7 +536,7 @@ def v1_set_status(
     changed = set_status(db, conversation, payload.status, actor=user.name)
     if changed:
         db.commit()
-    return _conversation_out(conversation, request)
+    return _conversation_out(conversation, request, client.portal_slug)
 
 
 # Pipeline --------------------------------------------------------------------

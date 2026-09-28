@@ -23,9 +23,9 @@ export type AgentHrefs = {
   /** One agent, on the given tab (the default tab is the bare address). */
   agent: (id: string, tab?: AgentTab) => string;
   /** The client's own page; null where the client is fixed and there is none to visit (the portal). */
-  client: ((clientId: string) => string) | null;
-  /** Where the person lands after deleting an agent. */
-  afterDelete: (clientId: string) => string;
+  client: ((clientSlug: string) => string) | null;
+  /** Where the person lands after deleting an agent: back on its client's page. */
+  afterDelete: (clientSlug: string) => string;
   /** The playground opened from an agent's header. */
   playground: (agentId: string) => string;
 };
@@ -34,8 +34,8 @@ export const agencyAgentHrefs: AgentHrefs = {
   list: () => "/agents",
   create: (clientId) => (clientId ? `/agents/new?client=${encodeURIComponent(clientId)}` : "/agents/new"),
   agent: (id, tab = "basics") => agentPath(id, tab),
-  client: (clientId) => `/clients/${clientId}`,
-  afterDelete: (clientId) => `/clients/${clientId}`,
+  client: (clientSlug) => `/clients/${clientSlug}`,
+  afterDelete: (clientSlug) => `/clients/${clientSlug}`,
   playground: () => "/playground",
 };
 
@@ -58,19 +58,17 @@ export type AgentsScope = {
   portal: boolean;
   hrefFor: AgentHrefs;
   /** The portal's own client, the only one an agent can be created for. */
-  client: { id: string; name: string } | null;
+  client: { id: string; slug: string; name: string } | null;
 };
 
 const AGENCY_SCOPE: AgentsScope = { apiBase: "", portal: false, hrefFor: agencyAgentHrefs, client: null };
 
 const ScopeContext = createContext<AgentsScope>(AGENCY_SCOPE);
 
-export function AgentsScopeProvider({ apiBase = "", hrefFor = agencyAgentHrefs, client = null, children }: { apiBase?: string; hrefFor?: AgentHrefs; client?: { id: string; name: string } | null; children: ReactNode }) {
-  const clientId = client?.id ?? null;
-  const clientName = client?.name ?? null;
+export function AgentsScopeProvider({ apiBase = "", hrefFor = agencyAgentHrefs, client = null, children }: { apiBase?: string; hrefFor?: AgentHrefs; client?: { id: string; slug: string; name: string } | null; children: ReactNode }) {
   const value = useMemo<AgentsScope>(
-    () => ({ apiBase, portal: apiBase !== "", hrefFor, client: clientId ? { id: clientId, name: clientName ?? "" } : null }),
-    [apiBase, hrefFor, clientId, clientName],
+    () => ({ apiBase, portal: apiBase !== "", hrefFor, client: client ? { id: client.id, slug: client.slug, name: client.name } : null }),
+    [apiBase, hrefFor, client?.id, client?.slug, client?.name],
   );
   return <ScopeContext.Provider value={value}>{children}</ScopeContext.Provider>;
 }

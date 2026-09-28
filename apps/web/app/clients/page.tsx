@@ -422,7 +422,7 @@ export default function ClientsPage() {
                   </div>
 
                   <Link
-                    href={`/clients/${selectedClient.id}`}
+                    href={`/clients/${selectedClient.portal_slug}`}
                     title="Configurar cliente"
                     style={{
                       padding: 8,
@@ -696,12 +696,12 @@ export default function ClientsPage() {
                 </Link>
 
                 <div className="stitch-detail-sub-actions">
-                  <Link href={`/clients/${selectedClient.id}`} className="stitch-detail-sub-btn">
+                  <Link href={`/clients/${selectedClient.portal_slug}`} className="stitch-detail-sub-btn">
                     <Settings size={14} />
                     <span>Configurar</span>
                   </Link>
 
-                  <Link href={`/clients/${selectedClient.id}/channels/whatsapp`} className="stitch-detail-sub-btn">
+                  <Link href={`/clients/${selectedClient.portal_slug}/channels/whatsapp`} className="stitch-detail-sub-btn">
                     <Radio size={14} />
                     <span>Canales</span>
                   </Link>

@@ -106,9 +106,16 @@ export function TeamsView({ base, canManage = true }: { base: string; canManage?
 
   return <>
     <div className="portal-teams">
-      <div className="portal-contacts-toolbar">
-        <span>{t("portal.teams.count", { count: items.length })}</span>
-        {canManage && <button className="button primary small" onClick={() => openEditor("new")}><Plus size={15} /> {t("portal.teams.new")}</button>}
+      <div className="stitch-section-header">
+        <div>
+          <h2>{t("portal.inbox.nav.teams")}</h2>
+          <p>{t("portal.teams.count", { count: items.length })}</p>
+        </div>
+        {canManage && (
+          <button className="stitch-action-pill" onClick={() => openEditor("new")}>
+            <Plus size={16} /> <span>{t("portal.teams.new")}</span>
+          </button>
+        )}
       </div>
       {error && !editing && !deleting && <Alert>{error}</Alert>}
       {loading ? <div className="no-conversations"><LoaderCircle className="spin" size={16} /></div>

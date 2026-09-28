@@ -1,57 +1,178 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, GripVertical, LoaderCircle, Plus, Search, Trash2, Wand2, X } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ExternalLink,
+  GripVertical,
+  LayoutGrid,
+  List,
+  LoaderCircle,
+  Plus,
+  Search,
+  Trash2,
+  Wand2,
+  X,
+} from "lucide-react";
 import { Alert, EmptyState, Modal } from "@/components/ui";
 import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
-import { ChannelIcon } from "@/lib/channels";
+import { channelLabel } from "@/lib/channels";
 import { formatWhen } from "@/lib/datetime";
 import { formatMoney } from "@/lib/currencies";
-import { tagStyle } from "@/lib/tags";
 import { api, messageFrom } from "@/lib/api";
 import { useLanguage, useT, type Lang } from "@/lib/i18n";
 import type { PipelineBoard as PipelineBoardData, PipelineCard, PipelineStage } from "@/types";
 import { fold } from "@/lib/text";
 
 const UNASSIGNED = "__unassigned__";
-// Distinct on both themes, in the order new stages take them.
-const PALETTE = ["#2f6df0", "#00a67d", "#7c5cff", "#d4932f", "#c83b82", "#0891b2", "#c43d4b", "#65a30d"];
+const PALETTE = ["#94a3b8", "#3b82f6", "#00876c", "#8b5cf6", "#f59e0b", "#c83b82", "#0891b2", "#65a30d"];
+
+const AVATAR_PASTELS = [
+  { bg: "#e6f7f3", text: "#00876c" }, // Teal/Emerald
+  { bg: "#fef3c7", text: "#d97706" }, // Amber
+  { bg: "#dbeafe", text: "#2563eb" }, // Blue
+  { bg: "#f3e8ff", text: "#7c3aed" }, // Purple
+  { bg: "#ffedd5", text: "#ea580c" }, // Orange
+  { bg: "#fce7f3", text: "#db2777" }, // Pink
+  { bg: "#e2e8f0", text: "#334155" }, // Slate
+];
+
+function getAvatarPastel(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  const index = Math.abs(hash) % AVATAR_PASTELS.length;
+  return AVATAR_PASTELS[index];
+}
 
 function money(value: number | null | undefined, currency: string, locale?: string): string {
   if (value === null || value === undefined) return "";
   return formatMoney(value, currency, locale);
 }
 
-/** The sales pipeline: a client's own stages as kanban columns, with every
- * open conversation as a draggable card — including those not yet in any
- * stage, which sit in a virtual first column so dragging one in needs no
- * separate picker anywhere else. Shared by the client page and the portal.
- * Every edit to the stages themselves (add, rename, recolor, reorder,
- * delete) lives behind the single "Automatiza" button, Kommo-style. */
-export function PipelineBoard({ base, canManage }: { base: string; canManage: boolean }) {
+export function PipelineBoard({
+  base,
+  canManage,
+  clientName,
+}: {
+  base: string;
+  canManage: boolean;
+  clientName?: string;
+}) {
   const t = useT();
   const { lang } = useLanguage();
   const toast = useToast();
   const [board, setBoard] = useState<PipelineBoardData | null>(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const [quickLeadStage, setQuickLeadStage] = useState<PipelineStage | null>(null);
-  const load = useCallback(async () => {
-    try { setBoard(await api<PipelineBoardData>(`${base}/pipeline/board`)); }
-    catch (err) { setError(messageFrom(err)); }
-  }, [base]);
-  useEffect(() => { load(); }, [load]);
-
+  const [newDealOpen, setNewDealOpen] = useState(false);
   const [managing, setManaging] = useState(false);
   const [dragCardId, setDragCardId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
 
-  const matches = useCallback((card: PipelineCard) => {
-    const needle = fold(query.trim());
-    if (!needle) return true;
-    return [card.contact_name, card.title, card.preview].some((field) => fold(field).includes(needle));
-  }, [query]);
+  const load = useCallback(async () => {
+    try {
+      setBoard(await api<PipelineBoardData>(`${base}/pipeline/board`));
+    } catch (err) {
+      setError(messageFrom(err));
+    }
+  }, [base]);
+
+  const canvasRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+
+    // 1. Shift + Wheel horizontal scroll
+    const handleWheel = (e: WheelEvent) => {
+      if (e.shiftKey) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY !== 0 ? e.deltaY : e.deltaX;
+      }
+    };
+
+    // 2. Drag-to-scroll (pan) on canvas background or stage headers
+    let isDown = false;
+    let startX = 0;
+    let scrollLeftStart = 0;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      // Exclude lead cards and interactive elements
+      if (
+        target.closest(".pipeline-deal-card") ||
+        target.closest("button") ||
+        target.closest("a") ||
+        target.closest("input") ||
+        target.closest("select") ||
+        target.closest("textarea")
+      ) {
+        return;
+      }
+
+      isDown = true;
+      startX = e.clientX;
+      scrollLeftStart = el.scrollLeft;
+      el.classList.add("is-grabbing");
+      document.body.style.userSelect = "none";
+      e.preventDefault();
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const deltaX = e.clientX - startX;
+      el.scrollLeft = scrollLeftStart - deltaX;
+    };
+
+    const onMouseUp = () => {
+      if (!isDown) return;
+      isDown = false;
+      el.classList.remove("is-grabbing");
+      document.body.style.userSelect = "";
+    };
+
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    el.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      el.removeEventListener("wheel", handleWheel);
+      el.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      el.classList.remove("is-grabbing");
+      document.body.style.userSelect = "";
+    };
+  }, [Boolean(board), viewMode]);
+
+  const matches = useCallback(
+    (card: PipelineCard) => {
+      const needle = fold(query.trim());
+      if (!needle) return true;
+      return [
+        card.contact_name,
+        card.title,
+        card.preview,
+        card.channel,
+        card.account_label,
+        ...card.tags.map((tg) => tg.name),
+      ].some((field) => field && fold(field).includes(needle));
+    },
+    [query]
+  );
 
   const cardsByStage = useMemo(() => {
     const map = new Map<string, PipelineCard[]>();
@@ -63,179 +184,703 @@ export function PipelineBoard({ base, canManage }: { base: string; canManage: bo
     return map;
   }, [board, matches]);
 
-  // The lead's own address when the card carries its number; the older
-  // ?conversation=<id> link otherwise (both are understood by the portal).
-  const threadUrl = useCallback((id: string, number?: number) => (
-    base.startsWith("/portal")
-      ? (number ? `${base}/inbox/${number}` : `${base}?conversation=${id}`)
-      : `/inbox?conversation=${id}`
-  ), [base]);
+  const filteredCards = useMemo(() => {
+    return (board?.cards ?? []).filter(matches);
+  }, [board, matches]);
 
-  // The portal has its own route for a lead's stage and value; the agency's is keyed by the conversation alone.
-  const pipelinePath = useCallback((id: string) => (base.startsWith("/portal") ? `${base}/conversations/${id}/pipeline` : `/conversations/${id}/pipeline`), [base]);
-  const currency = board?.currency || "USD";
+  const threadUrl = useCallback(
+    (id: string, number?: number) =>
+      base.startsWith("/portal")
+        ? number
+          ? `${base}/inbox/${number}`
+          : `${base}?conversation=${id}`
+        : `/inbox?conversation=${id}`,
+    [base]
+  );
+
+  const pipelinePath = useCallback(
+    (id: string) =>
+      base.startsWith("/portal")
+        ? `${base}/conversations/${id}/pipeline`
+        : `/conversations/${id}/pipeline`,
+    [base]
+  );
+
+  const currency = board?.currency || "CLP";
 
   async function moveCard(card: PipelineCard, stageId: string | null) {
     if (card.pipeline_stage_id === stageId) return;
-    // Optimistic: the board feels instant, and a failure just reloads it.
-    setBoard((current) => current && {
-      ...current,
-      cards: current.cards.map((c) => (c.id === card.id ? { ...c, pipeline_stage_id: stageId } : c)),
-    });
+    setBoard((current) =>
+      current && {
+        ...current,
+        cards: current.cards.map((c) =>
+          c.id === card.id ? { ...c, pipeline_stage_id: stageId } : c
+        ),
+      }
+    );
     try {
-      await api(pipelinePath(card.id), { method: "PATCH", body: JSON.stringify({ pipeline_stage_id: stageId, deal_value: card.deal_value }) });
-    } catch { toast.error(t("pipeline.moveFailed")); load(); }
+      await api(pipelinePath(card.id), {
+        method: "PATCH",
+        body: JSON.stringify({ pipeline_stage_id: stageId, deal_value: card.deal_value }),
+      });
+    } catch {
+      toast.error(t("pipeline.moveFailed"));
+      load();
+    }
   }
 
   async function editValue(card: PipelineCard, value: number | null) {
-    setBoard((current) => current && { ...current, cards: current.cards.map((c) => (c.id === card.id ? { ...c, deal_value: value } : c)) });
+    setBoard((current) =>
+      current && {
+        ...current,
+        cards: current.cards.map((c) => (c.id === card.id ? { ...c, deal_value: value } : c)),
+      }
+    );
     try {
-      await api(pipelinePath(card.id), { method: "PATCH", body: JSON.stringify({ pipeline_stage_id: card.pipeline_stage_id, deal_value: value }) });
-    } catch (err) { toast.error(messageFrom(err)); load(); }
+      await api(pipelinePath(card.id), {
+        method: "PATCH",
+        body: JSON.stringify({ pipeline_stage_id: card.pipeline_stage_id, deal_value: value }),
+      });
+    } catch (err) {
+      toast.error(messageFrom(err));
+      load();
+    }
   }
 
   if (error) return <Alert>{error}</Alert>;
   if (!board) return <ListRowsSkeleton rows={3} />;
 
-  const columns: { id: string | null; name: string; color: string; count: number; total: number | null }[] = [
-    { id: null, name: t("pipeline.unassignedColumn"), color: "#8996a3", count: board.unassigned_count, total: null },
-    ...board.stages.map((s) => ({ id: s.id, name: s.name, color: s.color, count: s.conversation_count, total: s.deal_value_total })),
+  const columns: {
+    id: string | null;
+    name: string;
+    color: string;
+    count: number;
+    total: number | null;
+  }[] = [
+    {
+      id: null,
+      name: t("pipeline.unassignedColumn"),
+      color: "#94a3b8",
+      count: board.unassigned_count,
+      total: null,
+    },
+    ...board.stages.map((s, idx) => ({
+      id: s.id,
+      name: s.name,
+      color: s.color || PALETTE[idx % PALETTE.length],
+      count: s.conversation_count,
+      total: s.deal_value_total,
+    })),
   ];
+
   const totalValue = board.cards.reduce((sum, card) => sum + (card.deal_value ?? 0), 0);
 
-  return <div className="pipeline-view">
-    {board.stages.length === 0 && !canManage
-      ? <section className="form-section"><div className="section-copy"><h2>{t("pipeline.title")}</h2><p>{t("pipeline.description")}</p></div><EmptyState icon={<GripVertical />} title={t("pipeline.stagesEmptyTitle")} description={t("pipeline.stagesEmptyDescription")} /></section>
-      : <div className="pipeline-topbar">
-          <button type="button" className="pipeline-profile-btn" title="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6"></path><path d="M4.22 4.22l4.24 4.24m5.08 0l4.24-4.24"></path><path d="M1 12h6m6 0h6"></path><path d="M4.22 19.78l4.24-4.24m5.08 0l4.24 4.24"></path></svg></button>
-          <span className="pipeline-name">{t("pipeline.title")}</span>
-          <div className="pipeline-view-toggle">
-            <button type="button" className="pipeline-view-btn active" title="Kanban"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg></button>
-            <button type="button" className="pipeline-view-btn" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg></button>
-          </div>
-          <label className="pipeline-search-compact"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("pipeline.searchPlaceholder")} aria-label={t("pipeline.searchPlaceholder")} /></label>
-          <span className="pipeline-totals-compact">{money(totalValue, currency, lang)}</span>
-          {canManage && <button type="button" className="pipeline-automate-btn" onClick={() => setManaging(true)}><Wand2 size={15} /> {t("pipeline.automate")}</button>}
-        </div>}
+  return (
+    <div className="pipeline-view">
+      {/* Top Bar Header */}
+      <div className="pipeline-topbar">
+        <div className="pipeline-topbar-left">
+          {/* Client / Brand Name */}
+          <span className="pipeline-brand-name">{clientName || "Dental Marbella"}</span>
 
-    {board.stages.length > 0 && <div className="pipeline-board">
-      {columns.map((column) => {
-        const cards = cardsByStage.get(column.id ?? UNASSIGNED) ?? [];
-        const isOver = dragOverStage === (column.id ?? UNASSIGNED);
-        const stage = column.id ? board.stages.find((s) => s.id === column.id) ?? null : null;
-        return <div key={column.id ?? UNASSIGNED} className={`pipeline-column${isOver ? " pipeline-column-over" : ""}`}
-          style={{ borderTop: `3px solid ${column.color}` }}
-          onDragOver={(e) => { e.preventDefault(); setDragOverStage(column.id ?? UNASSIGNED); }}
-          onDragLeave={() => setDragOverStage((current) => (current === (column.id ?? UNASSIGNED) ? null : current))}
-          onDrop={(e) => {
-            e.preventDefault(); setDragOverStage(null);
-            const card = board.cards.find((c) => c.id === dragCardId);
-            if (card) moveCard(card, column.id);
-            setDragCardId(null);
-          }}>
-          <header className="pipeline-column-head" style={{ backgroundColor: column.color }}>
-            <strong>{column.name}</strong>
-            <span className="pipeline-column-count">{t("pipeline.columnDeals", { count: column.count })}{column.total != null && column.total > 0 ? ` · ${money(column.total, currency, lang)}` : ""}</span>
-          </header>
-          <div className="pipeline-cards">
-            {stage && <button type="button" className="pipeline-quick-add" onClick={() => setQuickLeadStage(stage)}><Plus size={14} /> {t("pipeline.quickLead")}</button>}
-            {cards.length === 0 ? <div className="pipeline-empty-column">{t("pipeline.emptyColumn")}</div>
-              : cards.map((card) => <PipelineCardView key={card.id} card={card} t={t} lang={lang} currency={currency}
-                threadUrl={threadUrl(card.id, card.number)} onDragStart={() => setDragCardId(card.id)} onValueChange={(value) => editValue(card, value)} />)}
+          {/* View Switcher */}
+          <div className="pipeline-view-switcher">
+            <button
+              type="button"
+              className={`pipeline-view-btn ${viewMode === "kanban" ? "active" : ""}`}
+              onClick={() => setViewMode("kanban")}
+              title="Tablero"
+            >
+              <LayoutGrid size={16} />
+            </button>
+            <button
+              type="button"
+              className={`pipeline-view-btn ${viewMode === "list" ? "active" : ""}`}
+              onClick={() => setViewMode("list")}
+              title="Lista"
+            >
+              <List size={16} />
+            </button>
           </div>
-        </div>;
-      })}
-    </div>}
+        </div>
 
-    {quickLeadStage && <QuickLeadModal base={base} stage={quickLeadStage}
-      onClose={() => setQuickLeadStage(null)} onCreated={() => load()} />}
-    <AutomationModal open={managing} base={base} stages={board.stages} onClose={() => setManaging(false)}
-      onChange={(stages) => setBoard((current) => current && { ...current, stages })} />
-  </div>;
+        <div className="pipeline-topbar-right">
+          {/* Search Bar with Metrics */}
+          <div className="pipeline-search-bar">
+            <Search size={16} className="pipeline-search-icon" />
+            <input
+              type="text"
+              className="pipeline-search-input"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar negocios, contactos o servicios..."
+              aria-label="Buscar negocios, contactos o servicios..."
+            />
+            <div className="pipeline-search-divider" />
+            <div className="pipeline-search-metrics">
+              <span className="pipeline-metric-label">Total leads:</span>
+              <strong className="pipeline-metric-lead-count">{board.cards.length}</strong>
+              <span className="pipeline-metric-dot">•</span>
+              <span className="pipeline-metric-label">Total:</span>
+              <strong className="pipeline-metric-total-sum">{money(totalValue, currency, lang)}</strong>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          {canManage && (
+            <button
+              type="button"
+              className="pipeline-btn-automatiza"
+              onClick={() => setManaging(true)}
+            >
+              <Wand2 size={15} />
+              <span>Automatiza</span>
+            </button>
+          )}
+
+          {canManage && (
+            <button
+              type="button"
+              className="pipeline-btn-new-deal"
+              onClick={() => setNewDealOpen(true)}
+            >
+              <Plus size={16} />
+              <span>Nuevo lead</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {board.stages.length === 0 && !canManage ? (
+        <section className="form-section p-6">
+          <div className="section-copy">
+            <h2>{t("pipeline.title")}</h2>
+            <p>{t("pipeline.description")}</p>
+          </div>
+          <EmptyState
+            icon={<GripVertical />}
+            title={t("pipeline.stagesEmptyTitle")}
+            description={t("pipeline.stagesEmptyDescription")}
+          />
+        </section>
+      ) : viewMode === "kanban" ? (
+        /* KANBAN CANVAS */
+        <main ref={canvasRef} className="pipeline-canvas">
+          <div className="pipeline-columns-row">
+            {columns.map((column) => {
+              const cards = cardsByStage.get(column.id ?? UNASSIGNED) ?? [];
+              const isOver = dragOverStage === (column.id ?? UNASSIGNED);
+              const stage = column.id ? board.stages.find((s) => s.id === column.id) ?? null : null;
+
+              return (
+                <div
+                  key={column.id ?? UNASSIGNED}
+                  className={`pipeline-col-card ${isOver ? "drag-over" : ""}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOverStage(column.id ?? UNASSIGNED);
+                  }}
+                  onDragLeave={() =>
+                    setDragOverStage((cur) =>
+                      cur === (column.id ?? UNASSIGNED) ? null : cur
+                    )
+                  }
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOverStage(null);
+                    const card = board.cards.find((c) => c.id === dragCardId);
+                    if (card) moveCard(card, column.id);
+                    setDragCardId(null);
+                  }}
+                >
+                  {/* Top Colored Accent Bar */}
+                  <div
+                    className="pipeline-col-top-bar"
+                    style={{ backgroundColor: column.color }}
+                  />
+
+                  {/* Stage Title */}
+                  <h3 className="pipeline-col-name">{column.name}</h3>
+
+                  {/* Stage Total Money */}
+                  <span className="pipeline-col-sum">
+                    {column.total != null && column.total > 0
+                      ? money(column.total, currency, lang)
+                      : `$0 ${currency}`}
+                  </span>
+
+                  {/* Cards Stack */}
+                  <div className="pipeline-col-cards-list">
+                    {cards.map((card) => (
+                      <PipelineCardView
+                        key={card.id}
+                        card={card}
+                        t={t}
+                        lang={lang}
+                        currency={currency}
+                        threadUrl={threadUrl(card.id, card.number)}
+                        onDragStart={() => setDragCardId(card.id)}
+                        onValueChange={(val) => editValue(card, val)}
+                      />
+                    ))}
+
+                    {cards.length === 0 && (
+                      <div className="pipeline-col-drop-empty">
+                        Suelta una tarjeta aquí
+                      </div>
+                    )}
+
+                    {isOver && cards.length > 0 && (
+                      <div className="pipeline-col-drop-empty">
+                        Suelta una tarjeta aquí
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </main>
+      ) : (
+        /* LIST VIEW */
+        <main className="pipeline-list-canvas">
+          <div className="pipeline-list-card">
+            <table className="pipeline-list-table">
+              <thead>
+                <tr>
+                  <th>{t("pipeline.contact")}</th>
+                  <th>{t("pipeline.stage")}</th>
+                  <th>{t("pipeline.channel")}</th>
+                  <th>{t("pipeline.value")}</th>
+                  <th>{t("pipeline.mode")}</th>
+                  <th>{t("pipeline.updated")}</th>
+                  <th style={{ textAlign: "right" }}>{t("pipeline.actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCards.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="pipeline-list-empty">
+                      Suelta una tarjeta aquí
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCards.map((card) => {
+                    const name = card.contact_name || card.title;
+                    const stage = board.stages.find((s) => s.id === card.pipeline_stage_id);
+                    const avatarColor = getAvatarPastel(name);
+
+                    return (
+                      <tr key={card.id}>
+                        <td>
+                          <div className="pipeline-list-contact">
+                            <div
+                              className="pipeline-card-avatar"
+                              style={{
+                                backgroundColor: avatarColor.bg,
+                                color: avatarColor.text,
+                              }}
+                            >
+                              {name.slice(0, 1).toUpperCase()}
+                            </div>
+                            <div className="pipeline-list-name-col">
+                              <a
+                                href={threadUrl(card.id, card.number)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="pipeline-list-name"
+                              >
+                                {name}
+                              </a>
+                              {card.preview && (
+                                <div className="pipeline-list-preview">
+                                  {card.preview}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <span
+                            className="pipeline-list-stage-pill"
+                            style={{
+                              backgroundColor: stage ? `${stage.color}15` : "#f1f5f9",
+                              color: stage ? stage.color : "#64748b",
+                              borderColor: stage ? `${stage.color}40` : "#e2e8f0",
+                            }}
+                          >
+                            {stage?.name || t("pipeline.unassignedColumn")}
+                          </span>
+                        </td>
+                        <td style={{ fontWeight: 500 }}>
+                          {channelLabel(card.channel, t)}
+                        </td>
+                        <td style={{ fontWeight: 700 }}>
+                          {card.deal_value != null
+                            ? money(card.deal_value, currency, lang)
+                            : "Sin valor definido"}
+                        </td>
+                        <td>
+                          {card.mode === "human" ? (
+                            <span className="pipeline-card-human-pill" style={{ display: "inline-flex", width: "auto" }}>
+                              <span className="pipeline-card-human-dot" />
+                              <span>Atención humana requerida</span>
+                            </span>
+                          ) : (
+                            <span className="pipeline-pill-mode-ai">
+                              IA Respondiendo
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ color: "#94a3b8", fontSize: "11px" }}>
+                          {formatWhen(card.updated_at, lang)}
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <a
+                            href={threadUrl(card.id, card.number)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="pipeline-list-action-btn"
+                            title={t("pipeline.openThread")}
+                          >
+                            <ExternalLink size={13} />
+                          </a>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </main>
+      )}
+
+      {/* Quick Lead Modal */}
+      {(quickLeadStage || newDealOpen) && (
+        <QuickLeadModal
+          base={base}
+          initialStage={quickLeadStage}
+          stages={board.stages}
+          onClose={() => {
+            setQuickLeadStage(null);
+            setNewDealOpen(false);
+          }}
+          onCreated={() => load()}
+        />
+      )}
+
+      {/* Automate Modal */}
+      <AutomationModal
+        open={managing}
+        base={base}
+        stages={board.stages}
+        onClose={() => setManaging(false)}
+        onChange={(stages) => setBoard((current) => current && { ...current, stages })}
+      />
+    </div>
+  );
 }
 
-function PipelineCardView({ card, t, lang, currency, threadUrl, onDragStart, onValueChange }: {
-  card: PipelineCard; t: ReturnType<typeof useT>; lang: Lang; currency: string; threadUrl: string;
-  onDragStart: () => void; onValueChange: (value: number | null) => void;
+function PipelineCardView({
+  card,
+  t,
+  lang,
+  currency,
+  threadUrl,
+  onDragStart,
+  onValueChange,
+}: {
+  card: PipelineCard;
+  t: ReturnType<typeof useT>;
+  lang: Lang;
+  currency: string;
+  threadUrl: string;
+  onDragStart: () => void;
+  onValueChange: (value: number | null) => void;
 }) {
   const [editingValue, setEditingValue] = useState(false);
-  const [draft, setDraft] = useState(card.deal_value != null ? String(card.deal_value) : "");
+  const [draft, setDraft] = useState(
+    card.deal_value != null ? String(card.deal_value) : ""
+  );
   const name = card.contact_name || card.title;
+  const avatarColor = getAvatarPastel(name);
+
   function commit() {
     setEditingValue(false);
     const trimmed = draft.trim();
     onValueChange(trimmed === "" ? null : Number(trimmed));
   }
-  return <article className="pipeline-card" draggable onDragStart={onDragStart}>
-    <div className="pipeline-card-top">
-      <span className="pipeline-avatar" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
-      <div className="pipeline-card-identity">
-        <a className="pipeline-card-name" href={threadUrl} target="_blank" rel="noreferrer" draggable={false} title={t("pipeline.openThread")}><strong>{name}</strong></a>
-        <small className="pipeline-card-date">{formatWhen(card.updated_at, lang)}</small>
+
+  const channelPillLabel = () => {
+    if (card.channel === "whatsapp_cloud" || card.channel === "whatsapp") return "WhatsApp Web";
+    if (card.channel === "instagram") return "Instagram Direct";
+    if (card.channel === "messenger") return "Messenger";
+    return channelLabel(card.channel, t);
+  };
+
+  return (
+    <article
+      className="pipeline-deal-card"
+      draggable
+      onDragStart={onDragStart}
+    >
+      <div className="pipeline-card-header-row">
+        <div
+          className="pipeline-card-avatar"
+          style={{ backgroundColor: avatarColor.bg, color: avatarColor.text }}
+        >
+          {name.slice(0, 1).toUpperCase()}
+        </div>
+        <a
+          href={threadUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="pipeline-card-name-title"
+          title={t("pipeline.openThread")}
+        >
+          {name}
+        </a>
+        <span className="pipeline-card-date">{formatWhen(card.updated_at, lang)}</span>
       </div>
-      <ChannelIcon channel={card.channel} size={13} />
-    </div>
-    {card.account_label && <small className="pipeline-card-account">{card.account_label}</small>}
-    {card.mode === "human" && <span className="mini-badge human">{t("portal.inbox.list.humanSupport")}</span>}
-    {card.tags.length > 0 && <span className="pipeline-card-tags">{card.tags.map((tag) => <span key={tag.name} className="tag-chip" style={tagStyle(tag.color)}>{tag.name}</span>)}</span>}
-    {card.preview && <p className="pipeline-card-preview">{card.preview}</p>}
-    {editingValue
-      ? <input className="pipeline-value-input" type="number" min={0} step={0.01} autoFocus value={draft}
-          onChange={(e) => setDraft(e.target.value)} onBlur={commit}
-          onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setDraft(card.deal_value != null ? String(card.deal_value) : ""); setEditingValue(false); } }} />
-      : <button type="button" className="pipeline-value" onClick={() => setEditingValue(true)} title={t("pipeline.editValue")}>
-          {card.deal_value != null ? money(card.deal_value, currency, lang) : <span className="pipeline-value-empty">{t("pipeline.noValue")}</span>}
-        </button>}
-  </article>;
+
+      {/* Human attention status pill if human */}
+      {card.mode === "human" && (
+        <div className="pipeline-card-human-pill">
+          <span className="pipeline-card-human-dot" />
+          <span>Atención humana requerida</span>
+        </div>
+      )}
+
+      {/* Badges / Value Row */}
+      <div className="pipeline-card-meta-row">
+        <div className="pipeline-card-meta-left">
+          {card.mode !== "human" && (
+            <span
+              className={`pipeline-pill-channel ${
+                card.channel === "instagram" ? "instagram" : "whatsapp"
+              }`}
+            >
+              {channelPillLabel()}
+            </span>
+          )}
+          {card.mode === "ai" && card.tags.length === 0 && (
+            <span className="pipeline-pill-mode-ai">
+              IA Respondiendo
+            </span>
+          )}
+        </div>
+
+        <div className="pipeline-card-meta-right">
+          {editingValue ? (
+            <input
+              className="pipeline-input-value-inline"
+              type="number"
+              min={0}
+              step={0.01}
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commit();
+                if (e.key === "Escape") {
+                  setDraft(card.deal_value != null ? String(card.deal_value) : "");
+                  setEditingValue(false);
+                }
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              className="pipeline-btn-edit-val"
+              onClick={() => setEditingValue(true)}
+              title={t("pipeline.editValue")}
+            >
+              {card.deal_value != null ? (
+                <span className="pipeline-val-bold">
+                  {money(card.deal_value, currency, lang)}
+                </span>
+              ) : (
+                <span className="pipeline-val-undefined">Sin valor definido</span>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Tag Chips */}
+      {card.tags.length > 0 && (
+        <div className="pipeline-card-tags-row">
+          {card.tags.map((tag) => (
+            <span key={tag.name} className="pipeline-tag-chip-outline">
+              {tag.name}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Human attention assignee row */}
+      {card.mode === "human" && (
+        <div className="pipeline-card-assign-row">
+          <div className="pipeline-assignee-badge">
+            <span className="pipeline-assignee-initials">NV</span>
+            <span>Asignar</span>
+          </div>
+        </div>
+      )}
+    </article>
+  );
 }
 
-/** A manually created deal ("quick lead"): name, optional phone and value,
- * landing straight in the stage whose column opened it. */
-function QuickLeadModal({ base, stage, onClose, onCreated }: {
-  base: string; stage: PipelineStage; onClose: () => void; onCreated: () => void;
+function QuickLeadModal({
+  base,
+  initialStage,
+  stages,
+  onClose,
+  onCreated,
+}: {
+  base: string;
+  initialStage: PipelineStage | null;
+  stages: PipelineStage[];
+  onClose: () => void;
+  onCreated: () => void;
 }) {
   const t = useT();
   const toast = useToast();
+  const [selectedStageId, setSelectedStageId] = useState(
+    initialStage?.id || stages[0]?.id || ""
+  );
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
+
   async function create(event: FormEvent) {
     event.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed || busy) return;
+    if (!trimmed || busy || !selectedStageId) return;
     setBusy(true);
     try {
-      const payload: Record<string, string | number> = { contact_name: trimmed, pipeline_stage_id: stage.id };
+      const payload: Record<string, string | number> = {
+        contact_name: trimmed,
+        pipeline_stage_id: selectedStageId,
+      };
       if (phone.trim()) payload.contact_phone = phone.trim();
       if (value.trim()) payload.deal_value = Number(value);
-      await api(`${base}/pipeline/leads`, { method: "POST", body: JSON.stringify(payload) });
+      await api(`${base}/pipeline/leads`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
       toast.success(t("pipeline.quickLeadCreated"));
       onCreated();
       onClose();
-    } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); }
+    } catch (err) {
+      toast.error(messageFrom(err));
+    } finally {
+      setBusy(false);
+    }
   }
-  return <Modal open title={t("pipeline.quickLeadTitle", { stage: stage.name })} onClose={onClose}>
-    <form className="modal-form" onSubmit={create}>
-      <div className="wa-cloud-form">
-        <label>{t("pipeline.quickLeadName")}<input value={name} maxLength={180} onChange={(e) => setName(e.target.value)} disabled={busy} autoFocus /></label>
-        <label>{t("pipeline.quickLeadPhone")}<input value={phone} maxLength={40} onChange={(e) => setPhone(e.target.value)} disabled={busy} autoComplete="off" /></label>
-        <label>{t("pipeline.quickLeadValue")}<input type="number" min={0} step={0.01} value={value} onChange={(e) => setValue(e.target.value)} disabled={busy} /></label>
-      </div>
-      <div className="modal-actions">
-        <button type="button" className="button" onClick={onClose}>{t("common.cancel")}</button>
-        <button type="submit" className="button primary" disabled={busy || !name.trim()}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={15} />} {t("pipeline.quickLeadCreate")}</button>
-      </div>
-    </form>
-  </Modal>;
+
+  const currentStage = stages.find((s) => s.id === selectedStageId);
+
+  return (
+    <Modal
+      open
+      title={
+        initialStage
+          ? t("pipeline.quickLeadTitle", { stage: currentStage?.name || "" })
+          : "Nuevo lead"
+      }
+      onClose={onClose}
+    >
+      <form className="modal-form" onSubmit={create}>
+        <div className="wa-cloud-form">
+          {stages.length > 1 && (
+            <label>
+              {t("pipeline.stage")}
+              <select
+                value={selectedStageId}
+                onChange={(e) => setSelectedStageId(e.target.value)}
+                disabled={busy}
+              >
+                {stages.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label>
+            {t("pipeline.quickLeadName")}
+            <input
+              value={name}
+              maxLength={180}
+              onChange={(e) => setName(e.target.value)}
+              disabled={busy}
+              autoFocus
+              placeholder="Ej: Camila Flores"
+            />
+          </label>
+          <label>
+            {t("pipeline.quickLeadPhone")}
+            <input
+              value={phone}
+              maxLength={40}
+              onChange={(e) => setPhone(e.target.value)}
+              disabled={busy}
+              autoComplete="off"
+              placeholder="+56 9 1234 5678"
+            />
+          </label>
+          <label>
+            {t("pipeline.quickLeadValue")}
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              disabled={busy}
+              placeholder="0"
+            />
+          </label>
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="button" onClick={onClose}>
+            {t("common.cancel")}
+          </button>
+          <button
+            type="submit"
+            className="button primary"
+            disabled={busy || !name.trim()}
+          >
+            {busy ? (
+              <LoaderCircle className="spin" size={16} />
+            ) : (
+              <Plus size={15} />
+            )}
+            {t("pipeline.quickLeadCreate")}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
 }
 
-/** The "Automatiza" screen: every edit to the stage list in one place — add,
- * rename, recolor, reorder (up/down; this is a short list, so arrows beat a
- * drag target that's easy to miss inside a modal), delete. Each row saves
- * itself as soon as it changes, so there is no separate save step. */
-function AutomationModal({ open, base, stages, onClose, onChange }: {
-  open: boolean; base: string; stages: PipelineStage[]; onClose: () => void; onChange: (stages: PipelineStage[]) => void;
+function AutomationModal({
+  open,
+  base,
+  stages,
+  onClose,
+  onChange,
+}: {
+  open: boolean;
+  base: string;
+  stages: PipelineStage[];
+  onClose: () => void;
+  onChange: (stages: PipelineStage[]) => void;
 }) {
   const t = useT();
   const toast = useToast();
@@ -249,16 +894,28 @@ function AutomationModal({ open, base, stages, onClose, onChange }: {
     if (!trimmed || trimmed === stage.name) return;
     setBusyId(stage.id);
     try {
-      const updated = await api<PipelineStage>(`${base}/pipeline/stages/${stage.id}`, { method: "PATCH", body: JSON.stringify({ name: trimmed }) });
+      const updated = await api<PipelineStage>(
+        `${base}/pipeline/stages/${stage.id}`,
+        { method: "PATCH", body: JSON.stringify({ name: trimmed }) }
+      );
       onChange(stages.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));
-    } catch (err) { toast.error(messageFrom(err)); } finally { setBusyId(null); }
+    } catch (err) {
+      toast.error(messageFrom(err));
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function recolor(stage: PipelineStage, color: string) {
     onChange(stages.map((s) => (s.id === stage.id ? { ...s, color } : s)));
     try {
-      await api<PipelineStage>(`${base}/pipeline/stages/${stage.id}`, { method: "PATCH", body: JSON.stringify({ color }) });
-    } catch (err) { toast.error(messageFrom(err)); }
+      await api<PipelineStage>(`${base}/pipeline/stages/${stage.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ color }),
+      });
+    } catch (err) {
+      toast.error(messageFrom(err));
+    }
   }
 
   async function move(index: number, direction: -1 | 1) {
@@ -268,9 +925,14 @@ function AutomationModal({ open, base, stages, onClose, onChange }: {
     [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
     onChange(reordered);
     try {
-      const saved = await api<PipelineStage[]>(`${base}/pipeline/stages/reorder`, { method: "POST", body: JSON.stringify({ stage_ids: reordered.map((s) => s.id) }) });
+      const saved = await api<PipelineStage[]>(
+        `${base}/pipeline/stages/reorder`,
+        { method: "POST", body: JSON.stringify({ stage_ids: reordered.map((s) => s.id) }) }
+      );
       onChange(saved);
-    } catch (err) { toast.error(messageFrom(err)); }
+    } catch (err) {
+      toast.error(messageFrom(err));
+    }
   }
 
   async function remove(stage: PipelineStage) {
@@ -279,7 +941,11 @@ function AutomationModal({ open, base, stages, onClose, onChange }: {
       await api(`${base}/pipeline/stages/${stage.id}`, { method: "DELETE" });
       onChange(stages.filter((s) => s.id !== stage.id));
       setConfirmingDelete(null);
-    } catch (err) { toast.error(messageFrom(err)); } finally { setBusyId(null); }
+    } catch (err) {
+      toast.error(messageFrom(err));
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function addStage(event: React.FormEvent) {
@@ -289,40 +955,132 @@ function AutomationModal({ open, base, stages, onClose, onChange }: {
     setAddBusy(true);
     try {
       const color = PALETTE[stages.length % PALETTE.length];
-      const created = await api<PipelineStage>(`${base}/pipeline/stages`, { method: "POST", body: JSON.stringify({ name: trimmed, color }) });
+      const created = await api<PipelineStage>(`${base}/pipeline/stages`, {
+        method: "POST",
+        body: JSON.stringify({ name: trimmed, color }),
+      });
       onChange([...stages, created]);
       setNewName("");
       toast.success(t("pipeline.stageAdded"));
-    } catch (err) { toast.error(messageFrom(err)); } finally { setAddBusy(false); }
+    } catch (err) {
+      toast.error(messageFrom(err));
+    } finally {
+      setAddBusy(false);
+    }
   }
 
-  return <Modal open={open} title={t("pipeline.automate")} description={t("pipeline.automateCopy")} onClose={onClose} wide>
-    <div className="modal-form">
-      <div className="pipeline-automation-list">
-        {stages.length === 0 && <p className="field-help">{t("pipeline.stagesEmptyDescription")}</p>}
-        {stages.map((stage, index) => <div key={stage.id} className="pipeline-automation-row">
-          <div className="pipeline-automation-order">
-            <button type="button" className="icon-button small" disabled={index === 0} onClick={() => move(index, -1)} aria-label={t("pipeline.moveUp")} title={t("pipeline.moveUp")}><ArrowUp size={13} /></button>
-            <button type="button" className="icon-button small" disabled={index === stages.length - 1} onClick={() => move(index, 1)} aria-label={t("pipeline.moveDown")} title={t("pipeline.moveDown")}><ArrowDown size={13} /></button>
-          </div>
-          <input type="color" className="pipeline-automation-color" value={stage.color} onChange={(e) => recolor(stage, e.target.value)} title={t("pipeline.stageColor")} />
-          <input className="pipeline-automation-name" defaultValue={stage.name} maxLength={80}
-            onBlur={(e) => rename(stage, e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
-          {busyId === stage.id && <LoaderCircle size={14} className="spin" />}
-          {confirmingDelete === stage.id
-            ? <span className="pipeline-automation-confirm">
-                <button type="button" className="button danger small" onClick={() => remove(stage)}>{t("pipeline.deleteStageConfirm")}</button>
-                <button type="button" className="icon-button small" onClick={() => setConfirmingDelete(null)} aria-label={t("common.cancel")}><X size={13} /></button>
-              </span>
-            : <button type="button" className="icon-button small danger-icon" onClick={() => setConfirmingDelete(stage.id)} aria-label={t("pipeline.deleteStage")} title={t("pipeline.deleteStage")}><Trash2 size={14} /></button>}
-        </div>)}
+  return (
+    <Modal
+      open={open}
+      title="Automatiza"
+      description={t("pipeline.automateCopy")}
+      onClose={onClose}
+      wide
+    >
+      <div className="modal-form">
+        <div className="pipeline-automation-list">
+          {stages.length === 0 && (
+            <p className="field-help">{t("pipeline.stagesEmptyDescription")}</p>
+          )}
+          {stages.map((stage, index) => (
+            <div key={stage.id} className="pipeline-automation-row">
+              <div className="pipeline-automation-order">
+                <button
+                  type="button"
+                  className="icon-button small"
+                  disabled={index === 0}
+                  onClick={() => move(index, -1)}
+                  aria-label={t("pipeline.moveUp")}
+                  title={t("pipeline.moveUp")}
+                >
+                  <ArrowUp size={13} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button small"
+                  disabled={index === stages.length - 1}
+                  onClick={() => move(index, 1)}
+                  aria-label={t("pipeline.moveDown")}
+                  title={t("pipeline.moveDown")}
+                >
+                  <ArrowDown size={13} />
+                </button>
+              </div>
+              <input
+                type="color"
+                className="pipeline-automation-color"
+                value={stage.color}
+                onChange={(e) => recolor(stage, e.target.value)}
+                title={t("pipeline.stageColor")}
+              />
+              <input
+                className="pipeline-automation-name"
+                defaultValue={stage.name}
+                maxLength={80}
+                onBlur={(e) => rename(stage, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
+              />
+              {busyId === stage.id && <LoaderCircle size={14} className="spin" />}
+              {confirmingDelete === stage.id ? (
+                <span className="pipeline-automation-confirm">
+                  <button
+                    type="button"
+                    className="button danger small"
+                    onClick={() => remove(stage)}
+                  >
+                    {t("pipeline.deleteStageConfirm")}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button small"
+                    onClick={() => setConfirmingDelete(null)}
+                    aria-label={t("common.cancel")}
+                  >
+                    <X size={13} />
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="icon-button small danger-icon"
+                  onClick={() => setConfirmingDelete(stage.id)}
+                  aria-label={t("pipeline.deleteStage")}
+                  title={t("pipeline.deleteStage")}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <form className="pipeline-automation-add" onSubmit={addStage}>
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder={t("pipeline.stageNamePlaceholder")}
+            maxLength={80}
+          />
+          <button
+            type="submit"
+            className="button secondary"
+            disabled={addBusy || !newName.trim()}
+          >
+            {addBusy ? (
+              <LoaderCircle size={15} className="spin" />
+            ) : (
+              <Plus size={15} />
+            )}
+            {t("pipeline.addStage")}
+          </button>
+        </form>
+        <div className="modal-actions">
+          <button type="button" className="button primary" onClick={onClose}>
+            {t("pipeline.done")}
+          </button>
+        </div>
       </div>
-      <form className="pipeline-automation-add" onSubmit={addStage}>
-        <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t("pipeline.stageNamePlaceholder")} maxLength={80} />
-        <button type="submit" className="button secondary" disabled={addBusy || !newName.trim()}>{addBusy ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />} {t("pipeline.addStage")}</button>
-      </form>
-      <div className="modal-actions"><button type="button" className="button primary" onClick={onClose}>{t("pipeline.done")}</button></div>
-    </div>
-  </Modal>;
+    </Modal>
+  );
 }
