@@ -646,6 +646,11 @@ class ConversationInboxOut(BaseModel):
     last_inbound_at: datetime | None = None
     channels: list[str] = []
     linked_count: int = 0
+    # Open and the contact spoke last: nobody has answered it yet. Unlike
+    # ``unread`` this does not depend on who has looked at the thread, so
+    # opening a lead cannot clear it. Any outgoing message does.
+    awaiting_reply: bool = False
+    pinned_at: datetime | None = None
 
 
 class LocationSend(BaseModel):
@@ -686,6 +691,10 @@ class ConversationStatusUpdate(BaseModel):
 
 class ConversationArchiveUpdate(BaseModel):
     archived: bool
+
+
+class ConversationPinUpdate(BaseModel):
+    pinned: bool
 
 
 class ConversationSelection(BaseModel):

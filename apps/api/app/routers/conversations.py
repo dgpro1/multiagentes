@@ -15,6 +15,7 @@ from ..schemas import (
     ConversationDetail,
     ConversationInboxOut,
     ConversationModeUpdate,
+    ConversationPinUpdate,
     ConversationPipelineUpdate,
     ConversationStatusUpdate,
     ConversationOut,
@@ -176,7 +177,7 @@ def inbox(
     channel: str | None = None,
     mode: str | None = None,
     search: str | None = None,
-    unread: bool = False,
+    pending: bool = False,
     limit: int = Query(default=30, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -226,7 +227,7 @@ def inbox(
 
     query = (
         # The agent's name is central: looked up by id below, never joined here.
-        select(Conversation, last.c.content, unread_count.label("unread_count"), last_inbound.c.at.label("last_inbound_at"), group_human.label("group_human"))
+        select(Conversation, last.c.content, last.c.sender_type, unread_count.label("unread_count"), last_inbound.c.at.label("last_inbound_at"), group_human.label("group_human"))
         .outerjoin(last, last.c.cid == Conversation.id)
         .outerjoin(unread_counts, unread_counts.c.cid == Conversation.id)
         .outerjoin(last_inbound, last_inbound.c.cid == Conversation.id)
@@ -246,8 +247,13 @@ def inbox(
         query = query.where(lead_human)
     elif mode == "ai":
         query = query.where(~lead_human)
-    if unread:
-        query = query.where(unread_count > 0)
+    if pending:
+        # The portal's own rule, unchanged: the case is open and the contact
+        # spoke last, so neither the AI nor a person has answered it. Activity
+        # lines are not messages, so `last` already skips them. Unlike `unread`
+        # this is a property of the conversation, not of who has looked at it,
+        # which is what keeps opening a lead from clearing the row.
+        query = query.where(Conversation.status == "open", last.c.sender_type == "visitor")
     if search and search.strip():
         query = query.where(
             or_(
@@ -260,33 +266,50 @@ def inbox(
     # Each database the agency uses gives its first offset+limit rows; merged,
     # the page is cut from the combined order.
     ordered = query.order_by(func.coalesce(last_inbound.c.at, Conversation.created_at).desc(), Conversation.created_at.desc())
+    # A pin is the agency's, and it has to survive that cut: a pinned lead can
+    # sit below offset+limit in its own database and never reach the merge, so
+    # every database is asked for its pinned rows as well. The two passes are
+    # read pinned-first and de-duplicated below, which puts the pins on top of
+    # the combined order without a second source of truth for the filters.
+    pinned = query.where(Conversation.pinned_at.is_not(None)).order_by(
+        Conversation.pinned_at.desc(), Conversation.created_at.desc()
+    )
     entries: list[tuple] = []
+    seen: set[uuid.UUID] = set()
     for _client in each_database(db, agency_id=user.agency_id):
-        rows = db.execute(ordered.limit(offset + limit)).all()
-        convs = [conv for conv, *_rest in rows]
-        channel_accounts.annotate(db, convs)
-        stats = lead_group.group_stats(db, convs)
-        for conv, content, row_unread_count, last_inbound_at, row_group_human in rows:
-            entries.append(((last_inbound_at or conv.created_at), conv.created_at, {
-                "id": conv.id,
-                "number": conv.number,
-                "agent_id": conv.agent_id,
-                "client_id": conv.client_id,
-                "title": conv.title,
-                "contact_name": conv.contact_name,
-                "channel": conv.channel,
-                "account_label": conv.account_label,
-                "mode": "human" if row_group_human else conv.mode,
-                "preview": (content or "")[:140].strip(),
-                "unread": int(row_unread_count) > 0,
-                "unread_count": int(row_unread_count),
-                "updated_at": max(conv.updated_at, stats[conv.id].updated_at or conv.updated_at),
-                "last_inbound_at": last_inbound_at,
-                "channels": stats[conv.id].channels,
-                "linked_count": stats[conv.id].linked_count,
-            }))
-    entries.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
-    page = [item for _, _, item in entries[offset:offset + limit]]
+        for statement in (pinned, ordered):
+            rows = db.execute(statement.limit(offset + limit)).all()
+            convs = [conv for conv, *_rest in rows if conv.id not in seen]
+            channel_accounts.annotate(db, convs)
+            stats = lead_group.group_stats(db, convs)
+            for conv, content, last_sender_type, row_unread_count, last_inbound_at, row_group_human in rows:
+                if conv.id in seen:
+                    continue
+                seen.add(conv.id)
+                entries.append(((conv.pinned_at is not None, conv.pinned_at, last_inbound_at or conv.created_at, conv.created_at), {
+                    "id": conv.id,
+                    "number": conv.number,
+                    "agent_id": conv.agent_id,
+                    "client_id": conv.client_id,
+                    "title": conv.title,
+                    "contact_name": conv.contact_name,
+                    "channel": conv.channel,
+                    "account_label": conv.account_label,
+                    "mode": "human" if row_group_human else conv.mode,
+                    "preview": (content or "")[:140].strip(),
+                    "unread": int(row_unread_count) > 0,
+                    "unread_count": int(row_unread_count),
+                    "updated_at": max(conv.updated_at, stats[conv.id].updated_at or conv.updated_at),
+                    "last_inbound_at": last_inbound_at,
+                    "channels": stats[conv.id].channels,
+                    "linked_count": stats[conv.id].linked_count,
+                    "awaiting_reply": conv.status == "open" and last_sender_type == "visitor",
+                    "pinned_at": conv.pinned_at,
+                }))
+    # Pinned first, most recent pin first; then the usual order. The bool leads
+    # the key so an unpinned row is never compared against a timestamp.
+    entries.sort(key=lambda entry: entry[0], reverse=True)
+    page = [item for _, item in entries[offset:offset + limit]]
     names = dict(db.execute(select(Agent.id, Agent.name).where(Agent.id.in_({item["agent_id"] for item in page}))).tuples().all()) if page else {}
     for item in page:
         item["agent_name"] = names.get(item["agent_id"]) or ""
@@ -538,6 +561,25 @@ def set_conversation_status(
     conversation = _conversation(db, user, conversation_id, act=True)
     changed = set_status(db, conversation, payload.status, actor=user.name)
     if changed:
+        db.commit()
+    return _respond(db, user, conversation_id)
+
+
+@router.patch("/{conversation_id}/pin", response_model=ConversationDetail, dependencies=[Depends(require(INBOX_MANAGE))])
+def set_conversation_pin(
+    conversation_id: uuid.UUID,
+    payload: ConversationPinUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # The pin belongs to the agency, not to whoever pressed it, so it is stored
+    # on the lead and every user of the agency sees the same order. A thread
+    # merged into a lead is pinned through its primary, which is why this acts
+    # on the lead and not on the thread.
+    conversation = _conversation(db, user, conversation_id, act=True)
+    pinned_at = now_utc() if payload.pinned else None
+    if conversation.pinned_at != pinned_at:
+        conversation.pinned_at = pinned_at
         db.commit()
     return _respond(db, user, conversation_id)
 

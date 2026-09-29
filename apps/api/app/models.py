@@ -621,6 +621,9 @@ class Conversation(Base):
         Index("ix_conversations_whatsapp_chat", "whatsapp_channel_id", "external_chat_id"),
         Index("ix_conversations_whatsapp_cloud_chat", "whatsapp_cloud_channel_id", "external_chat_id"),
         Index("ix_conversations_social_chat", "social_channel_id", "external_chat_id"),
+        # Partial: the inbox reads every lead and only a few are pinned, so
+        # indexing the empty ones would tax writes for rows nobody looks up.
+        Index("ix_conversations_pinned", "pinned_at", postgresql_where=text("pinned_at IS NOT NULL")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
@@ -661,6 +664,10 @@ class Conversation(Base):
         ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True
     )
     operator_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When a person pinned this lead, or empty. The agency's, not a user's:
+    # the whole team sees the same order. A lead merged into another is pinned
+    # through its primary, so this is only ever read on a lead row.
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Where the case stands, independent of who answers (``mode``): open |
     # resolved. A contact writing to a resolved conversation reopens it.
     status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
