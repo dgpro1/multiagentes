@@ -27,7 +27,31 @@ Several agents and worktrees work on this repo, so `main` is the single source o
 - **Finish by landing on `main`.** When a task is done, merge it into `main` and push `origin main` right away. Work left on a side branch is invisible to every other agent, so an unmerged branch counts as unfinished.
 - **Keep it linear and small.** Prefer fast-forward merges of small branches. Do not let a branch live for days, and never keep a long-running feature branch that only one agent knows about.
 - **No parallel edits of the same files.** Before touching a shared file (`globals.css`, `portal/[slug]/page.tsx`, `app-shell.tsx`, i18n dicts), check `git status` and `git log origin/main` for in-flight work on it.
-- **Never work directly in the root checkout.** Use a worktree per task; leave the root checkout on a clean `main`. Uncommitted changes there are not shared with anyone and get lost or duplicated.
+- **One worktree per task; the root checkout is the only meeting point.** Create it
+  under `.claude/worktrees/<name>` with
+  `git worktree add .claude/worktrees/<name> -b claude/<name>`, so `git worktree list`
+  maps every session to the branch it owns. Work only inside that worktree and
+  commit there; the root stays on a clean `main` and is the only place branches are
+  merged and pushed. Sessions do not share files, they share the branch - which is
+  what keeps them from reasoning about each other's half-finished work. A session
+  that finds uncommitted changes in the root has found a mistake, not a task.
+  The pre-commit guard enforces this: it refuses a commit made from the root
+  checkout on any branch other than `main`.
+- **Generated state belongs to its worktree.** `node_modules/`, `.next/`, `.venv/`
+  and `storage/` are built inside each worktree and are that worktree's alone. Never
+  delete or reuse another session's, and do not run a dev server from the root while
+  a session works there: a `.next` left by one session makes the next `tsc` or
+  `next build` report routes that no longer exist, and removing it kills the session
+  that owns it.
+- **Retire a worktree with `git worktree remove <path>`, never by deleting the folder**,
+  then `git worktree prune`. Deleting the folder leaves the entry in
+  `.git/worktrees/` pointing at nothing, so every later `git worktree list` reports a
+  worktree that is not there. If the removal fails with "Filename too long" on
+  Windows (`node_modules` nests deeper than the path limit), drop the registration
+  with `git worktree remove --force` and delete what is left with
+  `cmd /c rd /s /q "\\?\<path>"`. Before deleting a worktree that has uncommitted
+  changes, commit them to an `archive/*` branch: it costs a couple of MB and makes
+  the work recoverable.
 - **Clone must be full.** A shallow clone (`.git/shallow`) makes pushes to a fresh remote fail; run `git fetch --unshallow` if it exists.
 - **Audit before landing large changes.** For migrations, permissions and scopes, portal functions, deploy files and
   dependency or lockfile changes, run `python scripts/audit.py <sha>` (or hand `AUDIT.md` to another agent) on the

@@ -14,7 +14,20 @@ staged="$(git diff --cached --name-only --diff-filter=ACM || true)"
 
 fail=0
 
-# 1) block local-only paths that were force-added
+# 1) the root checkout is the meeting point, it is not where work happens:
+#    a commit from there belongs to a worktree (see AGENTS.md, Git workflow).
+#    A worktree has its own --git-dir, so that is how the two are told apart.
+if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ]; then
+  branch="$(git rev-parse --abbrev-ref HEAD)"
+  if [ "$branch" != "main" ]; then
+    echo "✋ This is the root checkout and it is on '$branch'."
+    echo "  Work belongs in a worktree: git worktree add .claude/worktrees/<name> -b claude/<name>"
+    echo "  The root checkout is where branches are merged and pushed. (Override: --no-verify)"
+    fail=1
+  fi
+fi
+
+# 2) block local-only paths that were force-added
 while IFS= read -r f; do
   [ -z "$f" ] && continue
   case "$f" in
@@ -24,7 +37,7 @@ while IFS= read -r f; do
   esac
 done <<< "$staged"
 
-# 2) pattern list: built-in markers + words from the gitignored list
+# 3) pattern list: built-in markers + words from the gitignored list
 patterns=$'DO-NOT-COMMIT\nINTERNAL-ONLY'
 wordfile="$root/work/forbidden-words.txt"
 if [ -f "$wordfile" ]; then
@@ -35,7 +48,7 @@ if [ -f "$wordfile" ]; then
   done < "$wordfile"
 fi
 
-# 3) scan staged additions + filenames (case-insensitive, fixed-string)
+# 4) scan staged additions + filenames (case-insensitive, fixed-string)
 added="$(git diff --cached --diff-filter=ACM -U0 | grep '^+' || true)"
 haystack="$added"$'\n'"$staged"
 while IFS= read -r p; do
