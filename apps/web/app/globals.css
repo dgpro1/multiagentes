@@ -3353,13 +3353,21 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 /* Lead card: the side panel of the inbox (agency inbox, a client's Inbox tab, the portal inbox).
    Beside the thread on a wide inbox (a third grid column, `.has-lead`); on a narrower one, or a
    phone, it covers the screen (`.lead-overlay`, set from the inbox's own width, see use-lead-panel.ts). */
-.lead-avatar-btn { flex: 0 0 auto; margin-right: 10px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
-.lead-avatar-btn .entity-avatar { transition: box-shadow .12s ease, border-color .12s ease; }
-.lead-avatar-btn:hover .entity-avatar, .lead-avatar-btn[aria-pressed="true"] .entity-avatar { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
-.lead-avatar-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* The zone of a thread header that opens the lead card: the avatar, the name and
+   the channel line, plus the gap between them. It took the avatar's own
+   treatment, and its own name, because it is no longer a button and the avatar
+   inside it is not one either. */
+.lead-head-open { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; padding: 4px 10px; margin: 0 -10px; border-radius: 10px; cursor: pointer; }
+.lead-head-open > div { min-width: 0; }
+.lead-avatar { flex: 0 0 auto; }
+.lead-head-open .entity-avatar { transition: box-shadow .12s ease, border-color .12s ease; }
+.lead-head-open:hover .entity-avatar, .lead-head-open[aria-expanded="true"] .entity-avatar { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lead-head-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The zone takes the room the name used to take for itself, so the actions on
+   the right stay where they are however long the contact's name is. */
 .inbox-thread > header > div:not(.thread-actions) { flex: 1 1 0; min-width: 0; }
 @media (min-width: 641px) {
-  .portal-inbox > section > header > div:not(.thread-actions) { flex: 1 1 0; min-width: 120px; }
+  .portal-inbox > section > header > div:not(.thread-actions) { min-width: 120px; }
 }
 
 .inbox-layout.has-lead:not(.lead-overlay) { grid-template-columns: 310px minmax(0, 1fr) 360px; }

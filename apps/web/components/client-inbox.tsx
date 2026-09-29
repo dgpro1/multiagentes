@@ -32,7 +32,7 @@ import { AppointmentModal } from "@/components/appointment-modal";
 import { ScheduleMessageModal } from "@/components/schedule-message-modal";
 import { ScheduledMessagesBanner } from "@/components/scheduled-messages-banner";
 import { VariablesPopover } from "@/components/variables-popover";
-import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
+import { LeadHeaderButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
 import { GrowingTextarea } from "@/components/growing-textarea";
@@ -818,30 +818,31 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
               >
                 <ArrowLeft size={16} />
               </button>
-              <LeadAvatarButton
+              <LeadHeaderButton
                 channel={selected.channel}
                 open={leadOpen}
                 onClick={() => setLeadOpen(!leadPanelOpen)}
-              />
-              <div>
-                <strong>
-                  {selected.contact_name || selected.title}
-                  <span className="lead-number">#{selected.number}</span>
-                </strong>
-                <small className="portal-channel-line">
-                  {replyVia.multi ? (
-                    <ChannelDots channels={[...new Set(replyVia.threads.map((thread) => thread.channel))]} t={t} />
-                  ) : (
-                    <>{channelIcon(selected.channel)} {channelLabel(selected.channel)}</>
-                  )}
-                  {selected.account_label && <span className="account-badge" title={selected.account_label}>{selected.account_label}</span>}
-                  {selected.channel === "whatsapp_cloud" && !selected.reply_window_open && (
-                    <span className="window-pill closed">
-                      <Clock size={11} /> {selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}
-                    </span>
-                  )}
-                </small>
-              </div>
+              >
+                <div>
+                  <strong>
+                    {selected.contact_name || selected.title}
+                    <span className="lead-number">#{selected.number}</span>
+                  </strong>
+                  <small className="portal-channel-line">
+                    {replyVia.multi ? (
+                      <ChannelDots channels={[...new Set(replyVia.threads.map((thread) => thread.channel))]} t={t} />
+                    ) : (
+                      <>{channelIcon(selected.channel)} {channelLabel(selected.channel)}</>
+                    )}
+                    {selected.account_label && <span className="account-badge" title={selected.account_label}>{selected.account_label}</span>}
+                    {selected.channel === "whatsapp_cloud" && !selected.reply_window_open && (
+                      <span className="window-pill closed">
+                        <Clock size={11} /> {selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}
+                      </span>
+                    )}
+                  </small>
+                </div>
+              </LeadHeaderButton>
 
               <div className="thread-actions">
                 <button

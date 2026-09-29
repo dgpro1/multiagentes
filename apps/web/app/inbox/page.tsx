@@ -15,7 +15,7 @@ import { ScheduleMessageModal } from "@/components/schedule-message-modal";
 import { ScheduledMessagesBanner } from "@/components/scheduled-messages-banner";
 import { VariablesPopover } from "@/components/variables-popover";
 import { ReactionPicker } from "@/components/message-gestures";
-import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
+import { LeadHeaderButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
 import { GrowingTextarea } from "@/components/growing-textarea";
@@ -520,8 +520,9 @@ export default function InboxPage() {
           : <>
             <header>
               <button type="button" className="icon-button inbox-back" onClick={() => { selectedIdRef.current = null; setSelected(null); }} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button>
-              <LeadAvatarButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)} />
-              <div><strong>{selected.contact_name || selected.title}</strong><small>{channelLabel(selected.channel)}{selected.account_label && <> <span className="account-badge" title={selected.account_label}>{selected.account_label}</span></>}</small></div>
+              <LeadHeaderButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)}>
+                <div><strong>{selected.contact_name || selected.title}</strong><small>{channelLabel(selected.channel)}{selected.account_label && <> <span className="account-badge" title={selected.account_label}>{selected.account_label}</span></>}</small></div>
+              </LeadHeaderButton>
               <div className="thread-actions">
                 <button className="icon-button" onClick={() => setMediaOpen(true)} title={t("chat.sharedContent")} aria-label={t("chat.sharedContent")}><Images size={16} /></button>
                 <button className={`mode-toggle ${selected.mode}`} onClick={() => toggleMode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("inbox.takeControl") : t("inbox.returnToAi")}</button>
