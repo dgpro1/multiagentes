@@ -163,7 +163,7 @@ export function MessageThread({ messages, surface, t, lang, urlFor, gallery, cha
             <div key={message.id} className="internal-note-card">
               <div className="internal-note-header">
                 <Lock size={12} />
-                <span>{message.sender_name || t("inbox.senderAgent")} Â· {t("inbox.internalNoteBadge")}</span>
+                <span>{message.sender_name || t("inbox.senderAgent")} · {t("inbox.internalNoteBadge")}</span>
                 <time>{formatTime(message.created_at, lang)}</time>
               </div>
               <div className="internal-note-content">

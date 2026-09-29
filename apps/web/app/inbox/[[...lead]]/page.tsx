@@ -469,7 +469,7 @@ export default function InboxPage() {
           via_conversation_id: replyVia.via || undefined,
         }),
       });
-      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con ÃƒÆ’Ã‚Â©xito");
+      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con éxito");
       if (draft.trim() === content.trim()) {
         if (composerRef.current) composerRef.current.value = "";
         setDraft("");
@@ -603,7 +603,7 @@ export default function InboxPage() {
                   <span className="inbox-row-body">
                     <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
                     <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
-                    <small className="inbox-row-meta">{item.agent_name} Ãƒâ€šÃ‚Â· {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
+                    <small className="inbox-row-meta">{item.agent_name} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
                   </span>
                   {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
                 </Link>
