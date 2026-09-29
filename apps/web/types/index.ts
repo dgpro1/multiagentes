@@ -161,6 +161,11 @@ export type ConversationInbox = {
   agent_id: string;
   agent_name: string;
   client_id: string;
+  /** The slug the lead's address is built from, never the id (lib/routes.ts).
+   * Absent on older responses. */
+  client_slug?: string;
+  /** The short number a person sees, unique within the client. */
+  number?: number;
   title: string;
   contact_name: string | null;
   channel: string;
@@ -175,6 +180,11 @@ export type ConversationInbox = {
   channels?: string[];
   /** How many other leads were merged into this one. */
   linked_count?: number;
+  /** Open and the contact spoke last: nobody has answered it yet. Unlike
+   * `unread` this survives opening the lead, so it is the row's own signal. */
+  awaiting_reply?: boolean;
+  /** When the lead was pinned to the top of the inbox; absent when it was not. */
+  pinned_at?: string | null;
 };
 export type PortalMember = { id: string; name: string; email: string; availability: "online" | "away" };
 export type TeamMember = { id: string; name: string; email: string; availability: "online" | "away" };
@@ -239,6 +249,10 @@ export type Conversation = {
   taken_over_at?: string | null;
   phone_pause_until?: string | null;
   waiting_since?: string | null;
+  /** When the lead was pinned to the top of the inbox; absent when it was not. */
+  pinned_at?: string | null;
+  /** Open and the contact spoke last: nobody has answered it yet. */
+  awaiting_reply?: boolean;
   assignee_id?: string | null;
   assignee_name?: string | null;
   team_id?: string | null;

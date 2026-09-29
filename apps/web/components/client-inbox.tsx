@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowLeft,
   Bot,
@@ -39,6 +40,7 @@ import { ReactionPicker } from "@/components/message-gestures";
 import { useToast } from "@/components/toast";
 import { EmptyState } from "@/components/ui";
 import { ListRowsSkeleton } from "@/components/skeleton";
+import { LeadRowActions, pinnedFirst } from "@/components/lead-row-actions";
 import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels } from "@/lib/channels";
 import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
 import { PhonePauseNotice, SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
@@ -268,6 +270,33 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
     selectedIdRef.current = null;
     if (urlNumber !== undefined) {
       router.push(clientPath(key, "inbox"));
+    }
+  }
+
+  // Resolving a lead from its row. This list comes from `/conversations`,
+  // which does not say who spoke last, so the row cannot show the pending dot
+  // here; what it can do is tell the truth on the next read of the list.
+  async function resolveRow(item: { id: string }) {
+    try {
+      await api<Conversation>(`/conversations/${item.id}/status`, { method: "PATCH", body: JSON.stringify({ status: "resolved" }) });
+      await loadList();
+    } catch (err) {
+      toast.error(messageFrom(err));
+    }
+  }
+
+  // The pin moves the row straight away and the answer confirms it; a failure
+  // puts the row back where it was rather than leaving a lie on screen.
+  async function togglePinRow(item: Conversation) {
+    const pinned = !item.pinned_at;
+    const at = pinned ? new Date().toISOString() : null;
+    setItems((rows) => pinnedFirst(rows.map((row) => (row.id === item.id ? { ...row, pinned_at: at } : row))));
+    try {
+      const conv = await api<Conversation>(`/conversations/${item.id}/pin`, { method: "PATCH", body: JSON.stringify({ pinned }) });
+      setItems((rows) => pinnedFirst(rows.map((row) => (row.id === item.id ? { ...row, pinned_at: conv.pinned_at ?? null } : row))));
+    } catch (err) {
+      setItems((rows) => rows.map((row) => (row.id === item.id ? { ...row, pinned_at: item.pinned_at } : row)));
+      toast.error(messageFrom(err));
     }
   }
 
@@ -722,8 +751,8 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
 
         {visibleItems.map((item) => (
           <div key={item.id} className="inbox-row">
-            <button
-              onClick={() => choose(item)}
+            <Link
+              href={clientPath(key, "inbox", item.number)}
               className={`${selected?.id === item.id ? "active" : ""}${item.unread && selected?.id !== item.id ? " unread" : ""}`}
             >
               <span className="entity-avatar tiny"><UserRound size={15} /></span>
@@ -755,7 +784,13 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
                   {item.team_name && <span className="mini-badge team">{item.team_name}</span>}
                 </small>
               </span>
-            </button>
+            </Link>
+            <LeadRowActions
+              pinned={Boolean(item.pinned_at)}
+              onResolve={() => resolveRow(item)}
+              onTogglePin={() => togglePinRow(item)}
+              href={clientPath(key, "inbox", item.number)}
+            />
           </div>
         ))}
         {!visibleItems.length && <div className="no-conversations">{t("inbox.empty")}</div>}

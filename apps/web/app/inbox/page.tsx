@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, MapPin, Search, UserRound } from "lucide-react";
 import { PageHead } from "@/components/ui";
 import { AttachButton, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
@@ -18,6 +19,7 @@ import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
 import { GrowingTextarea } from "@/components/growing-textarea";
 import { ListRowsSkeleton } from "@/components/skeleton";
+import { LeadRowActions, pinnedFirst } from "@/components/lead-row-actions";
 import { useToast } from "@/components/toast";
 import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels } from "@/lib/channels";
 import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
@@ -25,6 +27,7 @@ import { PhonePauseNotice, SocialReplyNotice, useReplyPolicy } from "@/component
 import { api, ApiError, apiUrl, messageFrom } from "@/lib/api";
 import { formatWhen, isNearBottom, isSameOpenThread } from "@/lib/datetime";
 import { useLanguage, useT } from "@/lib/i18n";
+import { clientPath } from "@/lib/routes";
 import type { Agent, Attachment, Conversation, ConversationInbox, ScheduledMessage } from "@/types";
 
 const LIMIT = 30;
@@ -39,7 +42,7 @@ export default function InboxPage() {
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [agentId, setAgentId] = useState("");
   const [channel, setChannel] = useState("");
-  const [tab, setTab] = useState<"all" | "unread" | "human" | "ai">("all");
+  const [tab, setTab] = useState<"all" | "pending" | "human" | "ai">("all");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
@@ -75,7 +78,9 @@ export default function InboxPage() {
     if (agentId) params.set("agent_id", agentId);
     if (channel) params.set("channel", channel);
     if (tab === "human" || tab === "ai") params.set("mode", tab);
-    if (tab === "unread") params.set("unread", "1");
+    // The tab is about a lead nobody has answered, which is what `pending`
+    // answers, not about who has looked at it (`unread`, kept for the count).
+    if (tab === "pending") params.set("pending", "1");
     if (search) params.set("search", search);
     params.set("limit", String(LIMIT));
     params.set("offset", String(offsetValue));
@@ -202,6 +207,37 @@ export default function InboxPage() {
     setItems((rows) => rows.map((row) => (row.id === id ? { ...row, unread: false, unread_count: 0 } : row)));
     api(`/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   }, [closeGoneThread]);
+
+  // Resolving a lead from its row: the dot goes and, when the list is filtered
+  // to the leads nobody has answered, the row leaves it. It stays in "all",
+  // where a resolved lead is still a lead. If the contact writes again the
+  // case reopens by itself (services/conversation_state.py) and the dot is back.
+  const resolveRow = useCallback(async (row: ConversationInbox) => {
+    try {
+      await api<Conversation>(`/conversations/${row.id}/status`, { method: "PATCH", body: JSON.stringify({ status: "resolved" }) });
+      setItems((rows) => {
+        const next = rows.map((item) => (item.id === row.id ? { ...item, awaiting_reply: false } : item));
+        return tab === "pending" ? next.filter((item) => item.id !== row.id) : next;
+      });
+    } catch (err) {
+      toast.error(messageFrom(err));
+    }
+  }, [tab, toast]);
+
+  // The pin moves the row straight away and the answer confirms it; a failure
+  // puts the row back where it was rather than leaving a lie on screen.
+  const togglePinRow = useCallback(async (row: ConversationInbox) => {
+    const pinned = !row.pinned_at;
+    const at = pinned ? new Date().toISOString() : null;
+    setItems((rows) => pinnedFirst(rows.map((item) => (item.id === row.id ? { ...item, pinned_at: at } : item))));
+    try {
+      const conv = await api<Conversation>(`/conversations/${row.id}/pin`, { method: "PATCH", body: JSON.stringify({ pinned }) });
+      setItems((rows) => pinnedFirst(rows.map((item) => (item.id === row.id ? { ...item, pinned_at: conv.pinned_at ?? null } : item))));
+    } catch (err) {
+      setItems((rows) => rows.map((item) => (item.id === row.id ? { ...item, pinned_at: row.pinned_at } : item)));
+      toast.error(messageFrom(err));
+    }
+  }, [toast]);
 
   // A board card opens its thread in a new tab through ?conversation=<id>.
   useEffect(() => {
@@ -423,25 +459,34 @@ export default function InboxPage() {
         <div className="inbox-search"><Search size={16} /><input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder={t("inbox.searchPlaceholder")} /></div>
         <div className="inbox-tabs">
           <button className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>{t("inbox.tabAll")}</button>
-          <button className={tab === "unread" ? "active" : ""} onClick={() => setTab("unread")}>{t("inbox.tabUnread")}</button>
+          <button className={tab === "pending" ? "active" : ""} onClick={() => setTab("pending")}>{t("inbox.tabPending")}</button>
           <button className={tab === "human" ? "active" : ""} onClick={() => setTab("human")}>{t("inbox.statusHuman")}</button>
           <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>{t("inbox.statusAi")}</button>
         </div>
         {loading ? <ListRowsSkeleton rows={7} />
           : items.length ? <>
             {items.map((item) => (
-              <button key={item.id} className={`inbox-row ${selected?.id === item.id ? "active" : ""} ${item.unread ? "unread" : ""}`} onClick={() => choose(item.id)}>
-                <span className="inbox-avatar">
-                  <span className="entity-avatar tiny"><UserRound size={15} /></span>
-                  <span className={`channel-badge ${item.channel}`} title={channelLabel(item.channel)}>{channelIcon(item.channel)}</span>
-                </span>
-                <span className="inbox-row-body">
-                  <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
-                  <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
-                  <small className="inbox-row-meta">{item.agent_name} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
-                </span>
-                {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
-              </button>
+              <div key={item.id} className={`inbox-row ${selected?.id === item.id ? "active" : ""} ${item.unread ? "unread" : ""}`}>
+                <Link href={clientPath(item.client_slug ?? "", "inbox", item.number)}>
+                  <span className="inbox-avatar">
+                    <span className="entity-avatar tiny"><UserRound size={15} /></span>
+                    <span className={`channel-badge ${item.channel}`} title={channelLabel(item.channel)}>{channelIcon(item.channel)}</span>
+                  </span>
+                  <span className="inbox-row-body">
+                    <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
+                    <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
+                    <small className="inbox-row-meta">{item.agent_name} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
+                  </span>
+                  {item.awaiting_reply && <span className="inbox-pending-dot" title={t("inbox.pendingHint")} aria-label={t("inbox.pendingHint")} />}
+                  {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
+                </Link>
+                <LeadRowActions
+                  pinned={Boolean(item.pinned_at)}
+                  onResolve={() => resolveRow(item)}
+                  onTogglePin={() => togglePinRow(item)}
+                  href={clientPath(item.client_slug ?? "", "inbox", item.number)}
+                />
+              </div>
             ))}
             {loadingMore && <div className="no-conversations"><LoaderCircle className="spin" size={15} /></div>}
           </> : <div className="no-conversations">{t("inbox.empty")}</div>}

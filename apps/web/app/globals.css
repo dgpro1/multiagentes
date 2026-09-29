@@ -962,12 +962,15 @@ textarea { line-height: 1.55; }
 .inbox-layout { height: 650px; display: grid; grid-template-columns: 310px minmax(0,1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
 .inbox-list { overflow: auto; border-right: 1px solid var(--line); background: var(--surface-2); }
 .inbox-list > header { height: 56px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
-.inbox-list > button { width: 100%; padding: 13px 14px; display: flex; align-items: center; gap: 10px; text-align: left; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; }
-.inbox-list > button.active { background: var(--accent-soft); }
-.inbox-list > button > span:last-child { min-width: 0; display: flex; flex-direction: column; }
+/* The row is a link, so these follow the <a> and not only a <button>; the
+   three-dot menu inside is kept out of them by the rules in the start-line
+   zone, which need the higher specificity this broad selector beats. */
+.inbox-list > button, .inbox-list > .inbox-row > a { width: 100%; padding: 13px 14px; display: flex; align-items: center; gap: 10px; text-align: left; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; }
+.inbox-list > button.active, .inbox-list > .inbox-row.active > a { background: var(--accent-soft); }
+.inbox-list > button > span:last-child, .inbox-list > .inbox-row > a > span:last-of-type { min-width: 0; display: flex; flex-direction: column; }
 .inbox-list button strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .inbox-list button small { color: var(--subtle); font-size: 12px; }
-.inbox-list > button { align-items: flex-start; }
+.inbox-list > button, .inbox-list > .inbox-row > a { align-items: flex-start; }
 .inbox-row-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .inbox-row-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .inbox-row-top strong { flex: 1 1 auto; }
@@ -992,6 +995,30 @@ textarea { line-height: 1.55; }
 .inbox-row.unread strong { font-weight: 700; }
 .inbox-row.unread .inbox-row-preview { color: var(--ink); }
 .inbox-unread-count { flex: 0 0 auto; align-self: center; min-width: 18px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; border-radius: 20px; color: white; background: var(--purple); font-size: 12px; font-weight: 700; line-height: 1; }
+/* A lead row is a link. The <a> carries the address and its ::after takes the
+   whole row, so the row as a whole is clickable and shareable; the three-dot
+   menu is a sibling on top of it, because a button inside an <a> is invalid.
+   A row waiting for an answer says so with a dot, which opening the lead does
+   not clear: it is about the conversation, not about who has looked. */
+.inbox-row { position: relative; display: flex; align-items: flex-start; }
+.inbox-row > a { flex: 1 1 auto; min-width: 0; }
+/* The row's own click area, the menu, and the layer that dismisses it are three
+   pieces of the same stacking context. The menu has to come last: the click
+   area is a sibling of the link that fills the row, so without an order it
+   paints over the menu and the only way into it is the keyboard. The trigger
+   is a corner affordance, so it takes the smallest size the app already has for
+   one: a 310px row cannot spare a full button. */
+.inbox-row > .start-line-wrap { position: relative; z-index: 2; flex: 0 0 auto; margin: 6px 6px 0 0; }
+.inbox-row > .start-line-wrap > .icon-button { width: 26px; height: 26px; border-color: transparent; background: transparent; }
+.inbox-pending-dot { flex: 0 0 auto; align-self: center; width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+/* The menu waits for a deliberate gesture: the row shows its own trigger on
+   hover or on focus, and the menu itself opens on click or from the keyboard.
+   A hover-opened menu cannot work here, since the backdrop that dismisses it
+   covers the pointer before it reaches any item. */
+@media (hover: hover) {
+  .inbox-row .start-line-wrap { visibility: hidden; }
+  .inbox-row:hover .start-line-wrap, .inbox-row:focus-within .start-line-wrap { visibility: visible; }
+}
 .inbox-thread { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .inbox-thread > header { min-height: 62px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
 .inbox-thread > header div { display: flex; flex-direction: column; }
@@ -1091,9 +1118,9 @@ textarea { line-height: 1.55; }
 .portal-inbox > aside { overflow: auto; border-right: 1px solid var(--line); background: var(--surface-2); }
 /* The search row and the thread header share their bottom line: same height. */
 .portal-inbox > aside .inbox-search { min-height: 64px; }
-.portal-inbox > aside button { width: 100%; padding: 14px; display: flex; gap: 10px; text-align: left; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; }
-.portal-inbox > aside button.active { background: var(--accent-soft); }
-.portal-inbox > aside button.unread strong { font-weight: 700; }
+.portal-inbox > aside button, .portal-inbox > aside .inbox-row > a { width: 100%; padding: 14px; display: flex; gap: 10px; text-align: left; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; }
+.portal-inbox > aside button.active, .portal-inbox > aside .inbox-row.active > a { background: var(--accent-soft); }
+.portal-inbox > aside button.unread strong, .portal-inbox > aside .inbox-row.unread strong { font-weight: 700; }
 /* Segmented switch: one list of a kind at a time (open / resolved). The
    portal stretches it across its sidebar. */
 .mini-badge.resolved { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-2); background: var(--green-soft); }
@@ -1111,7 +1138,7 @@ textarea { line-height: 1.55; }
 .archive-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .archive-tools .text-button[disabled] { opacity: .45; cursor: default; }
 .portal-inbox > aside .inbox-row { display: flex; align-items: stretch; }
-.portal-inbox > aside .inbox-row > button { flex: 1; min-width: 0; }
+.portal-inbox > aside .inbox-row > button, .portal-inbox > aside .inbox-row > a { flex: 1; min-width: 0; }
 .portal-inbox > aside .row-pick { display: flex; align-items: center; padding: 0 0 0 12px; border-bottom: 1px solid var(--line-soft); }
 .portal-inbox > aside .row-pick input { width: 16px; height: 16px; }
 .portal-composer.archive-bar { background: var(--canvas); }
@@ -1159,10 +1186,19 @@ textarea { line-height: 1.55; }
 .portal-teams-table .team-members { margin: 0; }
 .start-line-wrap { position: relative; }
 .menu-backdrop { position: fixed; inset: 0; z-index: 29; }
+/* The same job on a lead row, which has a click area of its own: covering the
+   row instead of the screen keeps the menu reachable with the mouse, which a
+   `fixed` backdrop covers along with the trigger that opened it. */
+.lead-row-backdrop { position: absolute; inset: 0; z-index: 29; }
+/* A row lives inside `.portal-inbox > aside button`, which is broad enough to
+   stretch anything. The trigger and the items carry the wrap, which outranks
+   it, so the menu keeps its own size inside a row. On a lead row the trigger
+   is resized further, by the rule that owns the row. */
+.start-line-wrap > .icon-button { width: 34px; height: 34px; padding: 0; flex: 0 0 auto; }
 .start-line-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: flex; flex-direction: column; gap: 2px; width: min(270px, 88vw); padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 10px 32px rgba(var(--shadow-rgb), calc(.16 * var(--shadow-k))); }
 .start-line-menu > small { padding: 4px 9px 2px; color: var(--subtle); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-.start-line-menu button { display: flex; align-items: center; gap: 9px; padding: 7px 9px; text-align: left; border: 0; border-radius: 7px; background: transparent; font-size: 13.5px; cursor: pointer; }
-.start-line-menu button:hover { background: var(--surface-3); }
+.start-line-wrap .start-line-menu button { width: auto; padding: 7px 9px; display: flex; align-items: center; gap: 9px; text-align: left; border: 0; border-bottom: 0; border-radius: 7px; background: transparent; font-size: 13.5px; cursor: pointer; }
+.start-line-wrap .start-line-menu button:hover { background: var(--surface-3); }
 .start-line-menu button strong { display: block; color: var(--ink); font-size: 13.5px; font-weight: 600; }
 .start-line-menu button small { display: block; color: var(--subtle); font-size: 12px; }
 .start-line-menu .channel-dot { width: 26px; height: 26px; flex: 0 0 auto; display: grid; place-items: center; color: white; border-radius: 50%; }
@@ -1241,8 +1277,8 @@ textarea { line-height: 1.55; }
 .activity-line time { color: var(--subtle); font-size: 10px; }
 /* Consecutive log lines read as one list: close up the thread's 15px gap. */
 .portal-messages .activity-line + .activity-line { margin-top: -12px; }
-.portal-inbox > aside button.unread .portal-inbox-preview { color: var(--ink); }
-.portal-inbox > aside button > span:last-child { min-width: 0; display: flex; flex-direction: column; }
+.portal-inbox > aside button.unread .portal-inbox-preview, .portal-inbox > aside .inbox-row.unread .portal-inbox-preview { color: var(--ink); }
+.portal-inbox > aside button > span:last-child, .portal-inbox > aside .inbox-row > a > span:last-of-type { min-width: 0; display: flex; flex-direction: column; }
 .portal-inbox > aside strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .portal-inbox > aside small { color: var(--subtle); }
 .portal-inbox-row-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }

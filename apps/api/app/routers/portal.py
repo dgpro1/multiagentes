@@ -26,6 +26,7 @@ from ..schemas import (
     ContactBlockUpdate,
     BulkResult,
     ConversationArchiveUpdate,
+    ConversationPinUpdate,
     ConversationSelection,
     AgentSummary,
     CannedResponseCreate,
@@ -1121,10 +1122,16 @@ def _conversation_page(
         )
     # A conversation moves up only when the contact writes. Reading it,
     # replying, assigning or resolving all touch updated_at, and none of them
-    # should reshuffle the list under the person working it.
+    # should reshuffle the list under the person working it. Pins come before
+    # all of it: `desc()` alone would put every null first in Postgres, so the
+    # unpinned rows are asked for last explicitly.
     total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
     rows = db.execute(
-        query.order_by(func.coalesce(last_inbound.c.at, Conversation.created_at).desc(), Conversation.created_at.desc())
+        query.order_by(
+            Conversation.pinned_at.desc().nullslast(),
+            func.coalesce(last_inbound.c.at, Conversation.created_at).desc(),
+            Conversation.created_at.desc(),
+        )
         .limit(limit)
         .offset(offset)
     ).all()
@@ -2575,6 +2582,26 @@ def portal_status(
     conversation = _detail(db, client, conversation_id, act=True)
     changed = set_status(db, conversation, payload.status, actor=sender_name)
     if changed:
+        db.commit()
+    return _present(_detail(db, client, conversation_id))
+
+
+@router.patch("/{slug}/conversations/{conversation_id}/pin", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
+def portal_pin(
+    slug: str,
+    conversation_id: uuid.UUID,
+    payload: ConversationPinUpdate,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+):
+    # The same pin the agency inbox has: it lives on the lead, so this portal
+    # and the agency see one order and not two truths. A thread merged into a
+    # lead is pinned through its primary, which is why this acts on the lead.
+    # Gated like the other lead actions of the portal, on the inbox feature.
+    conversation = _detail(db, client, conversation_id, act=True)
+    pinned_at = now_utc() if payload.pinned else None
+    if conversation.pinned_at != pinned_at:
+        conversation.pinned_at = pinned_at
         db.commit()
     return _present(_detail(db, client, conversation_id))
 

@@ -311,8 +311,13 @@ def inbox(
     entries.sort(key=lambda entry: entry[0], reverse=True)
     page = [item for _, item in entries[offset:offset + limit]]
     names = dict(db.execute(select(Agent.id, Agent.name).where(Agent.id.in_({item["agent_id"] for item in page}))).tuples().all()) if page else {}
+    # Each row is linked on its own, so it needs its client's slug. Clients are
+    # central records and `each_database` has put the session back there, even
+    # though the conversations themselves may live in a client's own database.
+    slugs = dict(db.execute(select(Client.id, Client.portal_slug).where(Client.id.in_({item["client_id"] for item in page}))).tuples().all()) if page else {}
     for item in page:
         item["agent_name"] = names.get(item["agent_id"]) or ""
+        item["client_slug"] = slugs.get(item["client_id"], "")
     return page
 
 

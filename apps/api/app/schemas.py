@@ -529,6 +529,7 @@ class ConversationOut(ORMModel):
     phone_pause_until: datetime | None = None
     taken_over_at: datetime | None = None
     waiting_since: datetime | None = None
+    pinned_at: datetime | None = None
     assignee_id: uuid.UUID | None = None
     assignee_name: str | None = None
     team_id: uuid.UUID | None = None
@@ -634,6 +635,11 @@ class ConversationInboxOut(BaseModel):
     agent_id: uuid.UUID
     agent_name: str
     client_id: uuid.UUID
+    # The address of the lead is built from the client's slug, never its id
+    # (lib/routes.ts), so the agency-wide list has to carry the slug: its rows
+    # span every client and each one is linked on its own. It is the same slug
+    # the agency panel addresses the client by (`/clients/{slug}`).
+    client_slug: str = ""
     title: str
     contact_name: str | None = None
     channel: str

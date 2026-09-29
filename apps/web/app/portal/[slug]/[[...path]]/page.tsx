@@ -40,6 +40,7 @@ import { PasswordInput } from "@/components/password-input";
 import { GrowingTextarea } from "@/components/growing-textarea";
 import { ReactionPicker } from "@/components/message-gestures";
 import { useToast } from "@/components/toast";
+import { LeadRowActions, pinnedFirst } from "@/components/lead-row-actions";
 import { Alert, EmptyState, Modal } from "@/components/ui";
 import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels } from "@/lib/channels";
 import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
@@ -451,6 +452,33 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
     api(`/portal/${slug}/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   }, [slug]);
 
+  // Resolving a lead from its row: the case closes and, when the list is on
+  // the leads nobody has answered, the row leaves it. If the contact writes
+  // again the case reopens by itself and the row comes back.
+  const resolveRow = useCallback(async (item: { id: string; number: number }) => {
+    try {
+      await api<Conversation>(`/portal/${slug}/conversations/${item.id}/status`, { method: "PATCH", body: JSON.stringify({ status: "resolved" }) });
+      setItems((rows) => (unansweredOnly ? rows.filter((row) => row.id !== item.id) : rows));
+    } catch (err) {
+      toast.error(messageFrom(err));
+    }
+  }, [slug, unansweredOnly, toast]);
+
+  // The pin moves the row straight away and the answer confirms it; a failure
+  // puts the row back where it was rather than leaving a lie on screen.
+  const togglePinRow = useCallback(async (item: Conversation) => {
+    const pinned = !item.pinned_at;
+    const at = pinned ? new Date().toISOString() : null;
+    setItems((rows) => pinnedFirst(rows.map((row) => (row.id === item.id ? { ...row, pinned_at: at } : row))));
+    try {
+      const conv = await api<Conversation>(`/portal/${slug}/conversations/${item.id}/pin`, { method: "PATCH", body: JSON.stringify({ pinned }) });
+      setItems((rows) => pinnedFirst(rows.map((row) => (row.id === item.id ? { ...row, pinned_at: conv.pinned_at ?? null } : row))));
+    } catch (err) {
+      setItems((rows) => rows.map((row) => (row.id === item.id ? { ...row, pinned_at: item.pinned_at } : row)));
+      toast.error(messageFrom(err));
+    }
+  }, [slug, toast]);
+
   const refreshScheduledMessages = useCallback(async (targetId?: string) => {
     const id = targetId || selectedIdRef.current;
     if (!id) {
@@ -529,20 +557,6 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   function onListScroll(event: React.UIEvent<HTMLElement>) {
     const el = event.currentTarget;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) loadMore();
-  }
-
-  async function choose(item: Conversation) {
-    setPendingFile(null);
-    setQuoting(null);
-    setTemplateOpen(false);
-    if (replyInputRef.current) replyInputRef.current.value = "";
-    selectedIdRef.current = item.id;
-    setReactingTo(null);
-    markRead(item.id);
-    const detail = await api<Conversation>(`/portal/${slug}/conversations/${item.id}`);
-    selectedIdRef.current = detail.id;
-    setSelected(detail);
-    if (detail.number !== urlNumber || view !== "inbox") goTo("inbox", detail.number);
   }
 
   // A board card opens its thread in a new tab; links made before leads had a
@@ -848,7 +862,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
           <button type="button" className="text-button danger-text" disabled={picked.length === 0} onClick={() => { setConfirmWord(""); setDeleting("picked"); }}><Trash2 size={14} /> {t("portal.inbox.archive.deletePicked", { count: String(picked.length) })}</button>
         </div>}
       </div> : null}
-      {visibleItems.map((item) => <div key={item.id} className={status === "archived" ? "inbox-row pickable" : "inbox-row"}>{status === "archived" && <label className="row-pick"><input type="checkbox" checked={picked.includes(item.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, item.id] : picked.filter((id) => id !== item.id))} aria-label={t("portal.inbox.archive.pick")} /></label>}<button onClick={() => choose(item)} className={`${selected?.id === item.id ? "active" : ""}${item.unread && selected?.id !== item.id ? " unread" : ""}`}><span className="entity-avatar tiny"><UserRound size={15} /></span><span><span className="portal-inbox-row-top"><strong>{item.contact_name || item.title}</strong>{item.unread && selected?.id !== item.id ? <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count ?? 0 })}>{(item.unread_count ?? 0) > 99 ? "99+" : item.unread_count}</span> : <time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time>}</span><small className="portal-inbox-preview">{item.preview || t("portal.inbox.list.noMessages")}</small><small className="inbox-row-meta"><span className="lead-number">#{item.number}</span>{leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : <><span className={`channel-dot ${item.channel}`}>{channelIcon(item.channel)}</span> {channelLabel(item.channel)}</>}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? (item.assignee_name || t("portal.inbox.list.humanSupport")) : t("portal.inbox.list.aiAgent")}</span>{item.team_name && <span className="mini-badge team">{item.team_name}</span>}</small></span></button></div>)}
+      {visibleItems.map((item) => <div key={item.id} className={status === "archived" ? "inbox-row pickable" : "inbox-row"}>{status === "archived" && <label className="row-pick"><input type="checkbox" checked={picked.includes(item.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, item.id] : picked.filter((id) => id !== item.id))} aria-label={t("portal.inbox.archive.pick")} /></label>}<Link href={portalPath(urlBase, "inbox", item.number)} className={`${selected?.id === item.id ? "active" : ""}${item.unread && selected?.id !== item.id ? " unread" : ""}`}><span className="entity-avatar tiny"><UserRound size={15} /></span><span><span className="portal-inbox-row-top"><strong>{item.contact_name || item.title}</strong>{item.unread && selected?.id !== item.id ? <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count ?? 0 })}>{(item.unread_count ?? 0) > 99 ? "99+" : item.unread_count}</span> : <time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time>}</span><small className="portal-inbox-preview">{item.preview || t("portal.inbox.list.noMessages")}</small><small className="inbox-row-meta"><span className="lead-number">#{item.number}</span>{leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : <><span className={`channel-dot ${item.channel}`}>{channelIcon(item.channel)}</span> {channelLabel(item.channel)}</>}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? (item.assignee_name || t("portal.inbox.list.humanSupport")) : t("portal.inbox.list.aiAgent")}</span>{item.team_name && <span className="mini-badge team">{item.team_name}</span>}</small></span></Link>{status !== "archived" && <LeadRowActions pinned={Boolean(item.pinned_at)} onResolve={() => resolveRow(item)} onTogglePin={() => togglePinRow(item)} href={portalPath(urlBase, "inbox", item.number)} />}</div>)}
       {!items.length && <div className="no-conversations">{t("inbox.empty")}</div>}
       {status === "resolved" && !loadingMore && !hasMore && visibleItems.length > 1 && can("inbox.delete") && <div className="inbox-archive-link footer"><button type="button" className="text-button" onClick={() => setArchivingAll(true)}><Archive size={13} /> {t("portal.inbox.archive.archiveAll")}</button></div>}
       {items.length > 0 && (hasMore || loadingMore || (listTotal !== null && listTotal > LIMIT)) && <div className="list-foot">
