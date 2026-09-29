@@ -134,22 +134,32 @@ async def _retry_kept_webhooks_loop() -> None:
 async def lifespan(_: FastAPI):
     from .services.social_worker import start_worker, stop_worker
     start_worker()
-    sweeper = asyncio.create_task(_auto_resolve_loop()) if settings.auto_resolve_after_hours > 0 else None
-    asyncio.create_task(_ensure_messaging_webhook())
-    asyncio.create_task(_restore_evolution_channels())
-    asyncio.create_task(_update_client_schemas())
-    kept_retry = asyncio.create_task(_retry_kept_webhooks_loop())
+    # Every task this boot starts is held and cancelled on shutdown. Three of
+    # them write to the database (the Evolution restore commits per channel, the
+    # tenant upgrade_all migrates), and a task that outlives the app keeps
+    # writing to a database that has already moved on: under uvicorn --reload
+    # they accumulate, and the test suite boots the app once per test.
+    background = [
+        asyncio.create_task(_ensure_messaging_webhook()),
+        asyncio.create_task(_restore_evolution_channels()),
+        asyncio.create_task(_update_client_schemas()),
+        asyncio.create_task(_retry_kept_webhooks_loop()),
+    ]
+    if settings.auto_resolve_after_hours > 0:
+        background.append(asyncio.create_task(_auto_resolve_loop()))
     offload_interval = settings.attachment_offload_interval_seconds
-    offloader = asyncio.create_task(_attachment_offload_loop(offload_interval)) if offload_interval > 0 else None
+    if offload_interval > 0:
+        background.append(asyncio.create_task(_attachment_offload_loop(offload_interval)))
     try:
         yield
     finally:
         await stop_worker()
-        if sweeper:
-            sweeper.cancel()
-        if offloader:
-            offloader.cancel()
-        kept_retry.cancel()
+        for task in background:
+            task.cancel()
+        # Awaited, not just cancelled: the loop may not outlive this context
+        # (a test's TestClient closes right after the block), so a task that has
+        # not finished cancelling would keep running against a dead database.
+        await asyncio.gather(*background, return_exceptions=True)
 
 
 async def _ensure_messaging_webhook() -> None:
