@@ -388,7 +388,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
     document.addEventListener("keydown", close);
     return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", close); };
   }, [composerMenu]);
-  const EMOJIS = ["😀", "😂", "😊", "😍", "😉", "🙂", "😅", "🤝", "🙏", "👍", "👏", "🎉", "❤️", "🔥", "✨", "😢", "😮", "🤔", "👌", "💪", "✅", "📅", "📍", "📞", "💬", "⭐", "🙌", "😎", "🥳", "😴", "👋", "💡"];
+  const EMOJIS = ["ðŸ˜€", "ðŸ˜‚", "ðŸ˜Š", "ðŸ˜", "ðŸ˜‰", "ðŸ™‚", "ðŸ˜…", "ðŸ¤", "ðŸ™", "ðŸ‘", "ðŸ‘", "ðŸŽ‰", "â¤ï¸", "ðŸ”¥", "âœ¨", "ðŸ˜¢", "ðŸ˜®", "ðŸ¤”", "ðŸ‘Œ", "ðŸ’ª", "âœ…", "ðŸ“…", "ðŸ“", "ðŸ“ž", "ðŸ’¬", "â­", "ðŸ™Œ", "ðŸ˜Ž", "ðŸ¥³", "ðŸ˜´", "ðŸ‘‹", "ðŸ’¡"];
   function insertTextAtCursor(text: string, replaceTriggerChar?: string) {
     const field = replyInputRef.current;
     if (!field) return;
@@ -657,7 +657,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
           via_conversation_id: replyVia.via || undefined,
         }),
       });
-      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con éxito");
+      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con Ã©xito");
       if (draft.trim() === content.trim()) {
         setDraft("");
       }
@@ -856,7 +856,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
       </div>}</div>}</div>
       {status === "archived" ? <div className="archive-head">
         <button type="button" className="text-button" onClick={() => switchStatus("all")}><ArrowLeft size={14} /> {t("portal.inbox.archive.back")}</button>
-        <strong><Archive size={14} /> {t("portal.inbox.status.archived")}{summary ? ` · ${summary.archived}` : ""}</strong>
+        <strong><Archive size={14} /> {t("portal.inbox.status.archived")}{summary ? ` Â· ${summary.archived}` : ""}</strong>
         {visibleItems.length > 0 && can("inbox.delete") && <div className="archive-tools">
           <button type="button" className="text-button" onClick={() => setPicked(picked.length === visibleItems.length ? [] : visibleItems.map((item) => item.id))}>{picked.length === visibleItems.length ? <CheckSquare size={14} /> : <Square size={14} />} {t("portal.inbox.archive.selectAll")}</button>
           <button type="button" className="text-button danger-text" disabled={picked.length === 0} onClick={() => { setConfirmWord(""); setDeleting("picked"); }}><Trash2 size={14} /> {t("portal.inbox.archive.deletePicked", { count: String(picked.length) })}</button>
@@ -878,7 +878,6 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
               urlFor={attachmentUrl}
               gallery={gallery}
               channel={selected.channel}
-              channelMark={replyVia.multi}
               bubbleActions={{
                 enabled: canReply,
                 onReact: (message) => setReactingTo(reactingTo === message.id ? null : message.id),

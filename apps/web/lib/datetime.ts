@@ -15,6 +15,55 @@ export function formatTime(iso: string, locale: string = "en"): string {
   return new Date(iso).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
 }
 
+const DAY = 86_400_000;
+
+/** The calendar day a message belongs to, in the reader's own timezone, as a
+ * comparable number. Two messages are on the same day when this matches, which
+ * is what the day separator and the group rule both ask. */
+function localDay(iso: string): number {
+  const date = new Date(iso);
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY);
+}
+
+/** True when both instants fall on the same calendar day, where the reader is. */
+export function sameLocalDay(iso: string, other: string): boolean {
+  return localDay(iso) === localDay(other);
+}
+
+/** The day a message belongs to, as a separator over a thread: "Today",
+ * "Yesterday", or the date. "Today" and "Yesterday" are read in the reader's
+ * language, so they come from the dictionary, not from here. */
+export function isToday(iso: string): boolean {
+  return localDay(iso) === localDay(new Date().toISOString());
+}
+
+export function isYesterday(iso: string): boolean {
+  return localDay(iso) === localDay(new Date().toISOString()) - 1;
+}
+
+/** The date of a stamp as `DD/MM/YYYY`, the same digits `formatStamp` leads
+ * with. Exposed on its own because the day separator shows a date without an
+ * hour, and it must not be a second spelling of the same day. */
+export function formatDay(iso: string): string {
+  const date = new Date(iso);
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
+
+/** The full stamp above a bubble: `DD/MM/YYYY HH:MM`.
+ *
+ * The format is deliberately the same in every language and on a 24-hour
+ * clock, and it is not the browser's idea of a date: two people reading one
+ * lead in two languages have to read the same digits, and a lead is a record
+ * rather than a chat to be prettied. */
+export function formatStamp(iso: string): string {
+  const date = new Date(iso);
+  return `${formatDay(iso)} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
 /** True when a poll result should not replace the open thread (avoids scroll jumps). */
 export function isSameOpenThread(prev: Conversation | null, next: Conversation): boolean {
   if (!prev || prev.id !== next.id || prev.mode !== next.mode) return false;

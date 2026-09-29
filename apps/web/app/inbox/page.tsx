@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, MapPin, Search, UserRound } from "lucide-react";
+import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, MapPin, Reply, Search, UserRound, X } from "lucide-react";
 import { PageHead } from "@/components/ui";
 import { AttachButton, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { LocationComposer } from "@/components/location-composer";
@@ -14,6 +14,7 @@ import { AppointmentModal } from "@/components/appointment-modal";
 import { ScheduleMessageModal } from "@/components/schedule-message-modal";
 import { ScheduledMessagesBanner } from "@/components/scheduled-messages-banner";
 import { VariablesPopover } from "@/components/variables-popover";
+import { ReactionPicker } from "@/components/message-gestures";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
@@ -28,7 +29,7 @@ import { api, ApiError, apiUrl, messageFrom } from "@/lib/api";
 import { formatWhen, isNearBottom, isSameOpenThread } from "@/lib/datetime";
 import { useLanguage, useT } from "@/lib/i18n";
 import { clientPath } from "@/lib/routes";
-import type { Agent, Attachment, Conversation, ConversationInbox, ScheduledMessage } from "@/types";
+import type { Agent, Attachment, Conversation, ConversationInbox, Message, ScheduledMessage } from "@/types";
 
 const LIMIT = 30;
 const POLL_MS = 8000;
@@ -53,6 +54,10 @@ export default function InboxPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [locating, setLocating] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
+  // The emoji palette under a bubble, and the message being answered: the same
+  // two pieces the other inboxes carry over a bubble on hover.
+  const [reactingTo, setReactingTo] = useState<string | null>(null);
+  const [quoting, setQuoting] = useState<Message | null>(null);
   const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
   const [scheduledModalOpen, setScheduledModalOpen] = useState(false);
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
@@ -256,6 +261,22 @@ export default function InboxPage() {
     loadFirst({ silent: true });
   }
 
+  /** React to a message, or take the reaction back. The message may live on any
+   * thread of the lead, so the reaction names the thread it belongs to. */
+  async function sendReaction(message: Message, emoji: string) {
+    if (!selected) return;
+    const next = emoji === message.reaction ? "" : emoji;
+    setReactingTo(null);
+    try {
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/messages/${message.id}/reaction`, {
+        method: "POST",
+        body: JSON.stringify({ emoji: next, via_conversation_id: message.conversation_id }),
+      }));
+    } catch (err) {
+      toast.error(messageFrom(err));
+    }
+  }
+
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [composerMode, setComposerMode] = useState<ComposerMode>("chat");
   const [variablesOpen, setVariablesOpen] = useState(false);
@@ -342,7 +363,7 @@ export default function InboxPage() {
           via_conversation_id: replyVia.via || undefined,
         }),
       });
-      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con éxito");
+      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con Ã©xito");
       if (draft.trim() === content.trim()) {
         if (composerRef.current) composerRef.current.value = "";
         setDraft("");
@@ -409,9 +430,10 @@ export default function InboxPage() {
     }
     setBusy(true);
     try {
-      setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: content.trim(), ...replyVia.payload }) }));
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: content.trim(), quoted_message_id: quoting?.id ?? null, ...replyVia.payload }) }));
       form.reset();
       setDraft("");
+      setQuoting(null);
       loadFirst({ silent: true });
     } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); composerRef.current?.focus(); }
   }
@@ -475,7 +497,7 @@ export default function InboxPage() {
                   <span className="inbox-row-body">
                     <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
                     <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
-                    <small className="inbox-row-meta">{item.agent_name} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
+                    <small className="inbox-row-meta">{item.agent_name} Â· {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
                   </span>
                   {item.awaiting_reply && <span className="inbox-pending-dot" title={t("inbox.pendingHint")} aria-label={t("inbox.pendingHint")} />}
                   {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
@@ -513,7 +535,22 @@ export default function InboxPage() {
               urlFor={attachmentUrl}
               gallery={gallery}
               channel={selected.channel}
-              channelMark={replyVia.multi}
+              bubbleActions={{
+                enabled: policy.canReply,
+                onReact: (message) => setReactingTo(reactingTo === message.id ? null : message.id),
+                onReply: (message) => {
+                  setQuoting(message);
+                  if (message.conversation_id) replyVia.setVia(message.conversation_id);
+                  composerRef.current?.focus();
+                },
+              }}
+              reactionPicker={(message) => reactingTo === message.id ? (
+                <ReactionPicker
+                  current={message.reaction}
+                  removeLabel={t("portal.inbox.conversation.removeReaction")}
+                  onPick={(emoji) => sendReaction(message, emoji)}
+                />
+              ) : null}
               containerRef={messagesRef}
             />
             <PhonePauseNotice conversation={selected} onKeepManual={() => toggleMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
@@ -548,6 +585,26 @@ export default function InboxPage() {
                 dealValue={selected.deal_value}
                 channel={selected.channel}
               />
+              {quoting && (
+                <div className="composer-quote">
+                  <Reply size={14} />
+                  <span>
+                    <strong>{t("portal.inbox.conversation.replyingTo", {
+                      name: quoting.sender_name || (quoting.role === "assistant" ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor")),
+                    })}</strong>
+                    <small>{(quoting.content || "").slice(0, 140)}</small>
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setQuoting(null)}
+                    aria-label={t("portal.inbox.conversation.cancelReply")}
+                    title={t("portal.inbox.conversation.cancelReply")}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
               <form className="inbox-composer" style={{ border: "none", padding: "8px 12px 10px", margin: 0 }} onSubmit={reply}>
                 {(replyVia.thread?.channel ?? selected.channel) === "whatsapp" && composerMode !== "note" && <button type="button" className="icon-button" title={t("inbox.locationSend")} aria-label={t("inbox.locationSend")} disabled={!policy.canReply || busy} onClick={() => setLocating((open) => !open)}><MapPin size={17} /></button>}
                 {composerMode !== "note" && <AttachButton onFile={setPendingFile} disabled={!policy.canAttach || busy} title={t("chat.attachFile")} />}

@@ -68,10 +68,10 @@ function defaultListWidth(): number {
 }
 
 const EMOJIS = [
-  "😀", "😂", "😊", "😍", "😉", "🙂", "😅", "🤝",
-  "🙏", "👍", "👏", "🎉", "❤️", "🔥", "✨", "😢",
-  "😮", "🤔", "👌", "💪", "✅", "📅", "📍", "📞",
-  "💬", "⭐", "🙌", "😎", "🥳", "😴", "👋", "💡",
+  "ðŸ˜€", "ðŸ˜‚", "ðŸ˜Š", "ðŸ˜", "ðŸ˜‰", "ðŸ™‚", "ðŸ˜…", "ðŸ¤",
+  "ðŸ™", "ðŸ‘", "ðŸ‘", "ðŸŽ‰", "â¤ï¸", "ðŸ”¥", "âœ¨", "ðŸ˜¢",
+  "ðŸ˜®", "ðŸ¤”", "ðŸ‘Œ", "ðŸ’ª", "âœ…", "ðŸ“…", "ðŸ“", "ðŸ“ž",
+  "ðŸ’¬", "â­", "ðŸ™Œ", "ðŸ˜Ž", "ðŸ¥³", "ðŸ˜´", "ðŸ‘‹", "ðŸ’¡",
 ];
 
 interface ClientInboxProps {
@@ -875,7 +875,6 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
               urlFor={attachmentUrl}
               gallery={gallery}
               channel={selected.channel}
-              channelMark={replyVia.multi}
               bubbleActions={{
                 enabled: policy.canReply,
                 onReact: (message) => setReactingTo(reactingTo === message.id ? null : message.id),
