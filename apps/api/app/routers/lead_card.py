@@ -15,7 +15,7 @@ from ..api_scopes import CONTACTS_MANAGE, INBOX_MANAGE, INBOX_READ, LEAD_FIELDS_
 from ..database import find_across_databases, get_db, use_client
 from ..deps import confined_client_id, get_current_user, require
 from ..models import Client, Conversation, User
-from ..schemas import ContactOut, ContactTagsSet, ContactUpdate
+from ..schemas import ContactBlockUpdate, ContactOut, ContactTagsSet, ContactUpdate
 from ..schemas_lead_card import (
     LeadCardOut,
     LeadFieldCreate,
@@ -118,6 +118,18 @@ def update_contact(
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     return contact_edit.update_contact(db, _client(db, user, client_id), contact_id, payload)
+
+
+@router.post(
+    "/clients/{client_id}/contacts/{contact_id}/block", response_model=ContactOut, dependencies=[Depends(require(CONTACTS_MANAGE))]
+)
+def block_contact(
+    client_id: uuid.UUID, contact_id: uuid.UUID, payload: ContactBlockUpdate,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Block or unblock a contact from the agency's inbox, which is where the
+    lead card opens it. The portal answers the same call with the same rule."""
+    return contact_edit.block_contact(db, _client(db, user, client_id), contact_id, payload.blocked, user.name)
 
 
 @router.put(

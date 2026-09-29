@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Client, Contact, ContactTag, Conversation, now_utc
 from ..schemas import ContactOut, ContactTagOut, ContactUpdate
+from .conversation_state import record_activity, set_status
 from .contacts import normalize_phone, rename_conversations
 
 
@@ -93,6 +94,34 @@ def update_contact(db: Session, client: Client, contact_id: uuid.UUID, payload: 
         contact.notes = payload.notes.strip()
     contact.updated_at = now_utc()
     rename_conversations(db, contact)
+    db.commit()
+    db.refresh(contact)
+    return contact_view(db, contact)
+
+
+def block_contact(db: Session, client: Client, contact_id: uuid.UUID, blocked: bool, actor: str) -> ContactOut:
+    """Block or unblock a contact, from whichever door reached it.
+
+    Blocked, their messages are stored but never reach the agent or a phone,
+    and their conversations leave the inboxes. Unblocking does not answer the
+    backlog: the open conversation is resolved with a note, and the contact's
+    next message opens a fresh one that the agent handles as usual.
+
+    Both sides call this rather than each writing ``blocked_at``: the backlog is
+    part of the decision, and a contact blocked from the portal and unblocked
+    from the agency has to behave the same either way. ``actor`` is who pressed
+    it, which only lands in the activity line of the conversations involved. """
+    contact = get_contact(db, client, contact_id)
+    open_ones = select(Conversation).where(Conversation.contact_id == contact.id, Conversation.status == "open")
+    if blocked and contact.blocked_at is None:
+        contact.blocked_at = now_utc()
+        for conversation in db.scalars(open_ones).all():
+            record_activity(db, conversation, "blocked", actor=actor)
+    elif not blocked and contact.blocked_at is not None:
+        contact.blocked_at = None
+        for conversation in db.scalars(open_ones).all():
+            set_status(db, conversation, "resolved", actor=actor)
+            record_activity(db, conversation, "unblocked", actor=actor)
     db.commit()
     db.refresh(contact)
     return contact_view(db, contact)

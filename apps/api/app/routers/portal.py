@@ -113,6 +113,7 @@ from ..services import lead_fields as lead_fields_service
 from ..services.text_search import folded_like
 from ..services.contact_edit import (
     assert_phone_free as _assert_phone_free,
+    block_contact,
     contact_out as _contact_out,
     contact_stats as _contact_stats,
     contact_view,
@@ -1656,29 +1657,9 @@ def portal_block_contact(
     sender_name: str = Depends(_sender_name),
     db: Session = Depends(get_db),
 ):
-    """Block or unblock a contact.
-
-    Blocked, their messages are stored but never reach the agent or a phone,
-    and their conversations leave the inboxes. Unblocking does not answer the
-    backlog: the open conversation is resolved with a note, and the contact's
-    next message opens a fresh one that the agent handles as usual.
-    """
-    contact = _portal_contact(db, client, contact_id)
-    open_ones = select(Conversation).where(Conversation.contact_id == contact.id, Conversation.status == "open")
-    if payload.blocked and contact.blocked_at is None:
-        contact.blocked_at = now_utc()
-        for conversation in db.scalars(open_ones).all():
-            record_activity(db, conversation, "blocked", actor=sender_name)
-    elif not payload.blocked and contact.blocked_at is not None:
-        contact.blocked_at = None
-        for conversation in db.scalars(open_ones).all():
-            set_status(db, conversation, "resolved", actor=sender_name)
-            record_activity(db, conversation, "unblocked", actor=sender_name)
-    db.commit()
-    db.refresh(contact)
-    stats = _contact_stats()
-    row = db.execute(select(stats).where(stats.c.cid == contact.id)).first()
-    return _contact_out(contact, row)
+    """Block or unblock a contact, with the same rule the agency's door uses
+    (``services.contact_edit.block_contact``)."""
+    return block_contact(db, client, contact_id, payload.blocked, sender_name)
 
 
 @router.delete("/{slug}/contacts/{contact_id}", dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)

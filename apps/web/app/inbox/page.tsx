@@ -2,11 +2,10 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, MapPin, Reply, Search, UserRound, X } from "lucide-react";
-import { PageHead } from "@/components/ui";
+import { ArrowLeft, Ban, Inbox as InboxIcon, LoaderCircle, MapPin, Reply, Search, UserRound, X } from "lucide-react";
+import { Modal, PageHead } from "@/components/ui";
 import { AttachButton, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { LocationComposer } from "@/components/location-composer";
-import { MediaPanel } from "@/components/media-panel";
 import { LeadCard } from "@/components/lead-card/lead-card";
 import { MessageThread } from "@/components/messages/message-thread";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
@@ -53,7 +52,7 @@ export default function InboxPage() {
   const [busy, setBusy] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [locating, setLocating] = useState(false);
-  const [mediaOpen, setMediaOpen] = useState(false);
+  const [blockingContact, setBlockingContact] = useState(false);
   // The emoji palette under a bubble, and the message being answered: the same
   // two pieces the other inboxes carry over a bubble on hover.
   const [reactingTo, setReactingTo] = useState<string | null>(null);
@@ -231,8 +230,7 @@ export default function InboxPage() {
 
   // The pin moves the row straight away and the answer confirms it; a failure
   // puts the row back where it was rather than leaving a lie on screen.
-  const togglePinRow = useCallback(async (row: ConversationInbox) => {
-    const pinned = !row.pinned_at;
+  const togglePinRow = useCallback(async (row: ConversationInbox) => {    const pinned = !row.pinned_at;
     const at = pinned ? new Date().toISOString() : null;
     setItems((rows) => pinnedFirst(rows.map((item) => (item.id === row.id ? { ...item, pinned_at: at } : item))));
     try {
@@ -274,6 +272,31 @@ export default function InboxPage() {
       }));
     } catch (err) {
       toast.error(messageFrom(err));
+    }
+  }
+
+  /** Block the open lead's contact, asked for from the lead card. Blocking
+   *  takes the conversation out of every inbox, so the thread is closed and the
+   *  list is read again instead of left showing a lead that is gone. */
+  async function blockContact(blocked: boolean) {
+    if (!selected?.contact_id || !selected.client_id) return;
+    setBusy(true);
+    try {
+      await api(`/clients/${selected.client_id}/contacts/${selected.contact_id}/block`, {
+        method: "POST",
+        body: JSON.stringify({ blocked }),
+      });
+      setBlockingContact(false);
+      if (blocked) {
+        closeLead();
+        selectedIdRef.current = null;
+        setSelected(null);
+      }
+      loadFirst({ silent: true });
+    } catch (err) {
+      toast.error(messageFrom(err));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -363,7 +386,7 @@ export default function InboxPage() {
           via_conversation_id: replyVia.via || undefined,
         }),
       });
-      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con Ã©xito");
+      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con ÃƒÂ©xito");
       if (draft.trim() === content.trim()) {
         if (composerRef.current) composerRef.current.value = "";
         setDraft("");
@@ -497,7 +520,7 @@ export default function InboxPage() {
                   <span className="inbox-row-body">
                     <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
                     <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
-                    <small className="inbox-row-meta">{item.agent_name} Â· {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
+                    <small className="inbox-row-meta">{item.agent_name} Ã‚Â· {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
                   </span>
                   {item.awaiting_reply && <span className="inbox-pending-dot" title={t("inbox.pendingHint")} aria-label={t("inbox.pendingHint")} />}
                   {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
@@ -524,7 +547,7 @@ export default function InboxPage() {
                 <div><strong>{selected.contact_name || selected.title}</strong><small>{channelLabel(selected.channel)}{selected.account_label && <> <span className="account-badge" title={selected.account_label}>{selected.account_label}</span></>}</small></div>
               </LeadHeaderButton>
               <div className="thread-actions">
-                <button className="icon-button" onClick={() => setMediaOpen(true)} title={t("chat.sharedContent")} aria-label={t("chat.sharedContent")}><Images size={16} /></button>
+                
                 <button className={`mode-toggle ${selected.mode}`} onClick={() => toggleMode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("inbox.takeControl") : t("inbox.returnToAi")}</button>
               </div>
             </header>
@@ -661,12 +684,25 @@ export default function InboxPage() {
                 </button>
               </form>
             </div>
-            <MediaPanel open={mediaOpen} onClose={() => setMediaOpen(false)} messages={selected.messages ?? []} urlFor={attachmentUrl} />
           </>}
       </section>
       {leadOpen && selected && leadScope && <LeadScopeProvider scope={leadScope}>
-        <LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { loadFirst({ silent: true }); refreshSelected(); }} onMerged={(primary) => { void choose(primary.conversation_id).catch(() => {}); loadFirst({ silent: true }); }} syncKey={selected.messages?.at(-1)?.id} />
+        <LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { loadFirst({ silent: true }); refreshSelected(); }} onMerged={(primary) => { void choose(primary.conversation_id).catch(() => {}); loadFirst({ silent: true }); }} onBlockContact={() => setBlockingContact(true)} syncKey={selected.messages?.at(-1)?.id} />
       </LeadScopeProvider>}
+      {blockingContact && selected?.contact_id && (
+        <Modal open title={t("portal.contacts.blockTitle", { name: selected.contact_name || selected.title || "" })} onClose={() => setBlockingContact(false)}>
+          <div className="modal-form">
+            <p className="muted">{t("portal.contacts.blockCopy")}</p>
+            <p className="muted">{t("portal.contacts.blockUnblockCopy")}</p>
+            <div className="modal-actions">
+              <button type="button" className="button" onClick={() => setBlockingContact(false)}>{t("common.cancel")}</button>
+              <button type="button" className="button danger" disabled={busy} onClick={() => blockContact(true)}>
+                <Ban size={15} /> {t("portal.contacts.block")}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {appointmentModalOpen && selected && selected.client_id && (
         <AppointmentModal
           open={appointmentModalOpen}

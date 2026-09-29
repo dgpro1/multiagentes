@@ -5,15 +5,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
+  Ban,
   Bot,
   Calendar as CalendarIcon,
   Check,
   ChevronDown,
   Clock,
   Filter,
-  Images,
   Inbox,
-  Link2,
   LoaderCircle,
   Paperclip,
   Plus,
@@ -24,7 +23,6 @@ import {
   X,
 } from "lucide-react";
 import { PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
-import { MediaPanel } from "@/components/media-panel";
 import { LeadCard } from "@/components/lead-card/lead-card";
 import { MessageThread } from "@/components/messages/message-thread";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
@@ -38,7 +36,7 @@ import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
 import { GrowingTextarea } from "@/components/growing-textarea";
 import { ReactionPicker } from "@/components/message-gestures";
 import { useToast } from "@/components/toast";
-import { EmptyState } from "@/components/ui";
+import { EmptyState, Modal } from "@/components/ui";
 import { ListRowsSkeleton } from "@/components/skeleton";
 import { LeadRowActions, pinnedFirst } from "@/components/lead-row-actions";
 import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels } from "@/lib/channels";
@@ -68,10 +66,10 @@ function defaultListWidth(): number {
 }
 
 const EMOJIS = [
-  "ðŸ˜€", "ðŸ˜‚", "ðŸ˜Š", "ðŸ˜", "ðŸ˜‰", "ðŸ™‚", "ðŸ˜…", "ðŸ¤",
-  "ðŸ™", "ðŸ‘", "ðŸ‘", "ðŸŽ‰", "â¤ï¸", "ðŸ”¥", "âœ¨", "ðŸ˜¢",
-  "ðŸ˜®", "ðŸ¤”", "ðŸ‘Œ", "ðŸ’ª", "âœ…", "ðŸ“…", "ðŸ“", "ðŸ“ž",
-  "ðŸ’¬", "â­", "ðŸ™Œ", "ðŸ˜Ž", "ðŸ¥³", "ðŸ˜´", "ðŸ‘‹", "ðŸ’¡",
+  "ÃƒÂ°Ã…Â¸Ã‹Å“Ã¢â€šÂ¬", "ÃƒÂ°Ã…Â¸Ã‹Å“Ã¢â‚¬Å¡", "ÃƒÂ°Ã…Â¸Ã‹Å“Ã…Â ", "ÃƒÂ°Ã…Â¸Ã‹Å“Ã‚Â", "ÃƒÂ°Ã…Â¸Ã‹Å“Ã¢â‚¬Â°", "ÃƒÂ°Ã…Â¸Ã¢â€žÂ¢Ã¢â‚¬Å¡", "ÃƒÂ°Ã…Â¸Ã‹Å“Ã¢â‚¬Â¦", "ÃƒÂ°Ã…Â¸Ã‚Â¤Ã‚Â",
+  "ÃƒÂ°Ã…Â¸Ã¢â€žÂ¢Ã‚Â", "ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ‚Â", "ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ‚Â", "ÃƒÂ°Ã…Â¸Ã…Â½Ã¢â‚¬Â°", "ÃƒÂ¢Ã‚ÂÃ‚Â¤ÃƒÂ¯Ã‚Â¸Ã‚Â", "ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â¥", "ÃƒÂ¢Ã…â€œÃ‚Â¨", "ÃƒÂ°Ã…Â¸Ã‹Å“Ã‚Â¢",
+  "ÃƒÂ°Ã…Â¸Ã‹Å“Ã‚Â®", "ÃƒÂ°Ã…Â¸Ã‚Â¤Ã¢â‚¬Â", "ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ…â€™", "ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Âª", "ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦", "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¦", "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â", "ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â¾",
+  "ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â¬", "ÃƒÂ¢Ã‚Â­Ã‚Â", "ÃƒÂ°Ã…Â¸Ã¢â€žÂ¢Ã…â€™", "ÃƒÂ°Ã…Â¸Ã‹Å“Ã…Â½", "ÃƒÂ°Ã…Â¸Ã‚Â¥Ã‚Â³", "ÃƒÂ°Ã…Â¸Ã‹Å“Ã‚Â´", "ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ¢â‚¬Â¹", "ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â¡",
 ];
 
 interface ClientInboxProps {
@@ -117,9 +115,9 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variablesQuery, setVariablesQuery] = useState("");
   const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
+  const [blockingContact, setBlockingContact] = useState(false);
   const [scheduledModalOpen, setScheduledModalOpen] = useState(false);
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
-  const [mediaOpen, setMediaOpen] = useState(false);
 
   const composerRef = useRef<HTMLFormElement>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
@@ -551,6 +549,27 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
     }
   }
 
+  /** Block the open lead's contact, asked for from the lead card. Blocking
+   *  takes the conversation out of the inbox, so the thread is closed and the
+   *  list is read again rather than left showing a lead that is gone. */
+  async function blockContact(blocked: boolean) {
+    if (!selected?.contact_id || !selected.client_id) return;
+    setBusy(true);
+    try {
+      await api(`/clients/${selected.client_id}/contacts/${selected.contact_id}/block`, {
+        method: "POST",
+        body: JSON.stringify({ blocked }),
+      });
+      setBlockingContact(false);
+      if (blocked) clearSelection();
+      loadList().catch(() => {});
+    } catch (err) {
+      toast.error(messageFrom(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleScheduleMessage(content: string, scheduledFor: string) {
     if (!selected) return;
     try {
@@ -845,25 +864,8 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
               </LeadHeaderButton>
 
               <div className="thread-actions">
-                <button
-                  type="button"
-                  className="icon-button"
-                  title={t("portal.inbox.copyLink")}
-                  aria-label={t("portal.inbox.copyLink")}
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(window.location.href).then(() => toast.success(t("portal.inbox.linkCopied")));
-                  }}
-                >
-                  <Link2 size={16} />
-                </button>
-                <button
-                  className="icon-button"
-                  onClick={() => setMediaOpen(true)}
-                  title={t("chat.sharedContent")}
-                  aria-label={t("chat.sharedContent")}
-                >
-                  <Images size={16} />
-                </button>
+                
+                
               </div>
             </header>
 
@@ -896,6 +898,24 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
             />
 
             <PhonePauseNotice conversation={selected} onKeepManual={() => setMode("human")} />
+            {blockingContact && selected.contact_id && (
+              <Modal
+                open
+                title={t("portal.contacts.blockTitle", { name: selected.contact_name || selected.title || "" })}
+                onClose={() => setBlockingContact(false)}
+              >
+                <div className="modal-form">
+                  <p className="muted">{t("portal.contacts.blockCopy")}</p>
+                  <p className="muted">{t("portal.contacts.blockUnblockCopy")}</p>
+                  <div className="modal-actions">
+                    <button type="button" className="button" onClick={() => setBlockingContact(false)}>{t("common.cancel")}</button>
+                    <button type="button" className="button danger" disabled={busy} onClick={() => blockContact(true)}>
+                      <Ban size={15} /> {t("portal.contacts.block")}
+                    </button>
+                  </div>
+                </div>
+              </Modal>
+            )}
             <SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
             {pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}
             {quoting && (
@@ -1132,13 +1152,6 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
               </div>
             </form>
 
-            <MediaPanel
-              open={mediaOpen}
-              onClose={() => setMediaOpen(false)}
-              messages={selected.messages ?? []}
-              urlFor={attachmentUrl}
-            />
-
             {appointmentModalOpen && selected && (
               <AppointmentModal
                 open={appointmentModalOpen}
@@ -1177,6 +1190,7 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
               void choose({ id: primary.conversation_id });
               loadList().catch(() => {});
             }}
+            onBlockContact={() => setBlockingContact(true)}
             syncKey={selected.messages?.at(-1)?.id}
           />
         </LeadScopeProvider>

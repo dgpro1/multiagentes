@@ -199,7 +199,6 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   const [bulkBusy, setBulkBusy] = useState(false);
   // Rows ticked in the archive, for deleting several at once.
   const [picked, setPicked] = useState<string[]>([]);
-  const [blockingContact, setBlockingContact] = useState(false);
   const [summary, setSummary] = useState<InboxSummary | null>(null);
   // The address is the source of truth for the screen and the open lead: sharing the
   // link, reloading, Back and Forward all land on the same thing (lib/routes.ts).
@@ -284,6 +283,7 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
   const [listTotal, setListTotal] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
+  const [blockingContact, setBlockingContact] = useState(false);
   // A lead that absorbed others has several threads: the composer picks one and every reply names it.
   const replyVia = useReplyVia(selected);
   const owners = useAttachmentOwners(selected);
@@ -700,12 +700,15 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
       await refresh();
     } catch (err) { setError(messageFrom(err)); }
   }
-  async function blockContact() {
+  /** Block or unblock the open lead's contact, asked for from the lead card. It
+   *  takes the conversation out of the inbox, so the thread is closed and the
+   *  list is read again rather than left showing a lead that is gone. */
+  async function blockContact(blocked: boolean) {
     if (!selected?.contact_id) return;
     setBulkBusy(true); setError("");
     try {
-      await api(`/portal/${slug}/contacts/${selected.contact_id}/block`, { method: "POST", body: JSON.stringify({ blocked: true }) });
-      setBlockingContact(false); setSelected(null);
+      await api(`/portal/${slug}/contacts/${selected.contact_id}/block`, { method: "POST", body: JSON.stringify({ blocked }) });
+      if (blocked) setSelected(null);
       await refresh();
     } catch (err) { setError(messageFrom(err)); } finally { setBulkBusy(false); }
   }
@@ -1006,8 +1009,11 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
         onSchedule={handleScheduleMessage}
         initialContent={draft}
       />
-    )}</>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { refresh().catch(() => {}); }} onMerged={(primary) => { void api<Conversation>(`/portal/${slug}/conversations/number/${primary.number}`).then((detail) => { selectedIdRef.current = detail.id; setSelected(detail); if (detail.number !== urlNumber) goTo("inbox", detail.number); refresh().catch(() => {}); }).catch(() => {}); }} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}</div>}</section>
+    )}</>}</section>{leadOpen && selected && <LeadScopeProvider scope={leadScope}><LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { refresh().catch(() => {}); }} onMerged={(primary) => { void api<Conversation>(`/portal/${slug}/conversations/number/${primary.number}`).then((detail) => { selectedIdRef.current = detail.id; setSelected(detail); if (detail.number !== urlNumber) goTo("inbox", detail.number); refresh().catch(() => {}); }).catch(() => {}); }} onBlockContact={() => setBlockingContact(true)} syncKey={selected.messages?.at(-1)?.id} /></LeadScopeProvider>}</div>}</section>
     {/* Confirmations for the actions that leave a mark: archiving every resolved conversation, deleting one or several, blocking the contact. */}
+  <Modal open={blockingContact && Boolean(selected?.contact_id)} title={t("portal.contacts.blockTitle", { name: selected?.contact_name || selected?.title || "" })} onClose={() => setBlockingContact(false)}>
+      <div className="modal-form"><p className="muted">{t("portal.contacts.blockCopy")}</p><p className="muted">{t("portal.contacts.blockUnblockCopy")}</p>{error && <Alert>{error}</Alert>}<div className="modal-actions"><button type="button" className="button" onClick={() => setBlockingContact(false)}>{t("common.cancel")}</button><button type="button" className="button danger" disabled={bulkBusy} onClick={() => blockContact(true)}>{bulkBusy ? <LoaderCircle className="spin" size={16} /> : <><Ban size={15} /> {t("portal.contacts.block")}</>}</button></div></div>
+    </Modal>
     <Modal open={archivingAll} title={t("portal.inbox.archive.archiveAllTitle")} description={t("portal.inbox.archive.archiveAllCopy", { count: String(summary?.resolved ?? visibleItems.length) })} onClose={() => setArchivingAll(false)}>
       <div className="modal-form">{error && <Alert>{error}</Alert>}<div className="modal-actions"><button type="button" className="button" onClick={() => setArchivingAll(false)}>{t("common.cancel")}</button><button type="button" className="button primary" disabled={bulkBusy} onClick={archiveAllResolved}>{bulkBusy ? <LoaderCircle className="spin" size={16} /> : <><Archive size={15} /> {t("portal.inbox.archive.archiveAll")}</>}</button></div></div>
     </Modal>
@@ -1019,8 +1025,6 @@ function PortalInbox({ slug, portal, session, logout }: { slug: string; portal: 
         <div className="modal-actions"><button type="button" className="button" onClick={() => setDeleting(null)}>{t("common.cancel")}</button><button className="button danger" disabled={bulkBusy || !deleteArmed}>{bulkBusy ? <LoaderCircle className="spin" size={16} /> : <><Trash2 size={15} /> {t("portal.inbox.conversation.delete")}</>}</button></div>
       </form>
     </Modal>
-    <Modal open={blockingContact && Boolean(selected?.contact_id)} title={t("portal.contacts.blockTitle", { name: selected?.contact_name || selected?.title || "" })} onClose={() => setBlockingContact(false)}>
-      <div className="modal-form"><p className="muted">{t("portal.contacts.blockCopy")}</p><p className="muted">{t("portal.contacts.blockUnblockCopy")}</p>{error && <Alert>{error}</Alert>}<div className="modal-actions"><button type="button" className="button" onClick={() => setBlockingContact(false)}>{t("common.cancel")}</button><button type="button" className="button danger" disabled={bulkBusy} onClick={blockContact}>{bulkBusy ? <LoaderCircle className="spin" size={16} /> : <><Ban size={15} /> {t("portal.contacts.block")}</>}</button></div></div>
-    </Modal>
+  
   </main>;
 }
