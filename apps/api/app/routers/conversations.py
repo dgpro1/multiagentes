@@ -180,6 +180,7 @@ def inbox(
     pending: bool = False,
     limit: int = Query(default=30, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    response: Response = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -276,7 +277,12 @@ def inbox(
     )
     entries: list[tuple] = []
     seen: set[uuid.UUID] = set()
-    for _client in each_database(db, agency_id=user.agency_id):
+    # A client whose data is being moved is left out of the merge rather than
+    # taking the whole list with it, so one half-migrated client does not empty
+    # the agency's inbox. Its name travels back in a header: these are the leads
+    # of every client that could be read, and the list says which one is missing.
+    skipped: list[str] = []
+    for _client in each_database(db, agency_id=user.agency_id, on_unavailable=lambda c: skipped.append(c.name)):
         for statement in (pinned, ordered):
             rows = db.execute(statement.limit(offset + limit)).all()
             convs = [conv for conv, *_rest in rows if conv.id not in seen]
@@ -318,6 +324,11 @@ def inbox(
     for item in page:
         item["agent_name"] = names.get(item["agent_id"]) or ""
         item["client_slug"] = slugs.get(item["client_id"], "")
+    if skipped and response is not None:
+        # The rows are the ones that could be read, and the header names the
+        # clients that could not, so a panel can say so instead of passing a
+        # short list for the whole agency.
+        response.headers["X-Incomplete-Clients"] = ", ".join(sorted(skipped))
     return page
 
 

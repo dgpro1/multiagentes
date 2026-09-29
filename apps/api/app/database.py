@@ -294,14 +294,26 @@ def find_across_databases(session: Session, lookup, *, agency_id, client_id=None
     return None
 
 
-def each_database(session: Session, *, agency_id=None, client_id=None):
+def each_database(session: Session, *, agency_id=None, client_id=None, on_unavailable=None):
     """Point ``session`` at every database holding client data in turn: the
     central one, then each client's own (optionally only one agency's, or one
     client's). For sweeps over the data plane (idle conversations, due
     replies) and for agency-wide lists, which read each database and merge.
     The session is committed and emptied between databases so nothing read
     from one is written to another; yields the client (None for central).
-    Anything built from a pass must be finished (serialized) inside it."""
+    Anything built from a pass must be finished (serialized) inside it.
+
+    A client whose data is being moved, or whose own database is not reachable
+    yet, is left out and the sweep carries on, so one half-migrated client does
+    not empty a list that spans the whole agency. ``on_unavailable`` is called
+    with that client, if given, so the caller can say the answer is partial
+    rather than letting it pass as a complete one.
+
+    With ``client_id`` the caller named one client and asked about it: there is
+    nothing to carry on to, so the error is raised as before. "No conversations"
+    and "could not read them" are different answers and only the second one is
+    true here.
+    """
     from .models import Client
 
     ids = [client.id for client in own_database_clients(session, agency_id=agency_id, client_id=client_id)]
@@ -310,7 +322,16 @@ def each_database(session: Session, *, agency_id=None, client_id=None):
         session.expunge_all()
         # Reloaded after emptying the session, so the client is attached.
         client = session.get(Client, client_ref) if client_ref is not None else None
-        use_client(session, client)
+        try:
+            use_client(session, client)
+        except DataMoving:
+            if client is None or client_id is not None:
+                raise
+            # The agency-wide sweep: this client's leads are missing, and the
+            # ones that can be read are still worth answering with.
+            if on_unavailable is not None:
+                on_unavailable(client)
+            continue
         yield client
     session.commit()
     session.expunge_all()
