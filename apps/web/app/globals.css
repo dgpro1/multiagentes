@@ -1010,7 +1010,6 @@ textarea { line-height: 1.55; }
    one: a 310px row cannot spare a full button. */
 .inbox-row > .start-line-wrap { position: relative; z-index: 2; flex: 0 0 auto; margin: 6px 6px 0 0; }
 .inbox-row > .start-line-wrap > .icon-button { width: 26px; height: 26px; border-color: transparent; background: transparent; }
-.inbox-pending-dot { flex: 0 0 auto; align-self: center; width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
 /* The menu waits for a deliberate gesture: the row shows its own trigger on
    hover or on focus, and the menu itself opens on click or from the keyboard.
    A hover-opened menu cannot work here, since the backdrop that dismisses it

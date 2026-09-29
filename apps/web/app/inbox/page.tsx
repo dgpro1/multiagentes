@@ -522,7 +522,6 @@ export default function InboxPage() {
                     <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
                     <small className="inbox-row-meta">{item.agent_name} Ã‚Â· {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
                   </span>
-                  {item.awaiting_reply && <span className="inbox-pending-dot" title={t("inbox.pendingHint")} aria-label={t("inbox.pendingHint")} />}
                   {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
                 </Link>
                 <LeadRowActions
