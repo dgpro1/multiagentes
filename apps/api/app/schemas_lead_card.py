@@ -52,6 +52,16 @@ class LeadFieldOut(BaseModel):
     position: int = 0
 
 
+class LeadContactAttach(BaseModel):
+    """Giving a lead the person behind it, from the lead card. The name is what
+    the operator calls them; the phone is what finds the contact they already
+    have, so a lead that arrives without one can still land on the right
+    person instead of a duplicate."""
+
+    name: str = Field(default="", max_length=180)
+    phone: str = Field(default="", max_length=40)
+
+
 class LeadUpdate(BaseModel):
     """A partial change of the lead card. ``responsible_id`` null clears the
     chosen member (the business's own responsible person shows again);

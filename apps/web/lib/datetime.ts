@@ -69,6 +69,11 @@ export function isSameOpenThread(prev: Conversation | null, next: Conversation):
   if (!prev || prev.id !== next.id || prev.mode !== next.mode) return false;
   const stateFields = ["status", "assignee_id", "assignee_name", "team_id", "team_name", "reply_window_open", "reply_window_until", "human_reply_window_open", "human_reply_window_until", "reply_block_reason"] as const;
   if (stateFields.some((field) => prev[field] !== next[field])) return false;
+  // Who the lead is about, and what it is called. The header and the card read
+  // these, so a rename made anywhere (the lead card, the contacts screen) has to
+  // reach the open thread: it is the same person, not a new arrival.
+  const identityFields = ["title", "contact_name", "contact_phone", "contact_email", "number", "account_label", "deal_value"] as const;
+  if (identityFields.some((field) => prev[field] !== next[field])) return false;
   if (JSON.stringify(prev.channel_capabilities) !== JSON.stringify(next.channel_capabilities)) return false;
   // A merge adds threads to the lead without necessarily changing its messages.
   if (JSON.stringify(prev.linked_threads) !== JSON.stringify(next.linked_threads)) return false;

@@ -10,6 +10,7 @@ import { useEscape } from "@/components/messages/use-escape";
 import { MergeDialog } from "@/components/merge-leads/merge-dialog";
 import { SharedContentList } from "@/components/shared-content";
 import { TagEditor } from "@/components/tag-editor";
+import { ContactCreator } from "@/components/lead-card/contact-creator";
 import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
@@ -211,7 +212,11 @@ export function LeadCard({ conversationId, number, messages, urlFor, overlay = f
         : <div className="lead-skeleton"><ListRowsSkeleton rows={5} /></div>)
         : <>
           <section className="lead-section">
-            <TagEditor tags={catalog} value={card.contact.tags} onToggle={toggleTag} onCreate={createTag} canCreate={scope.canCreateTags} busy={tagsBusy} readOnly={!card.contact.id || !scope.canEditContact} />
+            {card.contact.id
+              ? <TagEditor tags={catalog} value={card.contact.tags} onToggle={toggleTag} onCreate={createTag} canCreate={scope.canCreateTags} busy={tagsBusy} readOnly={!scope.canEditContact} />
+              : scope.canEditContact
+                ? <ContactCreator path={scope.attachContactPath(conversationId)} onAttached={(next) => setLoaded({ id: conversationId, card: next, error: null })} />
+                : <p className="lead-empty"><small>{t("lead.noContact")}</small></p>}
           </section>
 
           {stages && <StageSelect stages={stages} current={card.stage} onPick={(stage) => savePipeline(stage, card.deal_value)} />}

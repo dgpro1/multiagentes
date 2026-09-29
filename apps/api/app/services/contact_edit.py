@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 
 from ..models import Client, Contact, ContactTag, Conversation, now_utc
 from ..schemas import ContactOut, ContactTagOut, ContactUpdate
+from ..schemas_lead_card import LeadContactAttach
 from .conversation_state import record_activity, set_status
-from .contacts import normalize_phone, rename_conversations
+from .contacts import normalize_phone, rename_conversations, resolve_contact
 
 
 def contact_stats():
@@ -74,6 +75,48 @@ def assert_phone_free(db: Session, client: Client, phone: str, *, except_id: uui
         query = query.where(Contact.id != except_id)
     if db.scalar(query):
         raise HTTPException(status_code=409, detail="A contact with this phone number already exists")
+
+
+def attach_contact(db: Session, client: Client, conversation: Conversation, payload: "LeadContactAttach") -> Contact:
+    """Give a lead the person behind it.
+
+    A lead born on a channel with nothing to identify the writer with has no
+    contact, and without one the whole card is read-only: there is no person to
+    name, tag or block. The operator is the one who knows who wrote, so the card
+    asks them and this puts the two together.
+
+    A phone that already belongs to somebody finds that person rather than
+    making a second record of them, which is what a returning visitor looks
+    like from the desk. A name on its own has nothing to match on, so it makes a
+    new contact and the phone is what keeps the next lead off a duplicate.
+    """
+    phone = normalize_phone(payload.phone)
+    name = payload.name.strip()[:180]
+    if not phone and not name:
+        raise HTTPException(status_code=422, detail="Enter a name or a phone number")
+    if phone:
+        contact = resolve_contact(db, client.id, phone=phone, name=name or None)
+        if conversation.contact_id and conversation.contact_id != contact.id:
+            # Two people behind one lead is a merge, not a retag: the lead
+            # carries the whole history and the operator has to say which
+            # person it belongs to.
+            raise HTTPException(status_code=409, detail="This lead already has a contact")
+    else:
+        contact = Contact(client_id=client.id, name=name)
+        db.add(contact)
+        db.flush()
+    conversation.contact_id = contact.id
+    if name and not contact.name.strip():
+        contact.name = name
+    conversation.updated_at = now_utc()
+    # The rename is a bulk update, and the lead only carries the contact in the
+    # session so far: without this it would look for conversations under the old
+    # contact and rename none, leaving the name the operator just typed in one
+    # place and not the other.
+    db.flush()
+    rename_conversations(db, contact)
+    db.commit()
+    return contact
 
 
 def update_contact(db: Session, client: Client, contact_id: uuid.UUID, payload: ContactUpdate) -> ContactOut:

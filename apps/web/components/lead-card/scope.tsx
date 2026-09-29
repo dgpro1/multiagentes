@@ -24,6 +24,8 @@ export type LeadScope = {
   contactBlockPath: (contactId: string) => string;
   /** PUT of a contact's whole tag set. */
   contactTagsPath: (contactId: string) => string;
+  /** POST that gives a lead with no contact the person behind it; answers the whole card. */
+  attachContactPath: (conversationId: string) => string;
   /** Base of the client's lead routes (merge candidates and merge): `{leadsBase}/leads/...`. */
   leadsBase: string;
   /** GET/POST of the client's custom fields. */
@@ -58,6 +60,7 @@ export function agencyLeadScope(clientId: string): LeadScope {
     contactPath: (id) => `${client}/contacts/${id}`,
     contactBlockPath: (id) => `${client}/contacts/${id}/block`,
     contactTagsPath: (id) => `${client}/contacts/${id}/tags`,
+    attachContactPath: (id) => `/conversations/${id}/contact`,
     fieldsPath: `${client}/lead-fields`,
     fieldPath: (id) => `${client}/lead-fields/${id}`,
     stagesPath: `${client}/pipeline/stages`,
@@ -81,6 +84,7 @@ export function portalLeadScope(slug: string, can: (key: string) => boolean, lea
     contactPath: (id) => `${base}/contacts/${id}`,
     contactBlockPath: (id) => `${base}/contacts/${id}/block`,
     contactTagsPath: (id) => `${base}/contacts/${id}/tags`,
+    attachContactPath: (id) => `${base}/conversations/${id}/contact`,
     fieldsPath: `${base}/lead-fields`,
     fieldPath: (id) => `${base}/lead-fields/${id}`,
     stagesPath: `${base}/pipeline/stages`,

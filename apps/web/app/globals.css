@@ -3384,6 +3384,12 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .lead-scroll { flex: 1 1 auto; min-height: 0; padding: 14px 16px 26px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
 .lead-overlay .lead-head, .lead-overlay .lead-scroll { padding-inline: max(16px, calc((100% - 560px) / 2)); }
 .lead-section { min-width: 0; }
+/* Giving a lead its contact: two fields in the space the tag picker takes, so
+   the card does not change size when the tags arrive. */
+.lead-contact-creator { display: flex; flex-direction: column; gap: 8px; }
+.lead-contact-creator label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.lead-contact-creator input { min-height: 32px; padding: 0 10px; font-size: 13px; }
+.lead-contact-creator-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .lead-skeleton, .lead-error { padding-top: 4px; }
 .lead-error { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 13px; }
 .lead-error p { margin: 0; color: var(--ink); font-weight: 600; }

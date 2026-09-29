@@ -18,6 +18,7 @@ from ..models import Client, Conversation, User
 from ..schemas import ContactBlockUpdate, ContactOut, ContactTagsSet, ContactUpdate
 from ..schemas_lead_card import (
     LeadCardOut,
+    LeadContactAttach,
     LeadFieldCreate,
     LeadFieldOut,
     LeadFieldUpdate,
@@ -73,6 +74,20 @@ def update_lead(
     client = _conversation_client(db, user, conversation_id)
     conversation = lead_card_service.get_lead(db, client, conversation_id, act=True)
     lead_card_service.update_lead(db, client, conversation, payload)
+    return lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, conversation_id))
+
+
+@router.post("/conversations/{conversation_id}/contact", response_model=LeadCardOut, dependencies=[Depends(require(CONTACTS_MANAGE))])
+def attach_lead_contact(
+    conversation_id: uuid.UUID, payload: LeadContactAttach, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """Give a lead the person behind it, from the lead card. A lead that arrived
+    without one has no name to edit, no tags to put and nobody to block, so the
+    card asks the operator who wrote. The whole card is answered back, tags and
+    all, rather than the contact alone."""
+    client = _conversation_client(db, user, conversation_id)
+    conversation = lead_card_service.get_lead(db, client, conversation_id, act=True)
+    contact_edit.attach_contact(db, client, conversation, payload)
     return lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, conversation_id))
 
 

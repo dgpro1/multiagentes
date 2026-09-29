@@ -301,6 +301,9 @@ GATED = [
     # The lead card of the inbox and its custom fields (tests/test_lead_card.py).
     ("GET", "/conversations/{id}/lead", ["inbox"]),
     ("PATCH", "/conversations/{id}/lead", ["inbox"]),
+    # Giving a lead the person behind it, from its own card. It writes a
+    # contact, so it answers to the contacts function and not the inbox one.
+    ("POST", "/conversations/{id}/contact", ["contacts"]),
     ("GET", "/lead-fields", ["inbox"]),
     ("POST", "/lead-fields", ["inbox"]),
     ("PATCH", "/lead-fields/{id}", ["inbox"]),

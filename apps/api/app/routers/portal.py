@@ -82,6 +82,7 @@ from ..schemas import (
 from ..security import create_portal_token, decode_portal_token, verify_password
 from ..schemas_lead_card import (
     LeadCardOut,
+    LeadContactAttach,
     LeadFieldCreate,
     LeadFieldOut,
     LeadFieldUpdate,
@@ -113,6 +114,7 @@ from ..services import lead_fields as lead_fields_service
 from ..services.text_search import folded_like
 from ..services.contact_edit import (
     assert_phone_free as _assert_phone_free,
+    attach_contact,
     block_contact,
     contact_out as _contact_out,
     contact_stats as _contact_stats,
@@ -2515,6 +2517,25 @@ def portal_update_lead(
     anyone with the inbox, like assigning; it never changes who answers."""
     conversation = lead_card_service.get_lead(db, client, conversation_id, act=True)
     lead_card_service.update_lead(db, client, conversation, payload)
+    return lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, conversation_id))
+
+
+@router.post(
+    "/{slug}/conversations/{conversation_id}/contact", response_model=LeadCardOut,
+    dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))],
+)
+def portal_attach_lead_contact(
+    slug: str,
+    conversation_id: uuid.UUID,
+    payload: LeadContactAttach,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+):
+    """The same door the agency has: a lead that arrived without a person gets
+    one from its own card, and a phone that already belongs to somebody links
+    that contact instead of making a second one."""
+    conversation = lead_card_service.get_lead(db, client, conversation_id, act=True)
+    attach_contact(db, client, conversation, payload)
     return lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, conversation_id))
 
 
