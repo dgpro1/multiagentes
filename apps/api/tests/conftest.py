@@ -50,22 +50,45 @@ TestingSession = sessionmaker(bind=test_engine, class_=_TestingSession, autoflus
 # route that forgets use_client() or joins across the two databases fails.
 TENANT_TESTS = os.environ.get("HUNTERAI_TENANT_TESTS") == "1"
 
-if TENANT_TESTS:
-    # A pytest run killed mid-test (timeout, crash) leaves the central test
-    # schema half-built and the per-test tenant schemas orphaned, and the next
-    # run's create_all then dies on a leftover pg_type entry. The test database
-    # holds nothing worth keeping, so tenant runs always start from a slate.
-    import psycopg
 
-    _conn = psycopg.connect(os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://"), autocommit=True)
-    _cur = _conn.cursor()
-    _cur.execute("select pg_terminate_backend(pid) from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid()")
-    _cur.execute("select nspname from pg_namespace where nspname like 'hunterai_tt_%'")
-    for (_orphan,) in _cur.fetchall():
-        _cur.execute(f'drop schema "{_orphan}" cascade')
-    _cur.execute("drop schema public cascade")
-    _cur.execute("create schema public")
-    _conn.close()
+def reset_test_database() -> None:
+    """Leave the test database as a slate: an empty ``public`` and no leftovers.
+
+    A run killed mid-test (timeout, crash, ``pytest`` interrupted) leaves the
+    central schema half-built, and the next run's ``create_all`` then dies on a
+    leftover ``pg_type`` entry — which fails *every* test after it at once, with
+    an error that points nowhere near the run that caused it. Tenant schemas
+    abandoned by a dead run (``hunterai_t``, ``hunterai_s``, ``hunterai_tt``)
+    pile up the same way.
+
+    The test database holds nothing worth keeping, so every session starts from
+    a known state. This refuses to run on anything that is not plainly a test
+    database, because the alternative is destroying a development one.
+    """
+    import psycopg
+    from sqlalchemy.engine import make_url
+
+    name = make_url(os.environ["DATABASE_URL"]).database or ""
+    if "test" not in name:
+        raise RuntimeError(
+            f"Refusing to reset {name!r}: the test suite only ever runs on a test database "
+            "(set TEST_DATABASE_URL, never DATABASE_URL, for something precious)"
+        )
+    conn = psycopg.connect(os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://"), autocommit=True)
+    try:
+        cur = conn.cursor()
+        # Nothing of ours should be holding the schema we are about to drop.
+        cur.execute("select pg_terminate_backend(pid) from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid()")
+        cur.execute(
+            "select nspname from pg_namespace "
+            "where nspname not like 'pg\\_%' and nspname <> 'information_schema' and nspname <> 'public'"
+        )
+        for (schema,) in cur.fetchall():
+            cur.execute(f'drop schema "{schema}" cascade')
+        cur.execute("drop schema public cascade")
+        cur.execute("create schema public")
+    finally:
+        conn.close()
 
 
 def override_get_db():
@@ -111,6 +134,14 @@ def fixed_model_catalog():
     catalog.set_snapshot(chat, embeddings, audio=audio)
     yield
     catalog._current = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def slate_test_database():
+    """Once per session, before the first test's clean_database: a run killed
+    mid-test leaves the schema unusable for the next one, so every session
+    starts from an empty database (see reset_test_database)."""
+    reset_test_database()
 
 
 @pytest.fixture(autouse=True)

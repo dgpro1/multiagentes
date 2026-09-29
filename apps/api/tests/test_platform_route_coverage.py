@@ -8,6 +8,9 @@ from app.main import app
 
 PUBLIC_PLATFORM_ROUTES = {
     "/api/platform/auth/login",
+    # Signing out only clears the cookie, so it answers whatever session (if
+    # any) the caller brought; asking for the door would strand a stale cookie.
+    "/api/platform/auth/logout",
     "/api/platform/invitations/{token}",
     "/api/platform/invitations/{token}/accept",
 }
