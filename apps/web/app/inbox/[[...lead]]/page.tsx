@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Ban, Inbox as InboxIcon, LoaderCircle, MapPin, Reply, Search, UserRound, X } from "lucide-react";
 import { Modal, PageHead } from "@/components/ui";
 import { AttachButton, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
@@ -27,8 +28,8 @@ import { PhonePauseNotice, SocialReplyNotice, useReplyPolicy } from "@/component
 import { api, ApiError, apiUrl, messageFrom } from "@/lib/api";
 import { formatWhen, isNearBottom, isSameOpenThread } from "@/lib/datetime";
 import { useLanguage, useT } from "@/lib/i18n";
-import { clientPath } from "@/lib/routes";
-import type { Agent, Attachment, Conversation, ConversationInbox, Message, ScheduledMessage } from "@/types";
+import { agencyInboxLead, agencyInboxPath } from "@/lib/routes";
+import type { Agent, Attachment, Client, Conversation, ConversationInbox, Message, ScheduledMessage } from "@/types";
 
 const LIMIT = 30;
 const POLL_MS = 8000;
@@ -37,6 +38,14 @@ export default function InboxPage() {
   const t = useT();
   const { lang } = useLanguage();
   const toast = useToast();
+  const { lead: leadSegments } = useParams<{ lead?: string[] }>();
+  const router = useRouter();
+  // The address is the source of truth for the open lead, the way Kommo does it:
+  // this list spans every client, so a lead here is named by its client and its
+  // short number (`/inbox/{slug}/{number}`). Reload, Back/Forward and a shared
+  // link all land on the same lead, and the list behind it is still the whole
+  // agency, so opening a lead no longer leaves it.
+  const leadPath = leadSegments?.join("/") ?? "";
   const [agents, setAgents] = useState<Agent[]>([]);
   const [items, setItems] = useState<ConversationInbox[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
@@ -77,6 +86,15 @@ export default function InboxPage() {
   const channelLabel = (value: string) => labelForChannel(value, t);
   const channelIcon = (value: string) => <ChannelIcon channel={value} />;
 
+  // Where a row lives: its own address in this inbox, which keeps the whole
+  // agency list behind it. A row from a response that carried no slug has no
+  // address to build, so it falls back to the thread itself, which this page
+  // moves to that address as soon as it reads the lead.
+  const leadAddress = useCallback(
+    (item: ConversationInbox) => (item.client_slug ? agencyInboxPath(item.client_slug, item.number) : `/inbox?conversation=${item.id}`),
+    [],
+  );
+
   const buildParams = useCallback((offsetValue: number) => {
     const params = new URLSearchParams();
     if (agentId) params.set("agent_id", agentId);
@@ -92,6 +110,11 @@ export default function InboxPage() {
   }, [agentId, channel, tab, search]);
 
   const selectedIdRef = useRef<string | null>(null);
+  // Which lead the address asked for and the thread now showing agree on. Without
+  // it the list refresh would reopen the same lead on every poll.
+  const openedLeadRef = useRef("");
+  // A lead the server could not produce, so a dead address is not chased twice.
+  const failedLeadRef = useRef("");
   const messagesRef = useRef<HTMLDivElement>(null);
   useEffect(() => { selectedIdRef.current = selected?.id ?? null; }, [selected]);
   const wasNearBottomRef = useRef(true);
@@ -121,13 +144,17 @@ export default function InboxPage() {
   }, [buildParams, toast]);
 
   // The thread was deleted elsewhere (another operator, a cleanup): close it
-  // and drop the stale row instead of erroring or polling it forever.
+  // and drop the stale row instead of erroring or polling it forever. The
+  // address goes back to the list, which is where a lead that no longer exists
+  // can still be understood.
   const closeGoneThread = useCallback((id: string) => {
+    openedLeadRef.current = "";
     selectedIdRef.current = null;
     setSelected(null);
     setItems((rows) => rows.filter((row) => row.id !== id));
     toast.error(t("inbox.threadGone"));
-  }, [toast, t]);
+    router.replace(agencyInboxPath());
+  }, [router, toast, t]);
 
   const refreshScheduledMessages = useCallback(async (targetId?: string) => {
     const id = targetId || selectedIdRef.current;
@@ -242,16 +269,66 @@ export default function InboxPage() {
     }
   }, [toast]);
 
-  // A board card opens its thread in a new tab through ?conversation=<id>.
+  // The lead an address names, found in the list when it is already loaded (a row
+  // the operator clicked) and otherwise asked for by the same route the client
+  // inbox uses, so a shared link works on a lead this page has not listed.
+  const resolveLead = useCallback(async (clientSlug: string, leadNumber: number) => {
+    const row = items.find((item) => item.client_slug === clientSlug && item.number === leadNumber);
+    if (row) return row;
+    const client = await api<Client>(`/clients/by-slug/${encodeURIComponent(clientSlug)}`);
+    return api<Conversation>(`/clients/${client.id}/conversations/number/${leadNumber}`);
+  }, [items]);
+
+  // Open the lead the address names, and close it when the address stops naming
+  // one. Navigating between rows only changes the address, so the list, its
+  // filters and its scroll stay exactly as they were.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get("conversation");
+    const target = agencyInboxLead(leadPath);
+    if (!target) {
+      openedLeadRef.current = "";
+      // Back on the list, a lead that could not be read is worth asking again:
+      // the address that failed may be pasted once more.
+      failedLeadRef.current = "";
+      selectedIdRef.current = null;
+      setSelected(null);
+      return;
+    }
+    const key = `${target.clientSlug}/${target.leadNumber}`;
+    // A lead that could not be read is not asked for again: the address already
+    // went back to the list, and a second try would only be the same 404.
+    if (openedLeadRef.current === key || failedLeadRef.current === key) return;
+    openedLeadRef.current = key;
+    setPendingFile(null);
+    if (composerRef.current) composerRef.current.value = "";
+    resolveLead(target.clientSlug, target.leadNumber).then((found) => {
+      if (openedLeadRef.current !== key) return;
+      // A lead absorbed by another one answers with the lead that replaced it:
+      // the address follows it rather than opening a thread nobody sends to.
+      if (found.number !== target.leadNumber) {
+        router.replace(agencyInboxPath(target.clientSlug, found.number));
+        return;
+      }
+      void choose(found.id);
+    }).catch(() => {
+      if (openedLeadRef.current !== key) return;
+      failedLeadRef.current = key;
+      router.replace(agencyInboxPath());
+    });
+  }, [leadPath, resolveLead, choose, router]);
+
+  // A board card still opens a thread through `?conversation=<id>`. Move it to
+  // the lead's own address once, so the address is right from then on.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("conversation");
     if (!id) return;
-    params.delete("conversation");
-    const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
-    window.history.replaceState(window.history.state, "", clean);
-    void choose(id).catch(() => {});
-  }, [choose]);
+    api<Conversation>(`/conversations/${id}`).then(async (conv) => {
+      const client = await api<Client>(`/clients/${conv.client_id}`);
+      router.replace(agencyInboxPath(client.portal_slug, conv.number));
+    }).catch(() => {
+      // Nothing to point at: drop the stale parameter and stay on the list.
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.hash}`);
+    });
+  }, [router]);
 
   async function toggleMode(next: "ai" | "human") {
     if (!selected) return;
@@ -289,8 +366,7 @@ export default function InboxPage() {
       setBlockingContact(false);
       if (blocked) {
         closeLead();
-        selectedIdRef.current = null;
-        setSelected(null);
+        closeThread();
       }
       loadFirst({ silent: true });
     } catch (err) {
@@ -301,6 +377,13 @@ export default function InboxPage() {
   }
 
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Closing a lead is going back to the list, and the list is the bare address.
+  const closeThread = useCallback(() => {
+    openedLeadRef.current = "";
+    selectedIdRef.current = null;
+    setSelected(null);
+    router.push(agencyInboxPath());
+  }, [router]);
   const [composerMode, setComposerMode] = useState<ComposerMode>("chat");
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variablesQuery, setVariablesQuery] = useState("");
@@ -386,7 +469,7 @@ export default function InboxPage() {
           via_conversation_id: replyVia.via || undefined,
         }),
       });
-      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con ÃƒÂ©xito");
+      toast.success(t("inbox.scheduleSuccess") || "Mensaje programado con ÃƒÆ’Ã‚Â©xito");
       if (draft.trim() === content.trim()) {
         if (composerRef.current) composerRef.current.value = "";
         setDraft("");
@@ -512,7 +595,7 @@ export default function InboxPage() {
           : items.length ? <>
             {items.map((item) => (
               <div key={item.id} className={`inbox-row ${selected?.id === item.id ? "active" : ""} ${item.unread ? "unread" : ""}`}>
-                <Link href={clientPath(item.client_slug ?? "", "inbox", item.number)}>
+                <Link href={leadAddress(item)}>
                   <span className="inbox-avatar">
                     <span className="entity-avatar tiny"><UserRound size={15} /></span>
                     <span className={`channel-badge ${item.channel}`} title={channelLabel(item.channel)}>{channelIcon(item.channel)}</span>
@@ -520,7 +603,7 @@ export default function InboxPage() {
                   <span className="inbox-row-body">
                     <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
                     <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
-                    <small className="inbox-row-meta">{item.agent_name} Ã‚Â· {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
+                    <small className="inbox-row-meta">{item.agent_name} Ãƒâ€šÃ‚Â· {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
                   </span>
                   {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
                 </Link>
@@ -528,7 +611,7 @@ export default function InboxPage() {
                   pinned={Boolean(item.pinned_at)}
                   onResolve={() => resolveRow(item)}
                   onTogglePin={() => togglePinRow(item)}
-                  href={clientPath(item.client_slug ?? "", "inbox", item.number)}
+                  href={leadAddress(item)}
                 />
               </div>
             ))}
@@ -541,7 +624,7 @@ export default function InboxPage() {
         {!selected ? <div className="empty-state"><div className="empty-icon"><InboxIcon /></div><h3>{t("inbox.empty")}</h3><p>{t("inbox.selectPrompt")}</p></div>
           : <>
             <header>
-              <button type="button" className="icon-button inbox-back" onClick={() => { selectedIdRef.current = null; setSelected(null); }} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button>
+              <button type="button" className="icon-button inbox-back" onClick={closeThread} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button>
               <LeadHeaderButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)}>
                 <div><strong>{selected.contact_name || selected.title}</strong><small>{channelLabel(selected.channel)}{selected.account_label && <> <span className="account-badge" title={selected.account_label}>{selected.account_label}</span></>}</small></div>
               </LeadHeaderButton>
