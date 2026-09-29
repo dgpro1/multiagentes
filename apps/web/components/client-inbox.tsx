@@ -14,42 +14,36 @@ import {
   Inbox,
   Link2,
   LoaderCircle,
-  Lock,
   Paperclip,
   Plus,
   Reply,
   Search,
   Smile,
-  SmilePlus,
   UserRound,
   X,
 } from "lucide-react";
-import { MessageAttachments, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
+import { PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { MediaPanel } from "@/components/media-panel";
 import { LeadCard } from "@/components/lead-card/lead-card";
-import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
+import { MessageThread } from "@/components/messages/message-thread";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
 import { AppointmentModal } from "@/components/appointment-modal";
-import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
 import { ScheduleMessageModal } from "@/components/schedule-message-modal";
 import { ScheduledMessagesBanner } from "@/components/scheduled-messages-banner";
 import { VariablesPopover } from "@/components/variables-popover";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
-import { RichText } from "@/components/rich-text";
 import { GrowingTextarea } from "@/components/growing-textarea";
-import { QuotedSnippet, ReactionBadge, ReactionPicker } from "@/components/message-gestures";
-import { DeliveryTicks } from "@/components/delivery-ticks";
+import { ReactionPicker } from "@/components/message-gestures";
 import { useToast } from "@/components/toast";
 import { EmptyState } from "@/components/ui";
 import { ListRowsSkeleton } from "@/components/skeleton";
-import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels, MessageChannelMark } from "@/lib/channels";
+import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels } from "@/lib/channels";
 import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
 import { PhonePauseNotice, SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
 import { api, apiUrl, messageFrom } from "@/lib/api";
-import { activityText as activityLine } from "@/lib/activity";
-import { formatTime, formatWhen, isNearBottom } from "@/lib/datetime";
+import { formatWhen, isNearBottom } from "@/lib/datetime";
 import { useLanguage, useT } from "@/lib/i18n";
 import { clientPath } from "@/lib/routes";
 import type { Attachment, Conversation, Message, ScheduledMessage } from "@/types";
@@ -149,7 +143,6 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
 
   const channelLabel = useCallback((value: string) => labelForChannel(value, t), [t]);
   const channelIcon = useCallback((value: string) => <ChannelIcon channel={value} />, []);
-  const activityText = useCallback((message: Message) => activityLine(t, message), [t]);
 
   const selectedId = selected?.id;
   const attachmentUrl = useCallback(
@@ -839,112 +832,33 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
             </header>
 
             {/* Messages */}
-            <div className="portal-messages" ref={messagesRef}>
-              {selected.messages?.map((message, index) => {
-                if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
-                if (isAppointmentActivity(message)) return <AppointmentActivityCard key={message.id} message={message} />;
-                if (message.kind === "activity") {
-                  return (
-                    <div key={message.id} className="activity-line">
-                      <span>{activityText(message)}</span>
-                      <time>{formatTime(message.created_at, lang)}</time>
-                    </div>
-                  );
-                }
-                if (message.kind === "note") {
-                  return (
-                    <div key={message.id} className="internal-note-card">
-                      <div className="internal-note-header">
-                        <Lock size={12} />
-                        <span>{message.sender_name || t("portal.inbox.conversation.agent")} · {t("inbox.internalNoteBadge")}</span>
-                        <time>{formatTime(message.created_at, lang)}</time>
-                      </div>
-                      <div className="internal-note-content">
-                        <RichText text={message.content} />
-                      </div>
-                    </div>
-                  );
-                }
-
-                const prev = index > 0 ? selected.messages![index - 1] : null;
-                const grouped = Boolean(prev && prev.kind !== "activity" && prev.role === message.role && prev.sender_name === message.sender_name);
-                const stamp = formatTime(message.created_at, lang);
-                const hasAudio = message.attachments?.some((a) => a.kind === "audio");
-                const mine = message.role === "assistant";
-
-                return (
-                  <article
-                    key={message.id}
-                    className={`${message.role}${mine ? " mine" : ""}${mine && message.sender_type === "ai" ? " ai" : ""}${grouped ? " grouped" : ""}`}
-                  >
-                    {!grouped && (
-                      <small>
-                        {message.sender_name || (message.role === "assistant" ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor"))}
-                      </small>
-                    )}
-                    {policy.canReply && (message.channel ?? selected.channel).startsWith("whatsapp") && (
-                      <span className="bubble-actions">
-                        {message.role === "user" && (
-                          <button
-                            type="button"
-                            title={t("portal.inbox.conversation.react")}
-                            aria-label={t("portal.inbox.conversation.react")}
-                            onClick={() => setReactingTo(reactingTo === message.id ? null : message.id)}
-                          >
-                            <SmilePlus size={14} />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          title={t("portal.inbox.conversation.reply")}
-                          aria-label={t("portal.inbox.conversation.reply")}
-                          onClick={() => {
-                            setQuoting(message);
-                            if (message.conversation_id) replyVia.setVia(message.conversation_id);
-                            replyInputRef.current?.focus();
-                          }}
-                        >
-                          <Reply size={14} />
-                        </button>
-                      </span>
-                    )}
-
-                    <MessageAttachments attachments={message.attachments} urlFor={attachmentUrl} gallery={gallery} stamp={stamp} />
-                    {message.content && (
-                      <p>
-                        <QuotedSnippet messages={selected.messages ?? []} quotedId={message.quoted_message_id} />
-                        <RichText text={message.content} />
-                        <time className="msg-time">
-                          {replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}
-                          {stamp}
-                          {mine && ((message.channel ?? selected.channel) === "whatsapp_cloud" || isSocialChannel(message.channel ?? selected.channel)) && (
-                            <DeliveryTicks status={message.delivery_status} error={message.delivery_error} />
-                          )}
-                        </time>
-                        {mine && message.delivery_status === "failed" && message.delivery_error && (
-                          <span className="msg-error">{message.delivery_error}</span>
-                        )}
-                      </p>
-                    )}
-                    <ReactionBadge emoji={message.reaction} />
-                    <ReactionBadge emoji={message.incoming_reaction} incoming />
-                    {!message.content && !hasAudio && message.attachments?.length ? (
-                      <time className="msg-time bare">
-                        {replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}
-                        {stamp}
-                      </time>
-                    ) : null}
-                    {reactingTo === message.id && (
-                      <ReactionPicker
-                        current={message.reaction}
-                        removeLabel={t("portal.inbox.conversation.removeReaction")}
-                        onPick={(emoji) => sendReaction(message, emoji)}
-                      />
-                    )}
-                  </article>
-                );
-              })}
-            </div>
+            <MessageThread
+              messages={selected.messages}
+              surface="portal"
+              t={t}
+              lang={lang}
+              urlFor={attachmentUrl}
+              gallery={gallery}
+              channel={selected.channel}
+              channelMark={replyVia.multi}
+              bubbleActions={{
+                enabled: policy.canReply,
+                onReact: (message) => setReactingTo(reactingTo === message.id ? null : message.id),
+                onReply: (message) => {
+                  setQuoting(message);
+                  if (message.conversation_id) replyVia.setVia(message.conversation_id);
+                  replyInputRef.current?.focus();
+                },
+              }}
+              reactionPicker={(message) => reactingTo === message.id ? (
+                <ReactionPicker
+                  current={message.reaction}
+                  removeLabel={t("portal.inbox.conversation.removeReaction")}
+                  onPick={(emoji) => sendReaction(message, emoji)}
+                />
+              ) : null}
+              containerRef={messagesRef}
+            />
 
             <PhonePauseNotice conversation={selected} onKeepManual={() => setMode("human")} />
             <SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />

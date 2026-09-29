@@ -6,6 +6,7 @@ import { InlineInput, parseAmount } from "@/components/lead-card/inline-input";
 import { FieldManager } from "@/components/lead-card/field-manager";
 import { AppointmentsSection } from "@/components/lead-card/appointments-section";
 import { useLeadScope } from "@/components/lead-card/scope";
+import { useEscape } from "@/components/messages/use-escape";
 import { MergeDialog } from "@/components/merge-leads/merge-dialog";
 import { SharedContentList } from "@/components/shared-content";
 import { TagEditor } from "@/components/tag-editor";
@@ -21,16 +22,6 @@ import type { Attachment, ContactTag, LeadCard as LeadCardData, LeadField, LeadS
 type Member = { id: string; name: string };
 // The card as loaded for one conversation; kept with its id so a card of the previous conversation is never shown for the next.
 type Loaded = { id: string; card: LeadCardData | null; error: string | null };
-
-/** Runs `onEscape` on Escape while `active` (menus that close before the panel does). */
-function useEscape(active: boolean, onEscape: () => void) {
-  useEffect(() => {
-    if (!active) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onEscape(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [active, onEscape]);
-}
 
 /** The side panel of an open conversation, Kommo-style: the lead's number and
  * tags, its stage in the pipeline, who is responsible, its budget, the client's

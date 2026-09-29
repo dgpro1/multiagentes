@@ -1,33 +1,29 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, Lock, MapPin, Search, UserRound } from "lucide-react";
+import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, MapPin, Search, UserRound } from "lucide-react";
 import { PageHead } from "@/components/ui";
-import { AttachButton, MessageAttachments, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
+import { AttachButton, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { LocationComposer } from "@/components/location-composer";
 import { MediaPanel } from "@/components/media-panel";
 import { LeadCard } from "@/components/lead-card/lead-card";
-import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
+import { MessageThread } from "@/components/messages/message-thread";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
 import { AppointmentModal } from "@/components/appointment-modal";
-import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
 import { ScheduleMessageModal } from "@/components/schedule-message-modal";
 import { ScheduledMessagesBanner } from "@/components/scheduled-messages-banner";
 import { VariablesPopover } from "@/components/variables-popover";
 import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
-import { DeliveryTicks } from "@/components/delivery-ticks";
-import { RichText } from "@/components/rich-text";
 import { GrowingTextarea } from "@/components/growing-textarea";
-import { QuotedSnippet, ReactionBadge } from "@/components/message-gestures";
 import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
-import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels, MessageChannelMark } from "@/lib/channels";
+import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels } from "@/lib/channels";
 import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
 import { PhonePauseNotice, SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
 import { api, ApiError, apiUrl, messageFrom } from "@/lib/api";
-import { formatTime, formatWhen, isNearBottom, isSameOpenThread } from "@/lib/datetime";
+import { formatWhen, isNearBottom, isSameOpenThread } from "@/lib/datetime";
 import { useLanguage, useT } from "@/lib/i18n";
 import type { Agent, Attachment, Conversation, ConversationInbox, ScheduledMessage } from "@/types";
 
@@ -464,40 +460,17 @@ export default function InboxPage() {
                 <button className={`mode-toggle ${selected.mode}`} onClick={() => toggleMode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("inbox.takeControl") : t("inbox.returnToAi")}</button>
               </div>
             </header>
-            <div className="inbox-messages" ref={messagesRef}>
-              {selected.messages?.map((message, index) => {
-                if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
-                if (isAppointmentActivity(message)) return <AppointmentActivityCard key={message.id} message={message} />;
-                const stamp = formatTime(message.created_at, lang);
-                if (message.kind === "note") {
-                  return (
-                    <div key={message.id} className="internal-note-card">
-                      <div className="internal-note-header">
-                        <Lock size={12} />
-                        <span>{message.sender_name || t("inbox.senderAgent")} · {t("inbox.internalNoteBadge")}</span>
-                        <time>{stamp}</time>
-                      </div>
-                      <div className="internal-note-content">
-                        <RichText text={message.content} />
-                      </div>
-                    </div>
-                  );
-                }
-                const prev = index > 0 ? selected.messages![index - 1] : null;
-                const grouped = Boolean(prev && prev.role === message.role && prev.sender_name === message.sender_name);
-                const hasAudio = message.attachments?.some((a) => a.kind === "audio");
-                return (
-                  <div key={message.id} className={`inbox-message ${message.role}${grouped ? " grouped" : ""}`}>
-                    {!grouped && <small>{message.sender_name || (message.role === "assistant" ? t("inbox.senderAgent") : t("inbox.senderVisitor"))}</small>}
-                    <MessageAttachments attachments={message.attachments} urlFor={attachmentUrl} gallery={gallery} stamp={stamp} />
-                    {message.content && <p><QuotedSnippet messages={selected.messages ?? []} quotedId={message.quoted_message_id} /><RichText text={message.content} /><time className="msg-time">{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{stamp}{message.role === "assistant" && isSocialChannel(message.channel ?? selected.channel) && <DeliveryTicks status={message.delivery_status} error={message.delivery_error} />}</time></p>}
-                    <ReactionBadge emoji={message.reaction} />
-                    <ReactionBadge emoji={message.incoming_reaction} incoming />
-                    {!message.content && !hasAudio && message.attachments?.length ? <time className="msg-time bare">{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{stamp}</time> : null}
-                  </div>
-                );
-              })}
-            </div>
+            <MessageThread
+              messages={selected.messages}
+              surface="agency"
+              t={t}
+              lang={lang}
+              urlFor={attachmentUrl}
+              gallery={gallery}
+              channel={selected.channel}
+              channelMark={replyVia.multi}
+              containerRef={messagesRef}
+            />
             <PhonePauseNotice conversation={selected} onKeepManual={() => toggleMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
             {pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}
             {locating && <LocationComposer busy={busy} disabled={!policy.canReply} onCancel={() => setLocating(false)} onSend={sendLocation} />}
