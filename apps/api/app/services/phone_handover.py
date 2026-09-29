@@ -8,6 +8,7 @@ from ..database import not_moving
 from ..models import Conversation, Message, now_utc
 from .attachments import llm_text
 from .conversation_state import note_reply, record_activity
+from .contacts import contact_is_blocked
 from .lead_group import primary_of
 
 logger = logging.getLogger(__name__)
@@ -115,7 +116,7 @@ async def resume_due(db, *, limit=10):
             break
         deadline = conversation.phone_pause_until
         channel = conversation.whatsapp_channel or conversation.whatsapp_cloud_channel
-        blocked = conversation.contact and conversation.contact.blocked_at is not None
+        blocked = contact_is_blocked(db, conversation)
         if (conversation.status == "resolved" or blocked or not channel or not channel.is_enabled
                 or channel.status != "connected" or not channel.client.is_active or not conversation.agent.is_active):
             cancel_phone_pause(conversation)

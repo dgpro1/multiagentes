@@ -18,7 +18,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..database import DataMoving, new_client_session, new_session
-from .contacts import display_name, phone_from_chat_id, previous_conversation_recap, rename_conversations, resolve_contact
+from .contacts import contact_is_blocked, display_name, phone_from_chat_id, previous_conversation_recap, rename_conversations, resolve_contact
 from . import lead_group
 from .conversation_state import exchanged_only, note_inbound, note_reply, set_pipeline_stage
 from ..models import Agent, Conversation, Message, MessageAttachment, now_utc
@@ -297,7 +297,7 @@ async def process_inbound(
         if quoted:
             visitor_message.quoted_message_id = quoted.id
     conversation.updated_at = now_utc()
-    blocked = conversation.contact is not None and conversation.contact.blocked_at is not None
+    blocked = contact_is_blocked(db, conversation)
     if not blocked:
         note_inbound(db, conversation)
     if conversation_channel == "whatsapp_cloud" and channel.coexistence:

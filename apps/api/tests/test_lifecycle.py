@@ -240,3 +240,59 @@ def test_a_blocked_contact_talks_to_a_wall(authenticated_client: TestClient, mon
         assert [row["id"] for row in client.get(f"/api/portal/{slug}/conversations?status=open").json()] == [str(third.conversation_id)]
     finally:
         db.close()
+
+
+@pytest.mark.central_only("reads or writes through SessionLocal(), which has no client database by design")
+def test_a_contact_blocked_mid_session_is_not_answered_by_that_session(authenticated_client: TestClient, monkeypatch):
+    """The block is read fresh, not from what the session already had loaded.
+
+    The pipeline keeps one session for a whole burst of messages, and nothing
+    expires what it loaded (``expire_on_commit=False``). An operator who blocks a
+    contact while messages are already buffered must not be answered by the
+    session that is holding that contact, so this forces the contact into the
+    session's identity map first - the shape that made this fail in CI.
+    """
+    client = authenticated_client
+    customer, agent = _portal(client)
+    slug = customer["portal_slug"]
+    client.put("/api/providers/openrouter", json={"api_key": "secret"})
+    client.patch(f"/api/agents/{agent['id']}", json={"model": "gpt-4.1-mini", "reply_delay_min_seconds": 0, "reply_delay_max_seconds": 0})
+    client.put(f"/api/whatsapp/channels/{customer['id']}", json={"agent_id": agent["id"]})
+    completion = AsyncMock(return_value=Completion(text="Hi there"))
+    monkeypatch.setattr(inbound_service, "run_completion", completion)
+    monkeypatch.setattr(inbound_service, "send_channel_message", AsyncMock(return_value="wamid-out"))
+
+    def inbound(db, channel, external_id: str, text: str):
+        return asyncio.run(
+            inbound_service.process_inbound(
+                db,
+                channel,
+                inbound_service.InboundMessage(
+                    external_message_id=external_id, external_chat_id="573009998877@s.whatsapp.net", sender_name="Spammer", text=text
+                ),
+                conversation_channel="whatsapp",
+                channel_fk_field="whatsapp_channel_id",
+            )
+        )
+
+    db = SessionLocal()
+    try:
+        channel = db.scalar(select(WhatsAppChannel))
+        first = inbound(db, channel, "wa-1", "hola")
+        assert first.reply == "Hi there"
+
+        # Load the contact into this session, the way a burst does.
+        held = db.scalar(select(Conversation).where(Conversation.id == first.conversation_id))
+        assert held.contact is not None and held.contact.blocked_at is None
+
+        contact_id = held.contact_id
+        blocked = client.post(f"/api/portal/{slug}/contacts/{contact_id}/block", json={"blocked": True}).json()
+        assert blocked["blocked_at"]
+        # The session still holds the pre-block contact, and the pipeline must
+        # not answer from it.
+        completion.reset_mock()
+        second = inbound(db, channel, "wa-2", "spam spam")
+        assert second.accepted and second.reply is None
+        completion.assert_not_awaited()
+    finally:
+        db.close()

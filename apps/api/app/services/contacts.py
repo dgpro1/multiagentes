@@ -70,6 +70,20 @@ def display_name(contact: Contact) -> str:
     return contact.name.strip() or (f"+{contact.phone}" if contact.phone else "Contact")
 
 
+def contact_is_blocked(db: Session, conversation: Conversation) -> bool:
+    """Whether this conversation's contact is blocked, as of right now.
+
+    Read from the row rather than from ``conversation.contact``: a session that
+    already holds the contact keeps the value it loaded and nothing expires it
+    (``expire_on_commit=False``), so a burst of messages, or a worker that holds
+    its session open, would go on treating a contact the agency blocked in
+    between as fair game. A block is read fresh every time it is decided.
+    """
+    if conversation.contact_id is None:
+        return False
+    return db.scalar(select(Contact.blocked_at).where(Contact.id == conversation.contact_id)) is not None
+
+
 def rename_conversations(db: Session, contact: Contact) -> None:
     """Conversation titles follow the contact's name, so a rename shows
     everywhere at once."""
