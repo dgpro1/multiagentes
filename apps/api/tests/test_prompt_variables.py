@@ -202,12 +202,14 @@ def test_the_catalog_is_shaped_for_the_editor_and_carries_no_prose():
     kinds = {row["kind"] for row in rows}
     assert kinds == {"tool", "block", "stage", "resource", "control"}
     for row in rows:
-        assert set(row) <= {"kind", "value", "token", "template", "aliases"}
+        assert set(row) <= {"kind", "value", "token", "template", "aliases", "picker"}
         assert row.get("token") or row.get("template"), f"{row} is neither a token nor a template"
         assert not row.get("token") or row["token"].startswith("[")
         assert not row.get("template") or row["template"].startswith("[")
     block_keys = {row["value"] for row in rows if row["kind"] == "block"}
     assert block_keys == {block.key for block in BLOCKS}
+    # One tool brings a chooser of its own, so the panel is not told which one.
+    assert [row["value"] for row in rows if row.get("picker")] == [RESOURCE_TOOL_NAMES[0]]
 
 
 def test_the_silence_sentinel_is_a_variable_the_editor_offers():
@@ -241,10 +243,10 @@ def test_the_editor_route_answers_with_the_table(authenticated_client):
     and a plain session is all it asks for."""
     response = authenticated_client.get("/api/catalog/prompt-variables")
     assert response.status_code == 200, response.text
-    # The response model fills the absent half of a row with null; drop those to
-    # compare against the table itself, which is the point of the route.
-    served = [{key: value for key, value in row.items() if value is not None} for row in response.json()]
-    assert served == public_catalog()
+    # The response model fills the absent half of a row with null; compare what is
+    # actually said, which is the point of the route.
+    present = [{key: value for key, value in row.items() if value is not None} for row in response.json()]
+    assert present == [{key: value for key, value in row.items() if value is not None} for row in public_catalog()]
 
 
 def _known_shapes() -> tuple[set[str], list[re.Pattern[str]]]:
@@ -263,6 +265,22 @@ def _known_shapes() -> tuple[set[str], list[re.Pattern[str]]]:
             re.compile("^" + re.escape(fold(head)) + r"[^\]]+" + re.escape(fold(tail)) + "$")
         )
     return exact, templates
+
+
+def test_every_marker_the_table_ships_is_well_formed_and_unique():
+    """What the editor matches on. A token that is not a well-formed marker, or
+    that two variables share, would make the editor paint one thing as another."""
+    seen: dict[str, str] = {}
+    for row in public_catalog():
+        markers = [row["token"], *row["aliases"]] if row.get("token") else []
+        for marker in markers:
+            assert marker.startswith("[") and marker.endswith("]"), f"{marker} is not a marker"
+            assert "\n" not in marker and "[" not in marker[1:-1], f"{marker} cannot be matched as one marker"
+            assert 2 < len(marker) <= 120, f"{marker} is not a length the editor reads"
+            previous = seen.setdefault(fold(marker), row["value"])
+            assert previous == row["value"], f"{marker} is claimed by both {previous} and {row['value']}"
+        if row.get("template"):
+            assert "{name}" in row["template"], f"{row['template']} does not say where the name goes"
 
 
 def test_the_shipped_prompt_cites_only_variables_this_release_knows():

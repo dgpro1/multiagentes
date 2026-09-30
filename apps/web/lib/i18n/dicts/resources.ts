@@ -117,7 +117,6 @@ const en = {
     itemDescription: "Resource the agent may send ({kind})",
   },
   warnings: {
-    unknownResource: "The resource \"{name}\" is not in the library (renamed or deleted?). The agent will not offer it.",
     missingTool: "The prompt cites resources but not [Herramienta: enviar_recurso], so the agent cannot send them.",
   },
 };
@@ -238,7 +237,6 @@ const es: typeof en = {
     itemDescription: "Recurso que el agente puede enviar ({kind})",
   },
   warnings: {
-    unknownResource: "El recurso \"{name}\" no está en la biblioteca (¿se renombró o eliminó?). El agente no lo ofrecerá.",
     missingTool: "El prompt cita recursos pero no [Herramienta: enviar_recurso], así que el agente no puede enviarlos.",
   },
 };

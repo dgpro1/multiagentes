@@ -518,6 +518,9 @@ class PromptVariableOut(BaseModel):
     token: str | None = None
     template: str | None = None
     aliases: list[str] = []
+    # Set on a variable that brings its own chooser (the resource tool), so the
+    # panel opens it instead of inserting a bare marker.
+    picker: str | None = None
 
 
 class ConversationCreate(BaseModel):

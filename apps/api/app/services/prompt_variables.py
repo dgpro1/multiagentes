@@ -159,10 +159,18 @@ def public_catalog() -> list[dict]:
     ``token`` is text to insert verbatim; ``template`` is the shape of a
     variable the writer completes with a name they pick. ``aliases`` are the
     older markers that cite the same variable, listed so the editor can
-    recognise a prompt written against an earlier release.
+    recognise a prompt written against an earlier release. ``picker`` names a
+    variable that brings its own chooser, so the panel does not have to know
+    which tool that is.
     """
     catalog: list[dict] = [
-        {"kind": "tool", "value": name, "token": token, "aliases": [tool_token(alias) for alias in aliases]}
+        {
+            "kind": "tool",
+            "value": name,
+            "token": token,
+            "aliases": [tool_token(alias) for alias in aliases],
+            "picker": "resource" if name == RESOURCE_TOOL_NAME else None,
+        }
         for name, token, aliases in TOOLS
     ]
     catalog += [
@@ -171,12 +179,21 @@ def public_catalog() -> list[dict]:
             "value": block.key,
             "token": block.token,
             "aliases": list(block.aliases),
+            "picker": None,
         }
         for block in BLOCKS
     ]
     catalog += [
-        {"kind": "stage", "value": STAGE_PREFIX, "template": f"[{STAGE_PREFIX}: {{name}}]", "aliases": []},
-        {"kind": "resource", "value": RESOURCE_PREFIX, "template": f"[{RESOURCE_PREFIX}: {{name}}]", "aliases": []},
-        {"kind": "control", "value": SILENCE_TOKEN, "token": SILENCE_TOKEN, "aliases": []},
+        {
+            "kind": kind,
+            "value": prefix,
+            "template": f"[{prefix}: {{name}}]",
+            "aliases": [],
+            "picker": None,
+        }
+        for kind, prefix in (("stage", STAGE_PREFIX), ("resource", RESOURCE_PREFIX))
+    ]
+    catalog += [
+        {"kind": "control", "value": SILENCE_TOKEN, "token": SILENCE_TOKEN, "aliases": [], "picker": None},
     ]
     return catalog
