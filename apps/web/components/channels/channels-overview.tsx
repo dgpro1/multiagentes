@@ -240,7 +240,7 @@ function ChannelsOverview({
       )}
 
       {/* The agency's own screen also decides how many lines this client may use. */}
-      {managesLines && allowances && allowances.length > 0 && (
+      {managesLines && allowances && allowances.some((row) => moduleAllowed(modules, row.key)) && (
         <section className="stitch-channel-card" style={{ marginBottom: 16 }}>
           <div className="stitch-card-head">
             <div className="stitch-card-identity">
@@ -251,7 +251,7 @@ function ChannelsOverview({
             {t("channels.quota.linesCopy")} {t("channels.quota.hint")}
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 12 }}>
-            {allowances.map((row) => {
+            {allowances.filter((row) => moduleAllowed(modules, row.key)).map((row) => {
               const type = CHANNEL_TYPE_OF_FEATURE[row.key];
               const label = type ? channelCards.find((card) => card.type === type)?.title ?? row.label : row.label;
               const allowed = row.allowed;
