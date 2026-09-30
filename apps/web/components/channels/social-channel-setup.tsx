@@ -155,8 +155,18 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
   async function authorize() {
     if (!agentId) return;
     await run(async () => {
+      // The server only returns the OAuth dance to the connection screen of the
+      // client bound into it, and it spells that screen with the client's id
+      // (``/clients/{id}/channels/{provider}``). The page was sending the address
+      // a person reads, with the client's name, and was refused every time - so
+      // connecting a social account from the agency never worked. The id is the
+      // form the server asks for, and these pages move it to the name once they
+      // open, so the operator still lands on the address they can read.
+      const returnPath = portal
+        ? hrefFor.type(provider)
+        : `/clients/${resolvedId}/channels/${provider}`;
       const result = await api<{ authorization_url: string }>(`/social/${provider}/oauth/start`, {
-        method: "POST", body: JSON.stringify({ client_id: resolvedId, agent_id: agentId, next_path: hrefFor.type(provider) }),
+        method: "POST", body: JSON.stringify({ client_id: resolvedId, agent_id: agentId, next_path: returnPath }),
       });
       window.open(result.authorization_url, "_blank", "noopener");
       setPendingApproval(true);

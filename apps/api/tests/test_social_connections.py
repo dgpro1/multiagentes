@@ -168,6 +168,27 @@ def test_oauth_rejects_unsafe_return_path(authenticated_client):
     assert client.post("/api/social/instagram/oauth/start", json={**base, "next_path": "//evil.test"}).status_code == 400
 
 
+def test_oauth_only_returns_to_the_clients_own_connection_screen(authenticated_client):
+    """The address the panel sends is the one the server sends the operator back
+    to, and it has to be this client's connection screen: another client's is
+    refused, and so is this client's own page spelled with its name instead of
+    its id, which is what the panel used to send and why connecting a social
+    account from the agency never worked."""
+    client = authenticated_client
+    customer, agent = resources(client)
+    other, other_agent = resources(client)
+    base = {"client_id": customer["id"], "agent_id": agent["id"]}
+
+    # The form the server itself defaults to, and the form the panel sends.
+    own = f"/clients/{customer['id']}/channels/instagram"
+    assert client.post("/api/social/instagram/oauth/start", json={**base, "next_path": own}).status_code == 200
+    assert client.post("/api/social/instagram/oauth/start", json=base).status_code == 200
+
+    # Somebody else's screen, by id or by name, is not this client's.
+    assert client.post("/api/social/instagram/oauth/start", json={**base, "next_path": f"/clients/{other['id']}/channels/instagram"}).status_code == 400
+    assert client.post("/api/social/instagram/oauth/start", json={**base, "next_path": f"/clients/{customer['portal_slug']}/channels/instagram"}).status_code == 400
+
+
 def test_callback_binds_the_approved_account(authenticated_client, monkeypatch):
     client = authenticated_client
     customer, agent = resources(client)
