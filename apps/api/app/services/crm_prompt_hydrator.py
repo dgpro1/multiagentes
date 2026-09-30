@@ -9,45 +9,33 @@ Inspects agent instructions for declarative block citations:
   [NOTAS E INTERVENCIONES PREVIAS DEL EQUIPO HUMANO]
 
 Only blocks explicitly referenced by the prompt are built and injected,
-respecting the principle: "the prompt is the configuration".
+respecting the principle: "the prompt is the configuration". Which markers cite
+which block is not written here: it is read from
+``prompt_variables.BLOCKS``, the same table the panel's editor offers.
 """
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
-import re
 from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Agent, Appointment, Client, Contact, Conversation, Message, Service, now_utc
 from .appointments import get_client_timezone
-
-DECLARATIVE_TOOL_RE = re.compile(r"\[Herramienta:\s*([a-zA-Z0-9_-]+)\]", re.IGNORECASE)
+# has_declarative_tools is re-exported for the callers that already import it from
+# here; it belongs to the variable table, but the hydrator is where they look.
+from .prompt_variables import (  # noqa: F401
+    DYNAMIC_DATA_HEADER,
+    cited_blocks,
+    declared_tools,
+    has_declarative_tools,
+)
 
 DAYS_ES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 MONTHS_ES = [
     "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ]
-
-
-def declared_tools(instructions: str | None) -> list[str]:
-    """Return tool names cited via [Herramienta: name] in the instructions."""
-    if not instructions:
-        return []
-    matches = DECLARATIVE_TOOL_RE.findall(instructions)
-    seen: set[str] = set()
-    result: list[str] = []
-    for m in matches:
-        clean = m.strip().lower()
-        if clean not in seen:
-            seen.add(clean)
-            result.append(clean)
-    return result
-
-
-def has_declarative_tools(instructions: str | None) -> bool:
-    """Return True if the prompt specifies tools using the declarative bracket syntax."""
-    return bool(declared_tools(instructions))
 
 
 def format_currency_clp(amount: float | int | None) -> str:
@@ -227,6 +215,20 @@ def build_team_notes_block(db: Session, conversation: Conversation) -> str:
     return "\n".join(lines)
 
 
+# Which builder fills each block a prompt may cite. Every key in
+# ``prompt_variables.BLOCKS`` needs an entry: a block with no builder would be
+# cited, recognised and offered, yet never inject anything, which
+# tests/test_prompt_variables.py fails on. Order is the order blocks land in.
+_BLOCK_BUILDERS: dict[str, Callable[[Session, Client, Conversation, Contact | None], str]] = {
+    "temporal": lambda db, client, conversation, contact: build_temporal_block(client),
+    "business_info": lambda db, client, conversation, contact: build_business_info_block(client),
+    "catalog": lambda db, client, conversation, contact: build_catalog_block(client),
+    "contact_card": lambda db, client, conversation, contact: build_contact_card_block(contact, conversation),
+    "appointments": lambda db, client, conversation, contact: build_active_appointments_block(db, client, contact),
+    "team_notes": lambda db, client, conversation, contact: build_team_notes_block(db, conversation),
+}
+
+
 def hydrate_commercial_prompt(
     db: Session,
     client: Client,
@@ -235,30 +237,17 @@ def hydrate_commercial_prompt(
     contact: Contact | None = None,
 ) -> str:
     """Inject only the dynamic blocks explicitly cited in instructions."""
-    blocks_to_append: list[str] = []
-
-    if "[FECHA Y HORA ACTUAL DEL NEGOCIO]" in instructions:
-        blocks_to_append.append(build_temporal_block(client))
-
-    if "[UBICACIÓN Y DATOS DEL NEGOCIO]" in instructions or "[DATOS DEL NEGOCIO]" in instructions:
-        blocks_to_append.append(build_business_info_block(client))
-
-    if "[CATÁLOGO OFICIAL DE SERVICIOS Y TARIFAS]" in instructions or "[CATÁLOGO OFICIAL]" in instructions:
-        blocks_to_append.append(build_catalog_block(client))
-
-    if "[FICHA COMERCIAL DEL PROSPECTO / CLIENTE]" in instructions or "[FICHA COMERCIAL]" in instructions:
-        blocks_to_append.append(build_contact_card_block(contact, conversation))
-
-    if "[CITAS ACTIVAS PROGRAMADAS PARA ESTE CLIENTE]" in instructions or "[CITAS ACTIVAS]" in instructions:
-        blocks_to_append.append(build_active_appointments_block(db, client, contact))
-
-    if "[NOTAS E INTERVENCIONES PREVIAS DEL EQUIPO HUMANO]" in instructions or "[NOTAS DEL EQUIPO]" in instructions:
-        blocks_to_append.append(build_team_notes_block(db, conversation))
-
-    if not blocks_to_append:
+    cited = cited_blocks(instructions)
+    if not cited:
         return instructions
 
-    separator = "\n\n" + "=" * 50 + "\n[DATOS DINÁMICOS DEL NEGOCIO Y CLIENTE]\n" + "=" * 50 + "\n\n"
+    blocks_to_append = [
+        builder(db, client, conversation, contact)
+        for key, builder in _BLOCK_BUILDERS.items()
+        if key in cited
+    ]
+
+    separator = "\n\n" + "=" * 50 + f"\n{DYNAMIC_DATA_HEADER}\n" + "=" * 50 + "\n\n"
     return instructions + separator + "\n\n".join(blocks_to_append)
 
 
@@ -275,6 +264,26 @@ class AgentContextResult:
     is_commercial: bool
 
 
+def hydrate_cited_blocks(
+    db: Session,
+    agent: Agent,
+    conversation: Conversation,
+    system_content: str,
+    contact: Contact | None = None,
+) -> str:
+    """Inject the blocks a prompt cites, whether or not it cites a single tool.
+
+    A citation is a request for that data, so it is honoured on its own terms: a
+    prompt may want the catalogue and the business hours and nothing else. Tools
+    are a separate decision and never gate this, which is why it does not live
+    behind ``has_declarative_tools``.
+    """
+    client = agent.client or getattr(conversation, "client", None)
+    if client is None:
+        return system_content
+    return hydrate_commercial_prompt(db, client, conversation, system_content, contact=contact)
+
+
 def build_agent_context(
     db: Session,
     agent: Agent,
@@ -285,11 +294,14 @@ def build_agent_context(
     contact: Contact | None = None,
 ) -> AgentContextResult:
     """Build unified agent prompt context and tool specs across channels."""
-    if has_declarative_tools(agent.instructions):
-        declared = declared_tools(agent.instructions)
+    declared = declared_tools(agent.instructions)
+    effects: CommercialEffects | None = None
+    specs: list[ToolSpec] = []
+    c = contact or getattr(conversation, "contact", None)
+    client = agent.client or (conversation.client if hasattr(conversation, "client") else None)
+
+    if declared:
         effects = CommercialEffects()
-        client = agent.client or (conversation.client if hasattr(conversation, "client") else None)
-        c = contact or getattr(conversation, "contact", None)
         if c is None and client is not None:
             if conversation.contact_id:
                 c = db.get(Contact, conversation.contact_id)
@@ -304,18 +316,11 @@ def build_agent_context(
                 conversation.contact_id = c.id
                 db.flush()
         specs = build_commercial_tools(db, client, conversation, agent, c, declared, effects)
-        hydrated_content = hydrate_commercial_prompt(db, client, conversation, base_system_content, contact=c)
-        return AgentContextResult(
-            system_content=hydrated_content,
-            extra_specs=specs,
-            effects=effects,
-            is_commercial=True,
-        )
 
     return AgentContextResult(
-        system_content=base_system_content,
-        extra_specs=[],
-        effects=None,
-        is_commercial=False,
+        system_content=hydrate_cited_blocks(db, agent, conversation, base_system_content, contact=c),
+        extra_specs=specs,
+        effects=effects,
+        is_commercial=bool(declared),
     )
 

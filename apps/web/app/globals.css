@@ -3062,7 +3062,114 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .portal-composer.composer-card .composer-menu-list.up button:disabled { opacity: .45; }
 .portal-composer.composer-card .composer-menu-list.up button svg { flex: 0 0 auto; color: var(--muted); }
 
-/* Variables popover (Kommo style) */
+/* Prompt editor: a mirror paints the variables behind a transparent textarea.
+   The two layers have to agree on every metric that moves a glyph, or the paint
+   drifts from the text: same font, same line height, same padding, and a border
+   of the same width so the content boxes line up. */
+.prompt-editor { position: relative; }
+.prompt-editor-mirror,
+.prompt-editor-input {
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  font: inherit;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  tab-size: 4;
+}
+.prompt-editor-mirror {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  color: var(--ink);
+  pointer-events: none;
+}
+.prompt-editor-input {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  /* The mirror underneath is what you read; this layer only takes the clicks,
+     the caret and the selection. */
+  color: transparent;
+  caret-color: var(--ink);
+  background: transparent;
+  border-color: var(--line);
+  resize: vertical;
+  /* The gutter is always reserved, so the text does not re-wrap the moment the
+     prompt grows past the box and a scrollbar appears. The paint is inset by the
+     same amount, which is what keeps the two layers the same width. */
+  scrollbar-gutter: stable;
+}
+.prompt-editor-input::placeholder { color: var(--faint); }
+.prompt-editor-input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* The selection is the textarea's own, painted over the mirror: the text under
+   it shows through, so a selected variable reads as blue over its own colour. */
+.prompt-editor-input::selection { background: rgba(59, 130, 246, 0.32); }
+:root[data-theme="light"] .prompt-editor-input::selection { background: rgba(59, 130, 246, 0.22); }
+
+/* When the two layers cannot be shown to agree, the decoration is dropped and the
+   textarea's own text is painted instead: right place, no colours. */
+.prompt-editor-unaligned .prompt-editor-mirror { visibility: hidden; }
+.prompt-editor-unaligned .prompt-editor-input { color: var(--ink); }
+
+/* One variable, painted as one piece. The line colour and weight are the whole
+   treatment, so a new kind is two custom properties and nothing else. */
+.pv {
+  --pv-line: var(--muted);
+  --pv-fill: rgba(148, 163, 184, 0.12);
+  background: var(--pv-fill);
+  border-radius: 3px;
+  text-decoration-line: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--pv-line);
+}
+.pv-tool { --pv-line: #10b981; --pv-fill: rgba(16, 185, 129, 0.10); }
+.pv-block { --pv-line: #a78bfa; --pv-fill: rgba(139, 92, 246, 0.10); }
+.pv-stage { --pv-line: #f59e0b; --pv-fill: rgba(245, 158, 11, 0.10); }
+.pv-resource { --pv-line: #38bdf8; --pv-fill: rgba(56, 189, 248, 0.10); }
+.pv-control { --pv-line: #94a3b8; --pv-fill: rgba(148, 163, 184, 0.10); }
+.pv-unknown { --pv-line: #ef4444; --pv-fill: rgba(239, 68, 68, 0.10); }
+.pv-draft { --pv-line: #f59e0b; --pv-fill: rgba(245, 158, 11, 0.06); text-decoration-style: dashed; }
+
+.prompt-editor-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.prompt-editor-count { display: inline-flex; align-items: center; gap: 5px; }
+.prompt-editor-unknown {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  color: var(--red-text);
+  border: 1px solid var(--red-line);
+  background: var(--red-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+.prompt-editor-undo {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.prompt-editor-undo:hover { text-decoration: underline; }
+.prompt-editor-undo:disabled { color: var(--faint); cursor: default; text-decoration: none; }
+
 .variables-popover {
   position: absolute;
   bottom: calc(100% + 8px);

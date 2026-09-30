@@ -1,17 +1,31 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { AlertCircle, Brackets, Check, ChevronRight, FileText, Film, ImageIcon, Layers, Link2, Music, Wrench } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { AlertCircle, Brackets, Check, ChevronRight, FileText, Film, ImageIcon, Layers, Link2, Music, Undo2, Wrench } from "lucide-react";
 import { Alert, Modal } from "@/components/ui";
-import { useLanguage } from "@/lib/i18n";
+import { useLanguage, type I18nKey, type TranslateFn } from "@/lib/i18n";
+import {
+  atomicSpans,
+  caretLine,
+  expandToWhole,
+  fold,
+  nearestEdge,
+  parseVariables,
+  promptVariables,
+  segments,
+  spanInside,
+  type PromptVariable,
+} from "@/lib/agent-variables";
 import type { ClientResource, PipelineStage } from "@/types";
 
 export type PromptItem = {
   key: string;
   token: string;
   label: string;
-  category: "tools" | "blocks" | "stages" | "resources";
+  category: "tools" | "blocks" | "stages" | "resources" | "control";
   description: string;
+  /** Set on the item that opens a chooser instead of inserting a bare marker. */
+  picker?: string;
 };
 
 interface AgentPromptEditorProps {
@@ -26,9 +40,21 @@ interface AgentPromptEditorProps {
   onChange?: (val: string) => void;
 }
 
-const RESOURCE_TOOL_TOKEN = "[Herramienta: enviar_recurso]";
-const RESOURCE_TOOL_RE = /\[Herramienta:\s*(enviar_recurso|send_resource)\s*\]/i;
 const RESOURCE_TOKEN_RE = /\[Recurso:\s*([^\]\n]+?)\s*\]/gi;
+
+/** Where the insert list sits: under the line being written, or above it. */
+type ListPlacement =
+  | { below: true; offset: number; height: number }
+  | { below: false; offset: number; height: number };
+
+/** A list this tall is enough to scan; less and the list is in the way. */
+const MIN_LIST_HEIGHT = 150;
+const LIST_GAP = 6;
+
+// The paint is applied after the browser has had its say about the DOM, so the two
+// layers never disagree on screen. On the server there is no layout to read, and
+// React asks for the passive effect there instead.
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -39,8 +65,52 @@ function citedResources(text: string): string[] {
   return Array.from(text.matchAll(RESOURCE_TOKEN_RE), (m) => m[1].trim()).filter(Boolean);
 }
 
-function fold(s: string): string {
-  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+/**
+ * What each variable is for, by the machine name the server gave it. A variable
+ * with no entry here still appears in the list, described by its kind, so a
+ * server-side addition is never a blank row.
+ */
+const VAR_DESCRIPTION: Record<string, I18nKey> = {
+  check_calendar_availability: "agents.detail.varDesc.check_calendar_availability",
+  book_calendar_appointment: "agents.detail.varDesc.book_calendar_appointment",
+  reschedule_appointment: "agents.detail.varDesc.reschedule_appointment",
+  update_contact_info: "agents.detail.varDesc.update_contact_info",
+  move_lead_stage: "agents.detail.varDesc.move_lead_stage",
+  add_lead_tag: "agents.detail.varDesc.add_lead_tag",
+  add_internal_note: "agents.detail.varDesc.add_internal_note",
+  escalate_to_human: "agents.detail.varDesc.escalate_to_human",
+  stay_silent: "agents.detail.varDesc.stay_silent",
+  enviar_recurso: "agents.detail.varDesc.enviar_recurso",
+  temporal: "agents.detail.varDesc.temporal",
+  business_info: "agents.detail.varDesc.business_info",
+  catalog: "agents.detail.varDesc.catalog",
+  contact_card: "agents.detail.varDesc.contact_card",
+  appointments: "agents.detail.varDesc.appointments",
+  team_notes: "agents.detail.varDesc.team_notes",
+};
+
+const CATEGORY_COLOR: Record<PromptItem["category"], { line: string; fill: string; text: string }> = {
+  tools: { line: "#10b981", fill: "rgba(16, 185, 129, 0.2)", text: "#10b981" },
+  blocks: { line: "#a78bfa", fill: "rgba(139, 92, 246, 0.2)", text: "#a78bfa" },
+  stages: { line: "#f59e0b", fill: "rgba(245, 158, 11, 0.2)", text: "#f59e0b" },
+  resources: { line: "#38bdf8", fill: "rgba(56, 189, 248, 0.2)", text: "#38bdf8" },
+  control: { line: "#94a3b8", fill: "rgba(148, 163, 184, 0.2)", text: "#94a3b8" },
+};
+
+function describeVariable(row: PromptVariable, t: TranslateFn): string {
+  const byName = VAR_DESCRIPTION[row.value];
+  if (byName) return t(byName);
+  if (row.kind === "stage") return t("agents.detail.varDesc.stage");
+  if (row.kind === "resource") return t("agents.detail.varDesc.resource");
+  if (row.kind === "control") return t("agents.detail.varDesc.control");
+  return t("agents.detail.varDescUnknown");
+}
+
+/** A variable is offered when the query reads like it: in its marker, its label or what it does. */
+function matchesQuery(item: PromptItem, query: string): boolean {
+  const q = fold(query);
+  if (!q) return true;
+  return fold(item.token).includes(q) || fold(item.label).includes(q) || fold(item.description).includes(q);
 }
 
 export function AgentPromptEditor({
@@ -58,194 +128,268 @@ export function AgentPromptEditor({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [catalog, setCatalog] = useState<PromptVariable[] | null>(null);
+  const [catalogFailed, setCatalogFailed] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mirrorRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const undoStack = useRef<{ value: string; caret: number }[]>([]);
+  const [undoDepth, setUndoDepth] = useState(0);
+  // The bracket being filtered, so the list can be dismissed when the caret walks
+  // away from it instead of following the cursor around the whole prompt.
+  const openQuery = useRef<{ from: number; to: number } | null>(null);
+  const [listPlacement, setListPlacement] = useState<ListPlacement | null>(null);
+
+  // The guards below read the latest text without re-subscribing on every
+  // keystroke, which is what keeps a listener on the document affordable. An
+  // effect, not the render pass: a ref is written once the text it mirrors is
+  // on screen, and every reader runs from an event.
+  const contentRef = useRef(content);
+  useEffect(() => { contentRef.current = content; }, [content]);
 
   // Sync internal state if defaultValue changes from external loads
   useEffect(() => {
     setContent(defaultValue);
   }, [defaultValue]);
 
-  // Catalog of items
+  useEffect(() => {
+    let alive = true;
+    promptVariables()
+      .then((rows) => { if (alive) setCatalog(rows); })
+      .catch(() => { if (alive) setCatalogFailed(true); });
+    return () => { alive = false; };
+  }, []);
+
+  // Catalog of items. Every marker the editor can insert comes from the server's
+  // table, so what is offered and what the engine honours cannot drift apart.
   const items: PromptItem[] = useMemo(() => {
-    const list: PromptItem[] = [
-      // Commercial Tools
-      {
-        key: "tool-avail",
-        token: "[Herramienta: check_calendar_availability]",
-        label: "[Herramienta: check_calendar_availability]",
-        category: "tools",
-        description: "Consulta disponibilidad y cupos libres de agenda",
-      },
-      {
-        key: "tool-book",
-        token: "[Herramienta: book_calendar_appointment]",
-        label: "[Herramienta: book_calendar_appointment]",
-        category: "tools",
-        description: "Agenda cita formal (requiere nombre real verificado)",
-      },
-      {
-        key: "tool-resched",
-        token: "[Herramienta: reschedule_appointment]",
-        label: "[Herramienta: reschedule_appointment]",
-        category: "tools",
-        description: "Reprograma cita usando el número de la lista (ej: 1)",
-      },
-      {
-        key: "tool-update",
-        token: "[Herramienta: update_contact_info]",
-        label: "[Herramienta: update_contact_info]",
-        category: "tools",
-        description: "Actualiza nombre, teléfono o email del contacto",
-      },
-      {
-        key: "tool-stage",
-        token: '[Herramienta: move_lead_stage] a [Etapa: ...]',
-        label: "[Herramienta: move_lead_stage]",
-        category: "tools",
-        description: "Avanza etapa del embudo comercial (con protección anti-regresión)",
-      },
-      {
-        key: "tool-tag",
-        token: '[Herramienta: add_lead_tag] con "..."',
-        label: "[Herramienta: add_lead_tag]",
-        category: "tools",
-        description: 'Asigna una etiqueta comercial (ej: [Herramienta: add_lead_tag] con "Ortodoncia")',
-      },
-      {
-        key: "tool-note",
-        token: "[Herramienta: add_internal_note]",
-        label: "[Herramienta: add_internal_note]",
-        category: "tools",
-        description: "Registra una nota interna visible solo para el equipo",
-      },
-      {
-        key: "tool-escalate",
-        token: "[Herramienta: escalate_to_human]",
-        label: "[Herramienta: escalate_to_human]",
-        category: "tools",
-        description: "Deriva la conversación al equipo humano con motivo",
-      },
-      {
-        key: "tool-resource",
-        token: RESOURCE_TOOL_TOKEN,
-        label: RESOURCE_TOOL_TOKEN,
-        category: "tools",
-        description: t("resources.subtitle"),
-      },
-      {
-        key: "tool-silent",
-        token: "[Herramienta: stay_silent]",
-        label: "[Herramienta: stay_silent]",
-        category: "tools",
-        description: "Permanece en silencio cuando no amerita responder",
-      },
+    const list: PromptItem[] = [];
+    const stageShape = catalog?.find((row) => row.kind === "stage")?.template;
+    const resourceShape = catalog?.find((row) => row.kind === "resource")?.template;
 
-      // Dynamic Context Blocks
-      {
-        key: "block-datetime",
-        token: "[FECHA Y HORA ACTUAL DEL NEGOCIO]",
-        label: "[FECHA Y HORA ACTUAL DEL NEGOCIO]",
-        category: "blocks",
-        description: "Inyecta hora local y tabla de referencia de los próximos 14 días",
-      },
-      {
-        key: "block-catalog",
-        token: "[CATÁLOGO OFICIAL DE SERVICIOS Y TARIFAS]",
-        label: "[CATÁLOGO OFICIAL DE SERVICIOS Y TARIFAS]",
-        category: "blocks",
-        description: "Inyecta catálogo de servicios y tarifas con formato de moneda",
-      },
-      {
-        key: "block-location",
-        token: "[UBICACIÓN Y DATOS DEL NEGOCIO]",
-        label: "[UBICACIÓN Y DATOS DEL NEGOCIO]",
-        category: "blocks",
-        description: "Inyecta dirección física, mapa y horarios de atención comercial",
-      },
-      {
-        key: "block-lead",
-        token: "[FICHA COMERCIAL DEL PROSPECTO / CLIENTE]",
-        label: "[FICHA COMERCIAL DEL PROSPECTO / CLIENTE]",
-        category: "blocks",
-        description: "Inyecta ficha del contacto (distingue nombre real de perfil), etapa y tags",
-      },
-      {
-        key: "block-appointments",
-        token: "[CITAS ACTIVAS PROGRAMADAS PARA ESTE CLIENTE]",
-        label: "[CITAS ACTIVAS PROGRAMADAS PARA ESTE CLIENTE]",
-        category: "blocks",
-        description: "Inyecta citas futuras numeradas (1, 2) en formato amigable",
-      },
-      {
-        key: "block-notes",
-        token: "[NOTAS E INTERVENCIONES PREVIAS DEL EQUIPO HUMANO]",
-        label: "[NOTAS E INTERVENCIONES PREVIAS DEL EQUIPO HUMANO]",
-        category: "blocks",
-        description: "Inyecta historial cronológico de notas internas del equipo",
-      },
-    ];
+    for (const row of catalog ?? []) {
+      if (!row.token) continue;
+      const category: PromptItem["category"] =
+        row.kind === "tool" ? "tools" : row.kind === "block" ? "blocks" : "control";
+      list.push({
+        key: `${row.kind}-${row.value}`,
+        token: row.token,
+        label: row.token,
+        category,
+        description: describeVariable(row, t),
+        picker: row.picker ?? undefined,
+      });
+    }
 
-    // Pipeline stages from client
-    if (pipelineStages && pipelineStages.length > 0) {
-      for (const stage of pipelineStages) {
+    // The stages and the library are the client's own, so they arrive with the
+    // client rather than in the server's table. Until they do, two usual names
+    // keep the list useful; the client always wins over them.
+    const stages = pipelineStages && pipelineStages.length > 0
+      ? pipelineStages.map((stage) => stage.name)
+      : ["Descubrimiento", "Cita Agendada"];
+    if (stageShape) {
+      for (const [index, name] of stages.entries()) {
+        const token = stageShape.replace("{name}", name);
         list.push({
-          key: `stage-${stage.id}`,
-          token: `[Etapa: ${stage.name}]`,
-          label: `[Etapa: ${stage.name}]`,
+          key: `stage-${pipelineStages?.[index]?.id ?? `fallback-${name}`}`,
+          token,
+          label: token,
           category: "stages",
-          description: `Etapa oficial del embudo comercial (Posición #${stage.position + 1})`,
+          description: t("agents.detail.varDesc.stage"),
         });
       }
-    } else {
-      list.push(
-        {
-          key: "stage-descubrimiento",
-          token: "[Etapa: Descubrimiento]",
-          label: "[Etapa: Descubrimiento]",
-          category: "stages",
-          description: "Etapa de calificación inicial",
-        },
-        {
-          key: "stage-cita",
-          token: "[Etapa: Cita Agendada]",
-          label: "[Etapa: Cita Agendada]",
-          category: "stages",
-          description: "Etapa cuando el prospecto agenda una cita",
-        }
-      );
     }
 
     for (const resource of resources ?? []) {
-      if (!resource.is_active) continue;
+      if (!resource.is_active || !resourceShape) continue;
+      const token = resourceShape.replace("{name}", resource.name);
       const kind = resource.kind === "link" ? t("resources.kindLink") : t(`resources.kind.${resource.media_kind ?? "file"}`);
       list.push({
         key: `resource-${resource.id}`,
-        token: `[Recurso: ${resource.name}]`,
-        label: `[Recurso: ${resource.name}]`,
+        token,
+        label: token,
         category: "resources",
         description: resource.description || t("resources.picker.itemDescription", { kind }),
       });
     }
 
     return list;
-  }, [pipelineStages, resources, t]);
+  }, [catalog, pipelineStages, resources, t]);
 
-  const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return items;
-    const q = fold(searchQuery);
-    return items.filter((item) => {
-      const matchToken = fold(item.token).includes(q);
-      const matchLabel = fold(item.label).includes(q);
-      const matchDesc = fold(item.description).includes(q);
-      return matchToken || matchLabel || matchDesc;
-    });
-  }, [items, searchQuery]);
+  const resourceTool = useMemo(() => items.find((item) => item.picker === "resource"), [items]);
+  const resourceToolRe = useMemo(
+    () => (resourceTool ? new RegExp(escapeRegExp(resourceTool.token), "i") : null),
+    [resourceTool],
+  );
+
+  const filteredItems = useMemo(
+    () => (searchQuery.trim() ? items.filter((item) => matchesQuery(item, searchQuery)) : items),
+    [items, searchQuery],
+  );
 
   useEffect(() => {
     setSelectedIndex(0);
   }, [searchQuery, isOpen]);
+
+  // The variables in the text, and the two sets that matter: the ones that
+  // behave as a single piece, and the ones this release has no variable for.
+  const spans = useMemo(
+    () => parseVariables(content, { catalog, stages: pipelineStages, resources }),
+    [content, catalog, pipelineStages, resources],
+  );
+  const atomic = useMemo(() => atomicSpans(spans), [spans]);
+  const unknown = useMemo(() => spans.filter((span) => !span.known && !span.draft), [spans]);
+  const atomicRef = useRef(atomic);
+  useEffect(() => { atomicRef.current = atomic; }, [atomic]);
+  const painted = useMemo(() => segments(content, spans), [content, spans]);
+
+  const syncScroll = useCallback(() => {
+    const input = textareaRef.current;
+    const mirror = mirrorRef.current;
+    if (!input || !mirror) return;
+    mirror.scrollTop = input.scrollTop;
+    mirror.scrollLeft = input.scrollLeft;
+  }, []);
+
+  /**
+   * The paint is only shown while it provably sits on the text.
+   *
+   * The two layers have to be the same width, and they are not by default: a
+   * textarea's scrollbar takes its width out of the text inside it, while the
+   * layer that paints has no scrollbar and keeps the full width. Fifteen pixels
+   * wider means the paint wraps later than the text, and from that point on it
+   * sits a line higher than what the caret is on. So the paint is inset by the
+   * width the scrollbar took, and if the two ever still disagree the decoration
+   * is dropped: an uncoloured prompt that is in the right place beats a coloured
+   * one that is not.
+   */
+  const [aligned, setAligned] = useState(true);
+  const recheck = useRef<number | null>(null);
+  const agree = useCallback(() => {
+    const input = textareaRef.current;
+    const mirror = mirrorRef.current;
+    if (!input || !mirror) return;
+    mirror.scrollTop = input.scrollTop;
+    mirror.scrollLeft = input.scrollLeft;
+    const style = getComputedStyle(input);
+    const borders = Number.parseFloat(style.borderLeftWidth) + Number.parseFloat(style.borderRightWidth);
+    const scrollbar = Math.max(0, Math.round(input.offsetWidth - input.clientWidth - borders));
+    mirror.style.right = `${scrollbar}px`;
+
+    const inStep = () =>
+      mirror.scrollHeight === input.scrollHeight && mirror.clientWidth === input.clientWidth;
+    if (inStep()) {
+      if (recheck.current !== null) {
+        cancelAnimationFrame(recheck.current);
+        recheck.current = null;
+      }
+      setAligned((was) => (was ? was : true));
+      return;
+    }
+    // One frame of disagreement is ordinary: a font arriving, a scroll the paint
+    // has not caught up with yet. The colours are only given up if the
+    // disagreement is still there on the next frame.
+    if (recheck.current !== null) return;
+    recheck.current = requestAnimationFrame(() => {
+      recheck.current = null;
+      const el = textareaRef.current;
+      const paint = mirrorRef.current;
+      if (!el || !paint) return;
+      setAligned(paint.scrollHeight === el.scrollHeight && paint.clientWidth === el.clientWidth);
+    });
+  }, []);
+
+  useIsomorphicLayoutEffect(agree);
+
+  useEffect(() => () => {
+    if (recheck.current !== null) cancelAnimationFrame(recheck.current);
+  }, []);
+
+  // A render is not the only way the two layers can part ways: a font arriving, a
+  // window resized, the box dragged taller by hand. Watching both boxes covers
+  // those, and the check above decides what to show.
+  useEffect(() => {
+    const input = textareaRef.current;
+    const mirror = mirrorRef.current;
+    if (!input || !mirror || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(agree);
+    observer.observe(input);
+    observer.observe(mirror);
+    return () => observer.disconnect();
+  }, [agree]);
+
+  /**
+   * Puts the insert list under the line the caret is on, so writing is never
+   * hidden by the list that is meant to help with writing. A prompt is taller
+   * than any list, and a list pinned to the top of it covers the first screenful
+   * of what somebody came to read.
+   */
+  const placeList = useCallback(() => {
+    const wrap = wrapRef.current;
+    const mirror = mirrorRef.current;
+    const input = textareaRef.current;
+    if (!wrap || !mirror || !input) return;
+    const box = wrap.getBoundingClientRect();
+    const line = caretLine(mirror, input.selectionStart ?? 0);
+    if (!line) {
+      setListPlacement(null);
+      return;
+    }
+    const roomBelow = box.bottom - line.bottom - LIST_GAP;
+    const roomAbove = line.top - box.top - LIST_GAP;
+    if (roomBelow >= MIN_LIST_HEIGHT) {
+      setListPlacement({ below: true, offset: line.bottom - box.top + LIST_GAP, height: Math.min(360, roomBelow) });
+    } else if (roomAbove >= MIN_LIST_HEIGHT) {
+      setListPlacement({ below: false, offset: box.bottom - line.top + LIST_GAP, height: Math.min(360, roomAbove) });
+    } else {
+      setListPlacement(null);
+    }
+  }, []);
+
+  /**
+   * Write the whole value at once, remembering what was there. Writing
+   * ``element.value`` is the only way to place a marker exactly where the caret
+   * is, and it costs the browser's own undo history, so the editor keeps its
+   * own instead of losing the insertion for good.
+   */
+  const applyValue = useCallback((next: string, caret: number) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    undoStack.current.push({ value: contentRef.current, caret: el.selectionStart });
+    if (undoStack.current.length > 60) undoStack.current.shift();
+    setUndoDepth(undoStack.current.length);
+    el.value = next;
+    setContent(next);
+    onChange?.(next);
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+      syncScroll();
+    }, 0);
+  }, [onChange, syncScroll]);
+
+  const restore = useCallback((previous: { value: string; caret: number }) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.value = previous.value;
+    setContent(previous.value);
+    onChange?.(previous.value);
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(previous.caret, previous.caret);
+      syncScroll();
+    }, 0);
+  }, [onChange, syncScroll]);
+
+  const undo = useCallback(() => {
+    const previous = undoStack.current.pop();
+    if (!previous) return false;
+    setUndoDepth(undoStack.current.length);
+    restore(previous);
+    return true;
+  }, [restore]);
 
   // Insert token at current cursor position
   const insertToken = useCallback((tokenToInsert: string) => {
@@ -268,24 +412,16 @@ export function AgentPromptEditor({
       }
     }
 
-    const nextVal = newBefore + tokenToInsert + after;
-    el.value = nextVal;
-    setContent(nextVal);
-    onChange?.(nextVal);
-
     setIsOpen(false);
     setSearchQuery("");
-
-    setTimeout(() => {
-      el.focus();
-      const pos = newBefore.length + tokenToInsert.length;
-      el.setSelectionRange(pos, pos);
-    }, 0);
-  }, [onChange]);
+    openQuery.current = null;
+    applyValue(newBefore + tokenToInsert + after, newBefore.length + tokenToInsert.length);
+  }, [applyValue]);
 
   // The resource tool opens the picker instead of inserting a bare token.
   const choose = (item: PromptItem) => {
-    if (item.key === "tool-resource") {
+    openQuery.current = null;
+    if (item.picker) {
       setIsOpen(false);
       setSearchQuery("");
       setPickerOpen(true);
@@ -298,7 +434,7 @@ export function AgentPromptEditor({
    * new ones follow the tool token (inserted at the cursor when missing). */
   const applyPicker = (names: string[]) => {
     const el = textareaRef.current;
-    if (!el) return;
+    if (!el || !resourceTool || !resourceToolRe) return;
     const wanted = new Set(names.map(fold));
     let next = el.value;
     for (const cited of citedResources(next)) {
@@ -307,8 +443,11 @@ export function AgentPromptEditor({
       next = next.replace(new RegExp(`^[ \\t]*${token}[ \\t]*\\r?\\n?`, "gim"), "").replace(new RegExp(token, "gi"), "");
     }
     const present = new Set(citedResources(next).map(fold));
-    const lines = names.filter((name) => !present.has(fold(name))).map((name) => `[Recurso: ${name}]`);
-    const toolMatch = RESOURCE_TOOL_RE.exec(next);
+    const lines = names.filter((name) => !present.has(fold(name))).map((name) => {
+      const shape = catalog?.find((row) => row.kind === "resource")?.template;
+      return shape ? shape.replace("{name}", name) : `[Recurso: ${name}]`;
+    });
+    const toolMatch = resourceToolRe.exec(next);
     if (toolMatch) {
       if (lines.length) {
         // After the last resource already cited below the tool, or right after the tool.
@@ -316,21 +455,17 @@ export function AgentPromptEditor({
         for (const m of next.matchAll(RESOURCE_TOKEN_RE)) if ((m.index ?? 0) > at) at = (m.index ?? 0) + m[0].length;
         next = `${next.slice(0, at)}\n${lines.join("\n")}${next.slice(at)}`;
       }
-      el.value = next;
-      setContent(next);
-      onChange?.(next);
+      const caret = el.selectionStart;
       setPickerOpen(false);
+      applyValue(next, caret);
       return;
     }
-    el.value = next;
-    setContent(next);
-    onChange?.(next);
     setPickerOpen(false);
-    if (names.length) insertToken([RESOURCE_TOOL_TOKEN, ...lines].join("\n"));
+    if (names.length) insertToken([resourceTool.token, ...lines].join("\n"));
   };
 
   // Inspect typing for bracket trigger
-  const handleTextareaInput = () => {
+  const handleTextareaInput = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
 
@@ -345,17 +480,138 @@ export function AgentPromptEditor({
     if (lastBracket !== -1) {
       const queryText = before.slice(lastBracket + 1);
       if (!queryText.includes("]") && !queryText.includes("\n") && queryText.length <= 40) {
+        // A bracket followed by something that is not a variable is just writing.
+        // The list steps aside instead of sitting over the line to say so, and
+        // comes back on its own if the next keystroke starts matching again.
+        if (!items.some((item) => matchesQuery(item, queryText))) {
+          openQuery.current = null;
+          setIsOpen(false);
+          setSearchQuery("");
+          return;
+        }
         setSearchQuery(queryText);
+        openQuery.current = { from: lastBracket, to: start };
         setIsOpen(true);
         return;
       }
     }
 
+    openQuery.current = null;
     setIsOpen(false);
     setSearchQuery("");
+  }, [items, onChange]);
+
+  /**
+   * The caret treats a variable as one character. Where the browser is about to
+   * put it inside one, it goes to the far edge instead, so it can never come to
+   * rest in the middle and never sticks on an edge it cannot move past.
+   */
+  const stepOverToken = useCallback((el: HTMLTextAreaElement, direction: 1 | -1): boolean => {
+    const tokens = atomicRef.current;
+    if (!tokens.length) return false;
+    const start = el.selectionStart;
+    if (start !== el.selectionEnd) return false;
+    const next = start + direction;
+    const token = direction > 0
+      ? tokens.find((span) => span.start <= next && next < span.end)
+      : tokens.find((span) => span.start < next && next <= span.end);
+    if (!token) return false;
+    const to = direction > 0 ? token.end : token.start;
+    el.setSelectionRange(to, to);
+    return true;
+  }, []);
+
+  /**
+   * The last line of defence, and the only one that sees every route an edit can
+   * take: a keystroke, a paste, a cut, a drop. A caret that has landed inside a
+   * variable is moved to its edge, and an edit that would cut one in half is
+   * refused rather than applied.
+   */
+  const handleBeforeInput = (event: FormEvent<HTMLTextAreaElement>) => {
+    const el = event.currentTarget;
+    const tokens = atomicRef.current;
+    if (!tokens.length) return;
+    const target = (event.nativeEvent as InputEvent).getTargetRanges?.()[0];
+    const start = target?.startOffset ?? el.selectionStart;
+    const end = target?.endOffset ?? el.selectionEnd;
+    if (start === end) {
+      const inside = spanInside(tokens, start);
+      if (!inside) return;
+      event.preventDefault();
+      const edge = nearestEdge(inside, start);
+      el.setSelectionRange(edge, edge);
+      return;
+    }
+    const whole = expandToWhole(tokens, start, end);
+    if (whole.start === start && whole.end === end) return;
+    event.preventDefault();
+    el.setSelectionRange(whole.start, whole.end);
   };
 
+  // Clicks, drags and anything else that moves the caret without a keystroke.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const settle = () => {
+      if (document.activeElement !== el) return;
+      const tokens = atomicRef.current;
+      if (tokens.length) {
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+        if (start === end) {
+          const inside = spanInside(tokens, start);
+          if (inside) {
+            const edge = nearestEdge(inside, start);
+            el.setSelectionRange(edge, edge);
+            return;
+          }
+        } else {
+          const whole = expandToWhole(tokens, start, end);
+          if (whole.start !== start || whole.end !== end) {
+            el.setSelectionRange(whole.start, whole.end);
+            return;
+          }
+        }
+      }
+      if (isOpen) placeList();
+    };
+    document.addEventListener("selectionchange", settle);
+    return () => document.removeEventListener("selectionchange", settle);
+  }, [isOpen, placeList]);
+
+  // The list belongs to the bracket it was opened for. Once the caret walks out
+  // of it the list goes, instead of following along and sitting over the text.
+  useEffect(() => {
+    if (!isOpen) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    const dismiss = () => {
+      const query = openQuery.current;
+      if (!query) return;
+      const caret = el.selectionStart ?? 0;
+      if (caret < query.from || caret > query.to) {
+        openQuery.current = null;
+        setIsOpen(false);
+        setSearchQuery("");
+      } else {
+        placeList();
+      }
+    };
+    document.addEventListener("selectionchange", dismiss);
+    return () => document.removeEventListener("selectionchange", dismiss);
+  }, [isOpen, placeList]);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+      if (undo()) e.preventDefault();
+      return;
+    }
+
+    if (e.key === "ArrowRight" && stepOverToken(el, 1)) { e.preventDefault(); return; }
+    if (e.key === "ArrowLeft" && stepOverToken(el, -1)) { e.preventDefault(); return; }
+
     if (!isOpen) return;
 
     if (e.key === "ArrowDown") {
@@ -371,6 +627,7 @@ export function AgentPromptEditor({
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
+      openQuery.current = null;
       setIsOpen(false);
       setSearchQuery("");
     }
@@ -385,6 +642,7 @@ export function AgentPromptEditor({
         textareaRef.current &&
         !textareaRef.current.contains(event.target as Node)
       ) {
+        openQuery.current = null;
         setIsOpen(false);
       }
     }
@@ -394,48 +652,31 @@ export function AgentPromptEditor({
     }
   }, [isOpen]);
 
-  // Validation Warnings
+  // Validation Warnings. What the scanner already paints red (an unknown stage, a
+  // resource that is not in the library) is reported there instead of twice.
+  useEffect(() => {
+    if (isOpen) placeList();
+  }, [isOpen, placeList]);
+
   const warnings = useMemo(() => {
     const list: string[] = [];
-
-    // Check timezone
     if (content.includes("[FECHA Y HORA ACTUAL DEL NEGOCIO]")) {
       const tz = (clientTimezone || "").trim().toUpperCase();
       if (!tz || tz === "UTC") {
         list.push(t("agents.detail.timezoneUtcWarning"));
       }
     }
-
-    // Check pipeline stages
-    if (pipelineStages && pipelineStages.length > 0) {
-      const stageRegex = /\[Etapa:\s*([^\]]+)\]/gi;
-      let match;
-      const knownStages = new Set(pipelineStages.map((s) => fold(s.name)));
-      while ((match = stageRegex.exec(content)) !== null) {
-        const rawName = match[1].trim();
-        if (rawName && !knownStages.has(fold(rawName))) {
-          list.push(t("agents.detail.stageNotFoundWarning", { stage: rawName }));
-        }
-      }
+    if (citedResources(content).length && resourceTool && !resourceToolRe?.test(content)) {
+      list.push(t("resources.warnings.missingTool"));
     }
-
-    // Check library resources
-    const cited = citedResources(content);
-    if (cited.length && !RESOURCE_TOOL_RE.test(content)) list.push(t("resources.warnings.missingTool"));
-    if (resources) {
-      const known = new Set(resources.filter((r) => r.is_active).map((r) => fold(r.name)));
-      for (const name of cited) {
-        if (!known.has(fold(name))) list.push(t("resources.warnings.unknownResource", { name }));
-      }
-    }
-
     return list;
-  }, [content, pipelineStages, clientTimezone, resources, t]);
+  }, [content, clientTimezone, resourceTool, resourceToolRe, t]);
 
   const categoryTitle = (cat: string) => {
     if (cat === "tools") return t("agents.detail.toolsCategory");
     if (cat === "blocks") return t("agents.detail.blocksCategory");
     if (cat === "resources") return t("resources.title");
+    if (cat === "control") return t("agents.detail.controlCategory");
     return t("agents.detail.stagesCategory");
   };
 
@@ -443,33 +684,62 @@ export function AgentPromptEditor({
     <div className="agent-prompt-editor-wrap" style={{ position: "relative" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
         <span style={{ fontSize: 13, fontWeight: 500 }}>{t("agents.detail.promptLabel")}</span>
-        <button
-          type="button"
-          className="button secondary small"
-          style={{ fontSize: 12, padding: "4px 8px", display: "inline-flex", alignItems: "center", gap: 5 }}
-          onClick={() => {
-            setSearchQuery("");
-            setIsOpen((prev) => !prev);
-            textareaRef.current?.focus();
-          }}
-          title={t("agents.detail.insertVariableOrTool")}
-        >
-          <Brackets size={14} />
-          <span>{t("agents.detail.insertVariableOrTool")}</span>
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {undoDepth > 0 && (
+            <button type="button" className="prompt-editor-undo" style={{ marginLeft: 0 }} onClick={undo}>
+              <Undo2 size={13} /> {t("agents.detail.undoInsert")}
+            </button>
+          )}
+          <button
+            type="button"
+            className="button secondary small"
+            style={{ fontSize: 12, padding: "4px 8px", display: "inline-flex", alignItems: "center", gap: 5 }}
+            onClick={() => {
+              setSearchQuery("");
+              setIsOpen((prev) => !prev);
+              textareaRef.current?.focus();
+            }}
+            title={t("agents.detail.insertVariableOrTool")}
+          >
+            <Brackets size={14} />
+            <span>{t("agents.detail.insertVariableOrTool")}</span>
+          </button>
+        </div>
       </div>
 
-      <div style={{ position: "relative" }}>
-        <textarea
-          ref={textareaRef}
-          name="instructions"
-          rows={18}
-          value={content}
-          onChange={handleTextareaInput}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          style={{ width: "100%", fontFamily: "inherit" }}
-        />
+      <div ref={wrapRef} style={{ position: "relative" }}>
+        <div className={`prompt-editor${aligned ? "" : " prompt-editor-unaligned"}`}>
+          <div ref={mirrorRef} className="prompt-editor-mirror" aria-hidden="true">
+            {painted.map((part, index) =>
+              part.span ? (
+                <span
+                  key={index}
+                  className={`pv pv-${part.span.draft ? "draft" : part.span.known ? part.span.kind : "unknown"}`}
+                >
+                  {part.text}
+                </span>
+              ) : (
+                <span key={index}>{part.text}</span>
+              ),
+            )}
+            {"\n"}
+          </div>
+          <textarea
+            ref={textareaRef}
+            name="instructions"
+            rows={18}
+            value={content}
+            onChange={handleTextareaInput}
+            onKeyDown={handleKeyDown}
+            onBeforeInput={handleBeforeInput}
+            onScroll={() => {
+              syncScroll();
+              if (isOpen) placeList();
+            }}
+            placeholder={placeholder}
+            className="prompt-editor-input"
+          />
+        </div>
 
         {isOpen && (
           <div
@@ -477,13 +747,19 @@ export function AgentPromptEditor({
             className="variables-popover"
             style={{
               position: "absolute",
-              bottom: "auto",
-              top: 8,
+              // Under the line being written, or over the one above it when the
+              // caret is near the bottom. Never across the caret: the whole point
+              // of the list is to be read while typing.
+              ...(listPlacement
+                ? listPlacement.below
+                  ? { top: listPlacement.offset, bottom: "auto" }
+                  : { bottom: listPlacement.offset, top: "auto" }
+                : { top: 8, bottom: "auto" }),
               left: 8,
               right: 8,
               width: "auto",
               maxWidth: 580,
-              maxHeight: 380,
+              maxHeight: listPlacement ? listPlacement.height : 380,
               zIndex: 100,
             }}
           >
@@ -499,14 +775,20 @@ export function AgentPromptEditor({
               </div>
             </div>
 
-            <div className="variables-list" style={{ maxHeight: 310, overflowY: "auto", padding: 6 }}>
+            <div
+              className="variables-list"
+              style={{ maxHeight: listPlacement ? Math.max(80, listPlacement.height - 48) : 310, overflowY: "auto", padding: 6 }}
+            >
               {filteredItems.length === 0 ? (
                 <div style={{ padding: "16px", textAlign: "center", color: "#888", fontSize: 13 }}>
-                  No se encontraron herramientas o variables que coincidan con &quot;{searchQuery}&quot;
+                  {catalogFailed
+                    ? t("agents.detail.variablesUnavailable")
+                    : t("agents.detail.variablesNoneFound", { query: searchQuery })}
                 </div>
               ) : (
                 filteredItems.map((item, idx) => {
                   const isSelected = idx === selectedIndex;
+                  const color = CATEGORY_COLOR[item.category];
                   return (
                     <button
                       key={item.key}
@@ -540,8 +822,8 @@ export function AgentPromptEditor({
                               fontSize: 10,
                               padding: "2px 6px",
                               borderRadius: 4,
-                              background: item.category === "tools" ? "rgba(16, 185, 129, 0.2)" : item.category === "blocks" ? "rgba(139, 92, 246, 0.2)" : "rgba(245, 158, 11, 0.2)",
-                              color: item.category === "tools" ? "#10b981" : item.category === "blocks" ? "#a78bfa" : "#f59e0b",
+                              background: color.fill,
+                              color: color.text,
                             }}
                           >
                             {categoryTitle(item.category)}
@@ -558,6 +840,25 @@ export function AgentPromptEditor({
             </div>
           </div>
         )}
+      </div>
+
+      <div className="prompt-editor-status">
+        <span className="prompt-editor-count">
+          <Brackets size={13} />
+          {t("agents.detail.variablesCount", { count: atomic.length })}
+        </span>
+        {unknown.length > 0 && (
+          <span className="prompt-editor-count" style={{ color: "var(--red-text)" }}>
+            <AlertCircle size={13} />
+            {t("agents.detail.variablesUnknown", { count: unknown.length })}
+          </span>
+        )}
+        {unknown.map((span) => (
+          <span key={span.start} className="prompt-editor-unknown" title={t("agents.detail.variablesUnknownHint")}>
+            {span.raw}
+          </span>
+        ))}
+        {atomic.length > 0 && <span>{t("agents.detail.atomicHint")}</span>}
       </div>
 
       <span className="field-help" style={{ marginTop: 4, display: "block" }}>
@@ -577,7 +878,7 @@ export function AgentPromptEditor({
         </div>
       )}
 
-      {pickerOpen && (
+      {pickerOpen && resourceTool && (
         <ResourcePicker
           resources={(resources ?? []).filter((r) => r.is_active)}
           initial={citedResources(content)}
@@ -610,25 +911,27 @@ function ResourcePicker({ resources, initial, fileUrl, onApply, onClose }: {
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const icon = (r: ClientResource) => r.kind === "link" ? <Link2 size={16} /> : r.media_kind === "image" ? <ImageIcon size={16} /> : r.media_kind === "video" ? <Film size={16} /> : r.media_kind === "audio" ? <Music size={16} /> : <FileText size={16} />;
+  const icon = (r: ClientResource) => r.kind === "file" ? r.media_kind === "image" ? <ImageIcon size={16} /> : r.media_kind === "video" ? <Film size={16} /> : r.media_kind === "audio" ? <Music size={16} /> : <FileText size={16} /> : <Link2 size={16} />;
 
   return <Modal open title={t("resources.picker.title")} description={t("resources.picker.copy")} onClose={onClose}>
     <div className="modal-form">
       {resources.length === 0 ? <Alert type="info">{t("resources.picker.empty")}</Alert> : <>
         <input className="resource-picker-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("resources.picker.search")} autoFocus />
         <ul className="resource-picker-list">
-          {shown.map((r) => <li key={r.id}>
-            <label>
-              <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
-              {r.kind === "file" && r.media_kind === "image" && fileUrl
-                ? <img className="resource-thumb" src={fileUrl(r)} alt="" loading="lazy" />
-                : <span className="resource-thumb resource-icon">{icon(r)}</span>}
-              <span>
-                <strong>{r.name}</strong>
-                <small>{r.description || (r.kind === "link" ? r.url : r.filename)}</small>
-              </span>
-            </label>
-          </li>)}
+          {shown.map((r) => (
+            <li key={r.id}>
+              <label>
+                <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
+                {r.kind === "file" && r.media_kind === "image" && fileUrl
+                  ? <img className="resource-thumb" src={fileUrl(r)} alt="" loading="lazy" />
+                  : <span className="resource-thumb resource-icon">{icon(r)}</span>}
+                <span>
+                  <strong>{r.name}</strong>
+                  <small>{r.description || (r.kind === "link" ? r.url : r.filename)}</small>
+                </span>
+              </label>
+            </li>
+          ))}
         </ul>
       </>}
       <div className="modal-actions">

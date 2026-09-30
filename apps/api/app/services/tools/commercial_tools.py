@@ -1,6 +1,6 @@
 """Declarative commercial tools for autonomous CRM agents.
 
-Builds tool specifications for the 9 commercial tools referenced in prompts:
+Builds tool specifications for the 10 commercial tools referenced in prompts:
 - check_calendar_availability
 - book_calendar_appointment
 - reschedule_appointment
@@ -44,6 +44,31 @@ MONTHS_ES = [
     "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ]
+
+# The tools a prompt may cite as [Herramienta: name], in the order the editor
+# offers them. ``enviar_recurso`` lives with the tool that builds it, in
+# ``resource_tool.TOOL_NAMES``.
+TOOL_NAMES: tuple[str, ...] = (
+    "check_calendar_availability",
+    "book_calendar_appointment",
+    "reschedule_appointment",
+    "update_contact_info",
+    "move_lead_stage",
+    "add_lead_tag",
+    "add_internal_note",
+    "escalate_to_human",
+    "stay_silent",
+)
+
+# Older spellings still accepted, so a prompt written against an earlier release
+# keeps the tool it was written for. The loop shows the model whichever of the
+# two the prompt cited, and the panel colours both as the one tool they mean.
+TOOL_ALIASES: dict[str, tuple[str, ...]] = {
+    "update_contact_info": ("update_lead_fields",),
+    "move_lead_stage": ("move_pipeline_stage",),
+    "add_internal_note": ("add_lead_note",),
+    "escalate_to_human": ("transfer_to_human",),
+}
 
 
 def strip_accents(s: str) -> str:
