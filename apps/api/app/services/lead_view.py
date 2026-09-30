@@ -9,6 +9,7 @@ lists show.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 
@@ -20,6 +21,39 @@ from ..schemas import ConversationDetail, ConversationOut, LinkedThreadOut, Mess
 from . import channel_accounts, lead_group
 
 _SOCIAL = ("instagram", "messenger")
+
+# What the widget used to write into the name field for an anonymous visitor,
+# before the handle was derived on the way out. Rows written before that still
+# carry it, and this is the only place that knows the shape, so the inbox stops
+# reading a made-up label as if a person had introduced themselves.
+_LEGACY_VISITOR = re.compile(r"^Visitor ([0-9A-F]{6})$")
+
+
+def name_parts(conversation: Conversation) -> tuple[str | None, str | None]:
+    """A lead's name, and the handle that stands in for it when it has none.
+
+    A name is something a person gave: the agency typed it, or the visitor said
+    it. Anything else belongs beside the name, not on top of it, which is why a
+    web chat that never gave one comes back with no name at all and a short
+    handle drawn from its browser session instead. Two visitors then stay
+    tellable apart without either of them being labelled "Visitor".
+    """
+    stored = (conversation.contact_name or "").strip()
+    legacy = _LEGACY_VISITOR.match(stored)
+    if legacy:
+        return None, legacy.group(1)
+    if stored:
+        return stored, None
+    chat_id = conversation.external_chat_id or ""
+    if conversation.channel == "widget" and chat_id.startswith("widget:"):
+        return None, chat_id.removeprefix("widget:").replace("-", "")[:6].upper() or None
+    return None, None
+
+
+def _named(item: ConversationOut, conversation: Conversation) -> dict:
+    """The name fields of a row, cleaned: a handle is never a name."""
+    name, handle = name_parts(conversation)
+    return {"contact_name": name, "visitor_handle": handle}
 
 
 def thread_window(conversation: Conversation, last_inbound_at: datetime | None) -> dict:
@@ -91,6 +125,7 @@ def with_group(db: Session, conversation: Conversation, detail: ConversationDeta
             "messages": messages,
             "mode": "human" if any(row.mode == "human" for row in group) else conversation.mode,
             "channels": stats.channels,
+            **_named(detail, conversation),
             "linked_count": stats.linked_count,
             "linked_threads": [
                 LinkedThreadOut(
@@ -116,7 +151,7 @@ def list_item(
     """Fold a lead's group into one list row: channels, how many threads were
     merged in, the lead answered by a person while any thread is, and the
     latest activity across the group."""
-    update: dict = {}
+    update: dict = dict(_named(item, conversation))
     if group_human and item.mode != "human":
         update["mode"] = "human"
     if stats is not None:

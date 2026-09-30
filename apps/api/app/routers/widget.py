@@ -157,9 +157,10 @@ def _conversation(db: Session, channel: WidgetChannel, session_id: str) -> Conve
             widget_channel_id=channel.id,
             channel="widget",
             external_chat_id=f"widget:{session_id}",
-            # Anonymous visitors need telling apart in the inbox: a short,
-            # stable handle from their browser session does that.
-            contact_name=f"Visitor {session_id.replace('-', '')[:6].upper()}",
+            # No name: an anonymous visitor never gave one, and writing a handle
+            # here would make the inbox read it as one. lead_view.name_parts
+            # derives a short handle from the session for telling two of these
+            # apart, and leaves the name empty until somebody learns one.
             title="Web chat",
         )
         db.add(conversation)

@@ -87,6 +87,36 @@ def test_moving_a_conversation_and_the_board(authenticated_client: TestClient):
     # The card stays on the board, now in the virtual "not in the pipeline" column.
     assert [c["pipeline_stage_id"] for c in board_after["cards"]] == [None]
     assert board_after["unassigned_count"] == 1
+    assert board_after["total"] == 1 and board_after["truncated"] is False
+
+
+def test_a_board_that_had_to_leave_leads_out_says_so(authenticated_client: TestClient):
+    """The board answers with the most recent MAX_BOARD_CARDS leads. A client
+    with more than that has to be able to tell the difference between a column
+    that ends and a pipeline that does."""
+    from app.models import Client as ClientModel, Conversation
+    from app.services.pipeline import MAX_BOARD_CARDS
+    from conftest import TestingSession
+    import uuid
+
+    client = authenticated_client
+    customer, agent = _setup(client, "Big Board Co")
+    with TestingSession() as db:
+        agency_id = db.get(ClientModel, uuid.UUID(customer["id"])).agency_id
+        for number in range(1, MAX_BOARD_CARDS + 2):
+            db.add(Conversation(
+                agency_id=agency_id, client_id=customer["id"], agent_id=agent["id"], number=number,
+                channel="whatsapp", external_chat_id=f"573{number:010d}@s.whatsapp.net", title=f"Lead {number}",
+            ))
+        db.commit()
+
+    board = client.get(f"/api/clients/{customer['id']}/pipeline/board").json()
+    assert len(board["cards"]) == MAX_BOARD_CARDS
+    assert board["total"] == MAX_BOARD_CARDS + 1, "the count is the client's, not the page's"
+    assert board["truncated"] is True
+    # Counted over every lead, not over the page: the virtual column's count is
+    # what the client compares against, so a capped page must not under-report it.
+    assert board["unassigned_count"] == MAX_BOARD_CARDS + 1
 
 
 def test_deleting_a_stage_clears_it_from_conversations(authenticated_client: TestClient):

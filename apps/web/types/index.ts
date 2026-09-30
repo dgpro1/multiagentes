@@ -177,6 +177,9 @@ export type ConversationInbox = {
   number?: number;
   title: string;
   contact_name: string | null;
+  /** Short handle for a lead with no name (an anonymous web chat), so two of
+   * them can still be told apart. Never shown as if it were a name. */
+  visitor_handle?: string | null;
   channel: string;
   account_label?: string | null;
   mode: "ai" | "human";
@@ -224,6 +227,8 @@ export type PipelineCard = {
   number?: number;
   title: string;
   contact_name: string | null;
+  /** See ConversationRow.visitor_handle. */
+  visitor_handle?: string | null;
   contact_id: string | null;
   tags: { name: string; color: string }[];
   channel: string;
@@ -241,6 +246,10 @@ export type PipelineBoard = {
   currency?: string;
   stages: PipelineStage[];
   unassigned_count: number;
+  /** Open leads the client has, against `cards.length`: they differ when the
+   * board had to cap how many it sends. */
+  total?: number;
+  truncated?: boolean;
   cards: PipelineCard[];
 };
 export type Conversation = {
@@ -281,6 +290,8 @@ export type Conversation = {
   channel: string;
   external_chat_id: string | null;
   contact_name: string | null;
+  /** See ConversationRow.visitor_handle. */
+  visitor_handle?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;
   contact_id?: string | null;

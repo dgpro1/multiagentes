@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..models import Agent, Client, Contact, Conversation, PipelineStage, now_utc
 from ..schemas import PipelineStageCreate, PipelineStageUpdate, QuickLeadCreate
-from . import lead_group
+from . import lead_group, lead_view
 from .contacts import normalize_phone, resolve_contact
 from .conversation_state import record_activity, set_pipeline_stage
 from .tools.specs import ToolSpec
@@ -102,33 +102,46 @@ MAX_BOARD_CARDS = 400
 def board(db: Session, client: Client) -> dict:
     """Every staged deal, plus open conversations still off the pipeline (a
     virtual "not in the pipeline" column the board renders first) so a
-    conversation can be dragged in without a separate picker elsewhere."""
+    conversation can be dragged in without a separate picker elsewhere.
+
+    The board answers with the most recent ``MAX_BOARD_CARDS`` deals, and it says
+    so: a client with more than that would otherwise watch a lead go missing off
+    the bottom of a column with nothing on screen to explain it. Pagination per
+    column is the real fix and waits for a client that needs it; until then the
+    total and the flag are what keep the board honest.
+    """
+    open_leads = (
+        Conversation.client_id == client.id,
+        Conversation.status == "open",
+        Conversation.archived_at.is_(None),
+        lead_group.is_lead_row(),
+    )
     stages = list_stages(db, client)
     cards = db.scalars(
         select(Conversation)
         .options(selectinload(Conversation.contact).selectinload(Contact.tags))
-        .where(
-            Conversation.client_id == client.id,
-            Conversation.status == "open",
-            Conversation.archived_at.is_(None),
-            lead_group.is_lead_row(),
-        )
+        .where(*open_leads)
         .order_by(Conversation.updated_at.desc())
         .limit(MAX_BOARD_CARDS)
     ).all()
-    unassigned_count = sum(1 for c in cards if c.pipeline_stage_id is None)
+    counted = select(func.count()).select_from(Conversation).where(*open_leads)
+    total = db.scalar(counted) or 0
+    unassigned_count = db.scalar(counted.where(Conversation.pipeline_stage_id.is_(None))) or 0
     return {
         "currency": client.currency or "USD",
         "stages": [stage_out(db, stage) for stage in stages],
         "unassigned_count": unassigned_count,
+        "total": total,
+        "truncated": total > len(cards),
         "cards": [_card_dict(card) for card in cards],
     }
 
 
 def _card_dict(card: Conversation) -> dict:
     contact = card.contact
+    name, handle = lead_view.name_parts(card)
     return {
-        "id": card.id, "number": card.number, "title": card.title, "contact_name": card.contact_name,
+        "id": card.id, "number": card.number, "title": card.title, "contact_name": name, "visitor_handle": handle,
         "contact_id": card.contact_id,
         "tags": [{"name": tag.name, "color": tag.color} for tag in (contact.tags if contact else [])],
         "channel": card.channel,

@@ -25,6 +25,7 @@ import { api, messageFrom } from "@/lib/api";
 import { useLanguage, useT, type Lang } from "@/lib/i18n";
 import type { PipelineBoard as PipelineBoardData, PipelineCard, PipelineStage } from "@/types";
 import { fold } from "@/lib/text";
+import { agencyInboxPath } from "@/lib/routes";
 
 const UNASSIGNED = "__unassigned__";
 const PALETTE = ["#94a3b8", "#3b82f6", "#00876c", "#8b5cf6", "#f59e0b", "#c83b82", "#0891b2", "#65a30d"];
@@ -55,11 +56,16 @@ export function PipelineBoard({
   base,
   canManage,
   clientName,
-}: {
+  clientSlug,
+  }: {
   base: string;
   canManage: boolean;
   clientName?: string;
-}) {
+  /** The agency's inbox names a lead by its client and its number, so a card
+   * opened from the agency needs the slug. The portal carries it in `base`. */
+  clientSlug?: string | null;
+  }) {
+
   const t = useT();
   const { lang } = useLanguage();
   const toast = useToast();
@@ -188,14 +194,21 @@ export function PipelineBoard({
     return (board?.cards ?? []).filter(matches);
   }, [board, matches]);
 
+  // Every lead has its own address, in both doors: the portal numbers it inside
+  // the client, and the agency-wide inbox has to name the client too, because a
+  // number is only unique within one. The old query-string address still
+  // redirects, so it stays as the fallback for a board rendered before the
+  // client slug is known.
   const threadUrl = useCallback(
     (id: string, number?: number) =>
-      base.startsWith("/portal")
-        ? number
+      number == null
+        ? base.startsWith("/portal")
+          ? `${base}?conversation=${id}`
+          : `/inbox?conversation=${id}`
+        : base.startsWith("/portal")
           ? `${base}/inbox/${number}`
-          : `${base}?conversation=${id}`
-        : `/inbox?conversation=${id}`,
-    [base]
+          : agencyInboxPath(clientSlug, number),
+    [base, clientSlug]
   );
 
   const pipelinePath = useCallback(
@@ -277,6 +290,13 @@ export function PipelineBoard({
 
   return (
     <div className="pipeline-view">
+      {/* A capped board says so, rather than letting a lead go missing off the
+          bottom of a column with nothing on screen to explain it. */}
+      {board.truncated && (
+        <p className="pipeline-truncated" role="status">
+          {t("pipeline.boardTruncated", { shown: board.cards.length, total: board.total ?? board.cards.length })}
+        </p>
+      )}
       {/* Top Bar Header */}
       <div className="pipeline-topbar">
         <div className="pipeline-topbar-left">
@@ -319,7 +339,10 @@ export function PipelineBoard({
             <div className="pipeline-search-divider" />
             <div className="pipeline-search-metrics">
               <span className="pipeline-metric-label">Total leads:</span>
-              <strong className="pipeline-metric-lead-count">{board.cards.length}</strong>
+              {/* The client's real count, not how many cards fit: the two differ
+                  only when the board had to leave some out, and the notice
+                  below says so. */}
+              <strong className="pipeline-metric-lead-count">{board.total ?? board.cards.length}</strong>
               <span className="pipeline-metric-dot">•</span>
               <span className="pipeline-metric-label">Total:</span>
               <strong className="pipeline-metric-total-sum">{money(totalValue, currency, lang)}</strong>
@@ -492,6 +515,7 @@ export function PipelineBoard({
                               >
                                 {name}
                               </a>
+                              {card.visitor_handle && <span className="lead-handle">{card.visitor_handle}</span>}
                               {card.preview && (
                                 <div className="pipeline-list-preview">
                                   {card.preview}
@@ -669,6 +693,7 @@ function PipelineCardView({
               IA Respondiendo
             </span>
           )}
+          {card.visitor_handle && <span className="lead-handle">{card.visitor_handle}</span>}
         </div>
 
         <div className="pipeline-card-meta-right">

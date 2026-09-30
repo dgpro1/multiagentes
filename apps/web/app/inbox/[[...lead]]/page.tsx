@@ -603,7 +603,7 @@ export default function InboxPage() {
                   <span className="inbox-row-body">
                     <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
                     <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
-                    <small className="inbox-row-meta">{item.agent_name} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
+                    <small className="inbox-row-meta">{item.agent_name} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>}{item.visitor_handle && <span className="lead-handle">{item.visitor_handle}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
                   </span>
                   {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
                 </Link>
@@ -626,7 +626,7 @@ export default function InboxPage() {
             <header>
               <button type="button" className="icon-button inbox-back" onClick={closeThread} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button>
               <LeadHeaderButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)}>
-                <div><strong>{selected.contact_name || selected.title}</strong><small>{channelLabel(selected.channel)}{selected.account_label && <> <span className="account-badge" title={selected.account_label}>{selected.account_label}</span></>}</small></div>
+                <div><strong>{selected.contact_name || selected.title}</strong><small>{/* A lead reached through several channels says so here too, the way its row does, instead of naming only the first. */}{leadChannels(selected).length > 1 ? <ChannelDots channels={leadChannels(selected)} t={t} /> : channelLabel(selected.channel)}{selected.account_label && <> <span className="account-badge" title={selected.account_label}>{selected.account_label}</span></>}{selected.visitor_handle && <> <span className="lead-handle">{selected.visitor_handle}</span></>}</small></div>
               </LeadHeaderButton>
               <div className="thread-actions">
                 

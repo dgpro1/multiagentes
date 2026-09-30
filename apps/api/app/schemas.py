@@ -542,6 +542,9 @@ class ConversationOut(ORMModel):
     channel: str
     external_chat_id: str | None = None
     contact_name: str | None = None
+    # A short handle for a lead that has no name (a web chat that never gave
+    # one), so it can still be told apart from another like it.
+    visitor_handle: str | None = None
     contact_email: str | None = None
     contact_id: uuid.UUID | None = None
     created_at: datetime
@@ -666,6 +669,9 @@ class ConversationInboxOut(BaseModel):
     client_slug: str = ""
     title: str
     contact_name: str | None = None
+    # See ConversationOut.visitor_handle: a nameless lead still needs something
+    # to tell it apart, but not a name of its own.
+    visitor_handle: str | None = None
     channel: str
     account_label: str | None = None
     mode: str
@@ -825,6 +831,8 @@ class PipelineCardOut(BaseModel):
     number: int
     title: str
     contact_name: str | None = None
+    # See ConversationOut.visitor_handle.
+    visitor_handle: str | None = None
     contact_id: uuid.UUID | None = None
     tags: list[PipelineCardTag] = []
     channel: str
@@ -842,6 +850,10 @@ class PipelineBoardOut(BaseModel):
     currency: str = "USD"
     stages: list[PipelineStageOut]
     unassigned_count: int = 0
+    # How many open leads the client has, against the cards below, so a board
+    # that had to leave some out can say so instead of quietly missing them.
+    total: int = 0
+    truncated: bool = False
     cards: list[PipelineCardOut]
 
 

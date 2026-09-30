@@ -292,13 +292,15 @@ def inbox(
                 if conv.id in seen:
                     continue
                 seen.add(conv.id)
+                name, handle = lead_view.name_parts(conv)
                 entries.append(((conv.pinned_at is not None, conv.pinned_at, last_inbound_at or conv.created_at, conv.created_at), {
                     "id": conv.id,
                     "number": conv.number,
                     "agent_id": conv.agent_id,
                     "client_id": conv.client_id,
                     "title": conv.title,
-                    "contact_name": conv.contact_name,
+                    "contact_name": name,
+                    "visitor_handle": handle,
                     "channel": conv.channel,
                     "account_label": conv.account_label,
                     "mode": "human" if row_group_human else conv.mode,

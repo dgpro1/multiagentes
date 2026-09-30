@@ -797,6 +797,7 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
                     </>
                   )}
                   {item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>}
+                  {item.visitor_handle && <span className="lead-handle">{item.visitor_handle}</span>}
                   <span className={`mini-badge ${item.mode}`}>
                     {item.mode === "human" ? (item.assignee_name || t("portal.inbox.list.humanSupport")) : t("portal.inbox.list.aiAgent")}
                   </span>
@@ -854,6 +855,7 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
                       <>{channelIcon(selected.channel)} {channelLabel(selected.channel)}</>
                     )}
                     {selected.account_label && <span className="account-badge" title={selected.account_label}>{selected.account_label}</span>}
+                    {selected.visitor_handle && <span className="lead-handle">{selected.visitor_handle}</span>}
                     {selected.channel === "whatsapp_cloud" && !selected.reply_window_open && (
                       <span className="window-pill closed">
                         <Clock size={11} /> {selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}
