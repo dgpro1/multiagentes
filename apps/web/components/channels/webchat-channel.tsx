@@ -12,6 +12,7 @@ import { useToast } from "@/components/toast";
 import { ApiError, messageFrom } from "@/lib/api";
 import { ChannelsScopeProvider, useBackToChannels, useChannelClient, useChannelsApi, useChannelsScope, type ChannelHrefs } from "@/components/channels/scope";
 import { useT } from "@/lib/i18n";
+import { moduleAllowed } from "@/lib/agency-modules";
 import type { Client, WidgetChannel } from "@/types";
 
 export function WebChatChannelView({ apiBase, hrefFor, client }: { apiBase?: string; hrefFor?: ChannelHrefs; client?: { id: string; slug: string; name: string } | null }) {
@@ -21,7 +22,7 @@ export function WebChatChannelView({ apiBase, hrefFor, client }: { apiBase?: str
 function WebChatScreen() {
   const t = useT();
   const toast = useToast();
-  const { hrefFor } = useChannelsScope();
+  const { hrefFor, modules } = useChannelsScope();
   const { api } = useChannelsApi();
   const { clientId: id, loadClient } = useChannelClient();
   const backLabel = useBackToChannels();
@@ -88,11 +89,14 @@ function WebChatScreen() {
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   const snippet = channel ? `<script src="${origin}/widget.js" data-agent="${channel.public_id}" data-color="${color}" data-position="${position}" async></script>` : "";
   const live = Boolean(channel && channel.is_enabled);
+  // Apagado por la plataforma y sin widget creado: no hay nada que configurar.
+  const switchedOff = !moduleAllowed(modules, "channels.webchat") && !channel;
   return <div className="page wa-page">
     <Link href={hrefFor.overview()} className="back-link"><ArrowLeft size={17} /> {backLabel(client.name)}</Link>
     <header className="wa-header"><div className="wa-mark"><Globe2 size={26} /></div><div><span>{t("clients.whatsapp.channelOf", { name: client.name })}</span><h1>{t("clients.webchat.title")}</h1><p>{t("clients.webchat.headerCopy")}</p></div>{channel && <span className={live ? "pill purple" : "pill"}>{live ? t("clients.webchat.live") : t("clients.webchat.off")}</span>}</header>
     {error && <Alert>{error}</Alert>}
-    <div className="wa-layout"><main>
+    {switchedOff && <Alert type="info">{t("channels.moduleOff")}</Alert>}
+    {switchedOff ? <section className="wa-panel"><div className="wa-panel-head"><span><Globe2 size={19} /></span><div><h2>{t("clients.webchat.title")}</h2><p>{t("clients.webchat.headerCopy")}</p></div></div></section> : <div className="wa-layout"><main>
       <section className="wa-panel"><div className="wa-panel-head"><span><Bot size={19} /></span><div><h2>{t("clients.whatsapp.assignedAgent")}</h2><p>{t("clients.whatsapp.assignedAgentCopy")}</p></div></div>
         <div className="wa-agent-row"><label>{t("clients.whatsapp.agentToRespond")}<select value={agentId} onChange={(event) => setAgentId(event.target.value)} disabled={busy}><option value="">{t("clients.whatsapp.selectAgent")}</option>{client.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}{agent.is_active ? "" : t("clients.whatsapp.inactiveSuffix")}</option>)}</select></label></div>
         {!client.agents.length && <Alert>{t("clients.whatsapp.needsAgent")}</Alert>}
@@ -115,6 +119,6 @@ function WebChatScreen() {
           <div className="embed-actions"><button type="button" className="button secondary" onClick={() => { navigator.clipboard.writeText(snippet); toast.success(t("clients.webchat.copied")); }}><Copy size={15} /> {t("clients.webchat.copyCode")}</button><a className="button ghost" href={`/widget/${channel.public_id}`} target="_blank" rel="noreferrer"><ExternalLink size={15} /> {t("clients.webchat.preview")}</a></div>
         </> : <Alert type="info">{t("clients.webchat.saveFirst")}</Alert>}
       </section>
-    </main><aside className="wa-side"><ShieldCheck size={22} /><h3>{t("clients.webchat.sideTitle")}</h3><p>{t("clients.webchat.sideCopy")}</p><hr /><h3>{t("clients.whatsapp.humanControlTitle")}</h3><p>{t("clients.whatsapp.humanControlCopy")}</p></aside></div>
+    </main><aside className="wa-side"><ShieldCheck size={22} /><h3>{t("clients.webchat.sideTitle")}</h3><p>{t("clients.webchat.sideCopy")}</p><hr /><h3>{t("clients.whatsapp.humanControlTitle")}</h3><p>{t("clients.whatsapp.humanControlCopy")}</p></aside></div>}
   </div>;
 }

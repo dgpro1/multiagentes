@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { ExternalLink, Eye, EyeOff, Globe2, MessageCircle, QrCode, Radio, Send } from "lucide-react";
+import { moduleAllowed, moduleForChannel } from "@/lib/agency-modules";
 import { ApiError, messageFrom } from "@/lib/api";
 import { accountName, ChannelIcon } from "@/lib/channels";
 import { useT } from "@/lib/i18n";
@@ -70,7 +71,7 @@ function ChannelsOverview({
 }) {
   const t = useT();
   const toast = useToast();
-  const { hrefFor, client } = useChannelsScope();
+  const { hrefFor, client, modules } = useChannelsScope();
   const { api } = useChannelsApi();
   const id = client.id;
   const has = (type: ChannelType) => types.includes(type);
@@ -81,6 +82,12 @@ function ChannelsOverview({
   // How many lines of each type this client may use: the agency's business, so
   // only its own view asks (the portal passes no clientData).
   const managesLines = Boolean(clientData && onClientChange);
+  // The platform switched this channel off and the client has nothing connected:
+  // there is nothing to look at and nothing to manage, so the card goes. With
+  // numbers already connected the card stays, so they can still be seen and
+  // disconnected - just not added to.
+  const switchedOffWithNothing = (type: ChannelType) =>
+    !moduleAllowed(modules, moduleForChannel(type)) && states?.[type]?.state === "off";
   const typesKey = types.join(",");
 
   useEffect(() => {
@@ -274,7 +281,7 @@ function ChannelsOverview({
 
       {/* Bento Grid of Channels */}
       <section className="stitch-channels-grid">
-        {channelCards.filter((card) => has(card.type)).map((card) => {
+        {channelCards.filter((card) => has(card.type) && !switchedOffWithNothing(card.type)).map((card) => {
           const state = stateOf(card.type);
           const isConnected = state === "connected";
           const featKey = FEATURE_OF_CHANNEL_TYPE[card.type];

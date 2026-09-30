@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Bot, CheckCircle2, CircleAlert, LoaderCircle, MapPin, MessageCircle, PhoneCall, Plug, Power, QrCode, RefreshCw, ShieldCheck, Smartphone, Trash2, Users } from "lucide-react";
+import { moduleAllowed } from "@/lib/agency-modules";
 import { Alert, Modal } from "@/components/ui";
 import { AccountList } from "@/components/account-list";
 import { ConfirmModal } from "@/components/confirm-modal";
@@ -30,7 +31,7 @@ export function WhatsAppChannelView({ apiBase, hrefFor, client }: { apiBase?: st
 
 function WhatsAppScreen() {
   const t = useT();
-  const { hrefFor } = useChannelsScope();
+  const { hrefFor, modules } = useChannelsScope();
   const { api } = useChannelsApi();
   const { clientId: id, loadClient } = useChannelClient();
   const backLabel = useBackToChannels();
@@ -157,6 +158,7 @@ function WhatsAppScreen() {
   const nameOf = (line: WhatsAppChannel) => accountName(line, t("clients.whatsapp.lineFallback", { n: lines.indexOf(line) + 1 }));
   const listView = !adding && !channel;
   const agentNameOf = (line: WhatsAppChannel) => client.agents.find((agent) => agent.id === line.agent_id)?.name || t("clients.detail.noAgent");
+  const addBlocked = moduleAllowed(modules, "channels.whatsapp") ? undefined : t("channels.moduleOff");
   const rows = lines.map((line) => ({
     id: line.id, title: line.phone_number ? `+${line.phone_number}` : nameOf(line), inboxName: nameOf(line),
     agentName: `${t("clients.detail.colAgent")}: ${agentNameOf(line)}`,
@@ -170,7 +172,7 @@ function WhatsAppScreen() {
       : <button type="button" className="back-link" onClick={() => show(null, client)}><ArrowLeft size={17} /> {t("clients.whatsapp.title")}</button>}
     <header className="wa-header"><div className="wa-mark"><MessageCircle size={26} /></div><div><span>{listView ? t("clients.whatsapp.channelOf", { name: client.name }) : `${t("clients.whatsapp.title")} · ${client.name}`}</span><h1>{channel ? accountTitle(channel, nameOf(channel)) : adding ? t("clients.whatsapp.newLine") : t("clients.whatsapp.title")}</h1><p>{t("clients.whatsapp.headerCopy")}</p></div>{channel && <div className={`wa-state ${channel.status}`}>{channel.status === "connected" ? <CheckCircle2 size={17} /> : channel.status === "error" ? <CircleAlert size={17} /> : <RefreshCw className={["connecting", "reconnecting"].includes(channel.status) ? "spin" : ""} size={17} />} {t(state.label)}</div>}</header>
     {error && <Alert>{error}</Alert>}
-    {listView && <AccountList rows={rows} summary={lines.length === 1 ? t("clients.detail.channelNumberOne") : t("clients.detail.channelNumbers", { count: lines.length, connected: connectedCount })} addLabel={t("clients.detail.addNumber")} openLabel={t("clients.detail.configure")} onOpen={(lineId) => show(lines.find((line) => line.id === lineId) ?? null, client)} onAdd={() => startAdding(client)} />}
+    {listView && <AccountList rows={rows} summary={lines.length === 1 ? t("clients.detail.channelNumberOne") : t("clients.detail.channelNumbers", { count: lines.length, connected: connectedCount })} addLabel={t("clients.detail.addNumber")} openLabel={t("clients.detail.configure")} onOpen={(lineId) => show(lines.find((line) => line.id === lineId) ?? null, client)} onAdd={() => startAdding(client)} addBlocked={addBlocked} />}
     {!listView && <div className="wa-layout"><main>
       <section className="wa-panel"><div className="wa-panel-head"><span><Bot size={19} /></span><div><h2>{t("clients.whatsapp.assignedAgent")}</h2><p>{t("clients.whatsapp.assignedAgentCopy")}</p></div></div><div className="wa-agent-row"><label>{t("clients.whatsapp.agentToRespond")}<select value={agentId} onChange={(event) => setAgentId(event.target.value)} disabled={busy}><option value="">{t("clients.whatsapp.selectAgent")}</option>{client.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}{agent.is_active ? "" : t("clients.whatsapp.inactiveSuffix")}</option>)}</select></label><label>{t("clients.whatsapp.lineName")}<input value={label} maxLength={80} placeholder={t("clients.whatsapp.lineNamePlaceholder")} onChange={(event) => setLabel(event.target.value)} disabled={busy} /></label>{dirty && <button className="button secondary" onClick={saveDetails} disabled={!agentId || busy}>{t("common.save")}</button>}</div><p className="social-meta">{t("clients.whatsapp.lineNameHint")}</p>{!client.agents.length && <Alert>{t("clients.whatsapp.needsAgent")}</Alert>}</section>
       {channel && <section className="wa-panel"><div className="wa-panel-head"><span><Users size={19} /></span><div><h2>{t("clients.whatsapp.featuresTitle")}</h2><p>{t("clients.whatsapp.featuresCopy")}</p></div></div>

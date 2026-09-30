@@ -1802,6 +1802,9 @@ textarea { line-height: 1.55; }
    for, so it leads; then who answers and the state. The channel page shows
    this list until one account is picked. */
 .account-list { margin-bottom: 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
+/* El boton de anadir, sustituido por el motivo: la plataforma apago el
+   canal y el servidor rechazaria la llamada. */
+.account-list-blocked { color: var(--muted); font-size: 12px; max-width: 46ch; }
 .account-list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .account-list-head p { margin: 0; color: var(--muted); font-size: 13px; font-weight: 600; }
 .account-list-head .button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }

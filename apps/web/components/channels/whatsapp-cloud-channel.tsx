@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, BadgeCheck, Bot, CheckCircle2, CircleAlert, ClipboardCopy, LoaderCircle, Plug, Power, RefreshCw, ShieldCheck, Smartphone, Trash2, Webhook } from "lucide-react";
+import { moduleAllowed } from "@/lib/agency-modules";
 import { Alert, Modal } from "@/components/ui";
 import { AccountList } from "@/components/account-list";
 import { ConfirmModal } from "@/components/confirm-modal";
@@ -41,7 +42,7 @@ export function WhatsAppCloudChannelView({ apiBase, hrefFor, client }: { apiBase
 
 function WhatsAppCloudScreen() {
   const t = useT();
-  const { hrefFor } = useChannelsScope();
+  const { hrefFor, modules } = useChannelsScope();
   const { api } = useChannelsApi();
   const { clientId: id, loadClient } = useChannelClient();
   const backLabel = useBackToChannels();
@@ -61,6 +62,8 @@ function WhatsAppCloudScreen() {
   const [disconnecting, setDisconnecting] = useState(false);
   const channel = adding ? null : lines.find((line) => line.id === selectedId) ?? null;
 
+  // La plataforma lo apago: el servidor rechazaria otra linea, asi que no se ofrece.
+  const addBlocked = moduleAllowed(modules, "channels.whatsapp_cloud") ? undefined : t("channels.moduleOff");
   const upsert = useCallback((saved: WhatsAppCloudChannel) => {
     setLines((items) => items.some((item) => item.id === saved.id) ? items.map((item) => (item.id === saved.id ? saved : item)) : [...items, saved]);
   }, []);
@@ -205,7 +208,7 @@ function WhatsAppCloudScreen() {
     <header className="wa-header"><div className="wa-mark"><BadgeCheck size={26} /></div><div><span>{listView ? t("clients.whatsapp.channelOf", { name: client.name }) : `${t("clients.whatsappCloud.title")} · ${client.name}`}</span><h1>{channel ? accountTitle(channel, nameOf(channel)) : adding ? t("clients.whatsappCloud.newNumber") : t("clients.whatsappCloud.title")}</h1><p>{t("clients.whatsappCloud.headerCopy")}</p></div>{channel && <div className={`wa-state ${channel.status}`}>{channel.status === "connected" ? <CheckCircle2 size={17} /> : channel.status === "error" ? <CircleAlert size={17} /> : <RefreshCw size={17} />} {t(state.label)}</div>}</header>
     {error && <Alert>{error}</Alert>}
     {callbackNotice && <Alert>{t(callbackNotice === "ready" ? "clients.whatsappCloud.approvalReady" : "clients.whatsappCloud.approvalError")}</Alert>}
-    {listView && <AccountList rows={rows} summary={lines.length === 1 ? t("clients.detail.channelNumberOne") : t("clients.detail.channelNumbers", { count: lines.length, connected: connectedCount })} addLabel={t("clients.detail.addNumber")} openLabel={t("clients.detail.configure")} onOpen={(lineId) => show(lines.find((line) => line.id === lineId) ?? null, client)} onAdd={() => startAdding(client)} />}
+    {listView && <AccountList rows={rows} summary={lines.length === 1 ? t("clients.detail.channelNumberOne") : t("clients.detail.channelNumbers", { count: lines.length, connected: connectedCount })} addLabel={t("clients.detail.addNumber")} openLabel={t("clients.detail.configure")} onOpen={(lineId) => show(lines.find((line) => line.id === lineId) ?? null, client)} onAdd={() => startAdding(client)} addBlocked={addBlocked} />}
     {!listView && <div className="wa-layout"><main>
       <section className="wa-panel"><div className="wa-panel-head"><span><Bot size={19} /></span><div><h2>{t("clients.whatsapp.assignedAgent")}</h2><p>{t("clients.whatsapp.assignedAgentCopy")}</p></div></div><div className="wa-agent-row"><label>{t("clients.whatsapp.agentToRespond")}<select value={agentId} onChange={(event) => setAgentId(event.target.value)} disabled={busy}><option value="">{t("clients.whatsapp.selectAgent")}</option>{client.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}{agent.is_active ? "" : t("clients.whatsapp.inactiveSuffix")}</option>)}</select></label><label>{t("clients.whatsapp.lineName")}<input value={label} maxLength={80} placeholder={t("clients.whatsapp.lineNamePlaceholder")} onChange={(event) => setLabel(event.target.value)} disabled={busy} /></label></div><p className="social-meta">{t("clients.whatsapp.lineNameHint")}</p>{!client.agents.length && <Alert>{t("clients.whatsapp.needsAgent")}</Alert>}</section>
       <section className="wa-panel"><div className="wa-panel-head"><span><Plug size={19} /></span><div><h2>{t("clients.whatsappCloud.connectionTitle")}</h2><p>{t(state.copy)}</p></div></div>
