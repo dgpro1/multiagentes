@@ -104,13 +104,16 @@ function WhatsAppCloudScreen() {
     return () => { active = false; };
   }, [api, loadClient, show, startAdding]);
 
-  // The hosted page approves in another tab; refresh when coming back.
+  // The hosted page approves in another tab; refresh when coming back. The
+  // client is the one the screen loaded, not the address: in the agency the
+  // scope starts with no id and only ``loadClient()`` fills it in, so reading
+  // ``id`` here asked for "/clients//channels" and threw.
   useEffect(() => {
-    if (!pendingApproval) return;
+    if (!pendingApproval || !client) return;
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       setPendingApproval(false);
-      api<WhatsAppCloudChannel[]>(`/whatsapp-cloud/clients/${id}/channels`)
+      api<WhatsAppCloudChannel[]>(`/whatsapp-cloud/clients/${client.id}/channels`)
         .then((items) => {
           setLines(items);
           const line = items.find((item) => item.id === selectedId) ?? null;
@@ -120,7 +123,7 @@ function WhatsAppCloudScreen() {
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [pendingApproval, api, id, selectedId, upsert]);
+  }, [pendingApproval, client, api, selectedId, upsert]);
 
   async function save(): Promise<WhatsAppCloudChannel | null> {
     if (!agentId) return null;
