@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..deps import get_current_user
 from ..models import User
-from ..schemas import EmbeddingModelOut, ModelCatalogOut
-from ..services import model_catalog
+from ..schemas import EmbeddingModelOut, ModelCatalogOut, PromptVariableOut
+from ..services import model_catalog, prompt_variables
 from ..services.model_catalog import get_model, list_embedding_models, list_models
 
 
@@ -17,6 +17,14 @@ def available_models(user: User = Depends(get_current_user)):
     """Model ids this workspace can pick, per provider and capability. A
     module call on purpose, so a deployment can narrow the answer."""
     return model_catalog.available_models()
+
+
+@router.get("/prompt-variables", response_model=list[PromptVariableOut])
+def list_prompt_variables(user: User = Depends(get_current_user)):
+    """The variables a prompt may cite, so the editor offers exactly what the
+    engine honours. Reference data like the models above, so it is a plain read
+    and carries no description: those are screen copy."""
+    return prompt_variables.public_catalog()
 
 
 @router.get("/models", response_model=list[ModelCatalogOut])

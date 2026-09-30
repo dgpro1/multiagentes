@@ -30,7 +30,11 @@ from .specs import ToolSpec
 
 logger = logging.getLogger(__name__)
 
-TOOL_NAMES = ("enviar_recurso", "send_resource")
+TOOL_NAME = "enviar_recurso"
+TOOL_ALIASES = ("send_resource",)
+# Canonical name first: a caller that wants to know which name to show reads
+# TOOL_NAME, one that wants every name the prompt may cite reads this tuple.
+TOOL_NAMES = (TOOL_NAME, *TOOL_ALIASES)
 DECLARED_RESOURCE_RE = re.compile(r"\[Recurso:\s*([^\]\n]+?)\s*\]", re.IGNORECASE)
 
 

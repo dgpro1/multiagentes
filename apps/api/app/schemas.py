@@ -504,6 +504,22 @@ class EmbeddingModelOut(BaseModel):
     note: str = ""
 
 
+class PromptVariableOut(BaseModel):
+    """A variable a prompt may cite, as the editor needs to present it.
+
+    ``token`` is text inserted verbatim; ``template`` is the shape of a variable
+    the writer completes with a name they pick, such as ``[Etapa: {name}]``.
+    ``value`` is the machine name behind it. No description travels with it:
+    those are screen copy and live in the web i18n dictionaries.
+    """
+
+    kind: str
+    value: str
+    token: str | None = None
+    template: str | None = None
+    aliases: list[str] = []
+
+
 class ConversationCreate(BaseModel):
     agent_id: uuid.UUID
 
