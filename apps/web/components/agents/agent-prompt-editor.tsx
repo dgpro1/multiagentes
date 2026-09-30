@@ -6,6 +6,7 @@ import { Alert, Modal } from "@/components/ui";
 import { useLanguage, type I18nKey, type TranslateFn } from "@/lib/i18n";
 import {
   atomicSpans,
+  caretLine,
   expandToWhole,
   fold,
   nearestEdge,
@@ -40,6 +41,15 @@ interface AgentPromptEditorProps {
 }
 
 const RESOURCE_TOKEN_RE = /\[Recurso:\s*([^\]\n]+?)\s*\]/gi;
+
+/** Where the insert list sits: under the line being written, or above it. */
+type ListPlacement =
+  | { below: true; offset: number; height: number }
+  | { below: false; offset: number; height: number };
+
+/** A list this tall is enough to scan; less and the list is in the way. */
+const MIN_LIST_HEIGHT = 150;
+const LIST_GAP = 6;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -91,6 +101,13 @@ function describeVariable(row: PromptVariable, t: TranslateFn): string {
   return t("agents.detail.varDescUnknown");
 }
 
+/** A variable is offered when the query reads like it: in its marker, its label or what it does. */
+function matchesQuery(item: PromptItem, query: string): boolean {
+  const q = fold(query);
+  if (!q) return true;
+  return fold(item.token).includes(q) || fold(item.label).includes(q) || fold(item.description).includes(q);
+}
+
 export function AgentPromptEditor({
   defaultValue = "",
   placeholder = "",
@@ -111,9 +128,14 @@ export function AgentPromptEditor({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const undoStack = useRef<{ value: string; caret: number }[]>([]);
   const [undoDepth, setUndoDepth] = useState(0);
+  // The bracket being filtered, so the list can be dismissed when the caret walks
+  // away from it instead of following the cursor around the whole prompt.
+  const openQuery = useRef<{ from: number; to: number } | null>(null);
+  const [listPlacement, setListPlacement] = useState<ListPlacement | null>(null);
 
   // The guards below read the latest text without re-subscribing on every
   // keystroke, which is what keeps a listener on the document affordable. An
@@ -197,16 +219,10 @@ export function AgentPromptEditor({
     [resourceTool],
   );
 
-  const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return items;
-    const q = fold(searchQuery);
-    return items.filter((item) => {
-      const matchToken = fold(item.token).includes(q);
-      const matchLabel = fold(item.label).includes(q);
-      const matchDesc = fold(item.description).includes(q);
-      return matchToken || matchLabel || matchDesc;
-    });
-  }, [items, searchQuery]);
+  const filteredItems = useMemo(
+    () => (searchQuery.trim() ? items.filter((item) => matchesQuery(item, searchQuery)) : items),
+    [items, searchQuery],
+  );
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -230,6 +246,34 @@ export function AgentPromptEditor({
     if (!input || !mirror) return;
     mirror.scrollTop = input.scrollTop;
     mirror.scrollLeft = input.scrollLeft;
+  }, []);
+
+  /**
+   * Puts the insert list under the line the caret is on, so writing is never
+   * hidden by the list that is meant to help with writing. A prompt is taller
+   * than any list, and a list pinned to the top of it covers the first screenful
+   * of what somebody came to read.
+   */
+  const placeList = useCallback(() => {
+    const wrap = wrapRef.current;
+    const mirror = mirrorRef.current;
+    const input = textareaRef.current;
+    if (!wrap || !mirror || !input) return;
+    const box = wrap.getBoundingClientRect();
+    const line = caretLine(mirror, input.selectionStart ?? 0);
+    if (!line) {
+      setListPlacement(null);
+      return;
+    }
+    const roomBelow = box.bottom - line.bottom - LIST_GAP;
+    const roomAbove = line.top - box.top - LIST_GAP;
+    if (roomBelow >= MIN_LIST_HEIGHT) {
+      setListPlacement({ below: true, offset: line.bottom - box.top + LIST_GAP, height: Math.min(360, roomBelow) });
+    } else if (roomAbove >= MIN_LIST_HEIGHT) {
+      setListPlacement({ below: false, offset: box.bottom - line.top + LIST_GAP, height: Math.min(360, roomAbove) });
+    } else {
+      setListPlacement(null);
+    }
   }, []);
 
   /**
@@ -298,11 +342,13 @@ export function AgentPromptEditor({
 
     setIsOpen(false);
     setSearchQuery("");
+    openQuery.current = null;
     applyValue(newBefore + tokenToInsert + after, newBefore.length + tokenToInsert.length);
   }, [applyValue]);
 
   // The resource tool opens the picker instead of inserting a bare token.
   const choose = (item: PromptItem) => {
+    openQuery.current = null;
     if (item.picker) {
       setIsOpen(false);
       setSearchQuery("");
@@ -347,7 +393,7 @@ export function AgentPromptEditor({
   };
 
   // Inspect typing for bracket trigger
-  const handleTextareaInput = () => {
+  const handleTextareaInput = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
 
@@ -362,15 +408,26 @@ export function AgentPromptEditor({
     if (lastBracket !== -1) {
       const queryText = before.slice(lastBracket + 1);
       if (!queryText.includes("]") && !queryText.includes("\n") && queryText.length <= 40) {
+        // A bracket followed by something that is not a variable is just writing.
+        // The list steps aside instead of sitting over the line to say so, and
+        // comes back on its own if the next keystroke starts matching again.
+        if (!items.some((item) => matchesQuery(item, queryText))) {
+          openQuery.current = null;
+          setIsOpen(false);
+          setSearchQuery("");
+          return;
+        }
         setSearchQuery(queryText);
+        openQuery.current = { from: lastBracket, to: start };
         setIsOpen(true);
         return;
       }
     }
 
+    openQuery.current = null;
     setIsOpen(false);
     setSearchQuery("");
-  };
+  }, [items, onChange]);
 
   /**
    * The caret treats a variable as one character. Where the browser is about to
@@ -426,22 +483,51 @@ export function AgentPromptEditor({
     const settle = () => {
       if (document.activeElement !== el) return;
       const tokens = atomicRef.current;
-      if (!tokens.length) return;
-      const start = el.selectionStart;
-      const end = el.selectionEnd;
-      if (start === end) {
-        const inside = spanInside(tokens, start);
-        if (!inside) return;
-        const edge = nearestEdge(inside, start);
-        el.setSelectionRange(edge, edge);
-        return;
+      if (tokens.length) {
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+        if (start === end) {
+          const inside = spanInside(tokens, start);
+          if (inside) {
+            const edge = nearestEdge(inside, start);
+            el.setSelectionRange(edge, edge);
+            return;
+          }
+        } else {
+          const whole = expandToWhole(tokens, start, end);
+          if (whole.start !== start || whole.end !== end) {
+            el.setSelectionRange(whole.start, whole.end);
+            return;
+          }
+        }
       }
-      const whole = expandToWhole(tokens, start, end);
-      if (whole.start !== start || whole.end !== end) el.setSelectionRange(whole.start, whole.end);
+      if (isOpen) placeList();
     };
     document.addEventListener("selectionchange", settle);
     return () => document.removeEventListener("selectionchange", settle);
-  }, []);
+  }, [isOpen, placeList]);
+
+  // The list belongs to the bracket it was opened for. Once the caret walks out
+  // of it the list goes, instead of following along and sitting over the text.
+  useEffect(() => {
+    if (!isOpen) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    const dismiss = () => {
+      const query = openQuery.current;
+      if (!query) return;
+      const caret = el.selectionStart ?? 0;
+      if (caret < query.from || caret > query.to) {
+        openQuery.current = null;
+        setIsOpen(false);
+        setSearchQuery("");
+      } else {
+        placeList();
+      }
+    };
+    document.addEventListener("selectionchange", dismiss);
+    return () => document.removeEventListener("selectionchange", dismiss);
+  }, [isOpen, placeList]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
@@ -469,6 +555,7 @@ export function AgentPromptEditor({
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
+      openQuery.current = null;
       setIsOpen(false);
       setSearchQuery("");
     }
@@ -483,6 +570,7 @@ export function AgentPromptEditor({
         textareaRef.current &&
         !textareaRef.current.contains(event.target as Node)
       ) {
+        openQuery.current = null;
         setIsOpen(false);
       }
     }
@@ -494,6 +582,10 @@ export function AgentPromptEditor({
 
   // Validation Warnings. What the scanner already paints red (an unknown stage, a
   // resource that is not in the library) is reported there instead of twice.
+  useEffect(() => {
+    if (isOpen) placeList();
+  }, [isOpen, placeList]);
+
   const warnings = useMemo(() => {
     const list: string[] = [];
     if (content.includes("[FECHA Y HORA ACTUAL DEL NEGOCIO]")) {
@@ -543,7 +635,7 @@ export function AgentPromptEditor({
         </div>
       </div>
 
-      <div style={{ position: "relative" }}>
+      <div ref={wrapRef} style={{ position: "relative" }}>
         <div className="prompt-editor">
           <div ref={mirrorRef} className="prompt-editor-mirror" aria-hidden="true">
             {painted.map((part, index) =>
@@ -568,7 +660,10 @@ export function AgentPromptEditor({
             onChange={handleTextareaInput}
             onKeyDown={handleKeyDown}
             onBeforeInput={handleBeforeInput}
-            onScroll={syncScroll}
+            onScroll={() => {
+              syncScroll();
+              if (isOpen) placeList();
+            }}
             placeholder={placeholder}
             className="prompt-editor-input"
           />
@@ -580,13 +675,19 @@ export function AgentPromptEditor({
             className="variables-popover"
             style={{
               position: "absolute",
-              bottom: "auto",
-              top: 8,
+              // Under the line being written, or over the one above it when the
+              // caret is near the bottom. Never across the caret: the whole point
+              // of the list is to be read while typing.
+              ...(listPlacement
+                ? listPlacement.below
+                  ? { top: listPlacement.offset, bottom: "auto" }
+                  : { bottom: listPlacement.offset, top: "auto" }
+                : { top: 8, bottom: "auto" }),
               left: 8,
               right: 8,
               width: "auto",
               maxWidth: 580,
-              maxHeight: 380,
+              maxHeight: listPlacement ? listPlacement.height : 380,
               zIndex: 100,
             }}
           >
@@ -602,7 +703,10 @@ export function AgentPromptEditor({
               </div>
             </div>
 
-            <div className="variables-list" style={{ maxHeight: 310, overflowY: "auto", padding: 6 }}>
+            <div
+              className="variables-list"
+              style={{ maxHeight: listPlacement ? Math.max(80, listPlacement.height - 48) : 310, overflowY: "auto", padding: 6 }}
+            >
               {filteredItems.length === 0 ? (
                 <div style={{ padding: "16px", textAlign: "center", color: "#888", fontSize: 13 }}>
                   {catalogFailed

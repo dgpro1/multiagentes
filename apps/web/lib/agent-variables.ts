@@ -229,3 +229,37 @@ export function expandToWhole(
   }
   return { start: from, end: to };
 }
+
+/**
+ * The line the caret is on, in client coordinates, read off the mirror.
+ *
+ * A textarea hands out no geometry for its caret, but the mirror carries the
+ * same text in the same box, so a range over its text nodes answers it. That is
+ * what lets the insert list sit under the line being written instead of over
+ * it. Returns null when the mirror cannot say, and the caller falls back.
+ */
+export function caretLine(root: HTMLElement, offset: number): { top: number; bottom: number } | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let seen = 0;
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    const length = node.data.length;
+    if (seen + length >= offset) {
+      const at = Math.max(0, Math.min(offset - seen, length));
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.collapse(true);
+      let rect = range.getBoundingClientRect();
+      if (!rect.height && at > 0) {
+        // The end of a line has no box of its own; the character before it does,
+        // and that is the line the caret is read on.
+        range.setStart(node, at - 1);
+        rect = range.getBoundingClientRect();
+      }
+      return rect.height ? { top: rect.top, bottom: rect.bottom } : null;
+    }
+    seen += length;
+    node = walker.nextNode() as Text | null;
+  }
+  return null;
+}
