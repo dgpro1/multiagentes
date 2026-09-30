@@ -56,10 +56,17 @@ disagree.
 
 ## Before calling something done
 
-1. `pytest -q` from `apps/api/` — full suite, not just the file you touched;
-   `app/routers/` and `app/services/` are densely cross-tested.
-2. If you touched a model, confirm a migration exists and its upgrade/downgrade
+1. The tests covering what you touched — the file, a `-k` selection, a single
+   test — plus the cross-cutting tests that read the files you edited
+   (`test_api_scope_coverage.py`, `test_api_coverage.py`,
+   `test_session_factory.py`, …). `app/routers/` and `app/services/` are
+   densely cross-tested, so a narrow run is not the same as a green suite.
+2. A bare `pytest -q` (the whole suite, 30–50 min) **only with the user's
+   approval** — ask, or propose it and wait. Say in your report when it was
+   skipped and recommend it for migrations, permissions/scopes, deploy files,
+   dependencies, or several routers/services at once. CI runs it either way.
+3. If you touched a model, confirm a migration exists and its upgrade/downgrade
    are both correct.
-3. If you touched anything auth- or secret-adjacent, re-check the agency-scoping
+4. If you touched anything auth- or secret-adjacent, re-check the agency-scoping
    and encryption rules above explicitly — they're the two things this
    codebase cannot tolerate a regression in.

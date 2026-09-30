@@ -14,7 +14,11 @@ Your role is to independently verify code quality, compilation, type checking, a
    - Confirm that i18n dictionaries (`lib/i18n/dicts/`) remain fully in sync between English and Spanish.
 
 2. **Backend Audits (`apps/api`):**
-   - Run `pytest -q` — ensure all test flows and coverage tests pass.
+   - Run the tests covering what changed, plus the cross-cutting ones that read
+     the edited files (`test_api_scope_coverage.py`, `test_api_coverage.py`,
+     `test_session_factory.py`, …).
+   - A bare `pytest -q` (the whole suite, 30–50 min) only when the user asks for
+     it or approves the proposal; report it as skipped otherwise.
    - Verify that any schema modifications have corresponding migrations in `migrations/versions/`.
    - Check that all endpoints maintain agency-level tenant isolation.
 

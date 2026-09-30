@@ -98,9 +98,20 @@ Tests need a separate `openlivery_test` database (default URL in `apps/api/tests
 
 ```bash
 cd apps/api
-pytest -q
+pytest -q                                              # full suite — approval only, see below
 pytest tests/test_flows.py::test_register_login_logout_and_me -v   # single test
 ```
+
+### Running the full suite (approval only)
+
+`pytest -q` with no path runs the whole backend suite and takes 30–50 minutes. It runs **only when the user asks for it or approves the agent's proposal to run it** — never as part of "verify my change". What runs unprompted instead:
+
+- the tests that cover what was touched — the file, a `-k` selection, a single test — plus the cross-cutting tests that read the edited file (`test_api_scope_coverage.py`, `test_api_coverage.py`, `test_session_factory.py`, …);
+- `npx tsc --noEmit` and `npm run lint` for frontend work. These are minutes, not half an hour; they are not part of the gate.
+
+Skipping the full run is a deliberate decision and never a silent one: say in the report that it was skipped. Recommend the full run when the change touches a migration, permissions/scopes, portal functions, deploy files, dependencies, or several routers/services at once — that is where the cross-tested breakage lives. Chasing a red full run after a small, well-covered change is not worth 30–50 minutes; a red `main` is, so recommend it before merging rather than after.
+
+CI (`Tests` on a push to `main`) still runs the full suite on every push and this rule does not touch it. This gate is about the local run, not about what production waits for.
 
 ## Architecture
 
