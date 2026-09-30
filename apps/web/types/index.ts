@@ -1000,6 +1000,14 @@ export type PlatformAgency = {
   channel_used: Record<string, number>;
 };
 
+export type PlatformAgencyUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  created_at: string;
+};
+
 export type PlatformInvitation = {
   id: string;
   agency_id: string;

@@ -3,16 +3,16 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
-import { Building2, LoaderCircle } from "lucide-react";
+import { Building2, LoaderCircle, UserRound } from "lucide-react";
 import { api, messageFrom } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useLanguage, useT } from "@/lib/i18n";
 import { PlatformShell } from "@/components/platform-shell";
 import { Alert, EmptyState, PageHead } from "@/components/ui";
 import { SectionTabs } from "@/components/section-tabs";
 import { PLATFORM_AGENCY_TABS, platformAgencyPath, tabFromSegments } from "@/lib/routes";
 import { AGENCY_FEATURES, AGENCY_PRESETS, PRESET_NAMES, isQuotaFeature, type AgencyFeature, type QuotaFeature } from "@/lib/agency-features";
 import { QuotaStepper } from "@/components/quota-stepper";
-import type { PlatformAgency, PlatformClient, PlatformInfrastructureClient, PlatformInvitation, PlatformUsage } from "@/types";
+import type { PlatformAgency, PlatformAgencyUser, PlatformClient, PlatformInfrastructureClient, PlatformInvitation, PlatformUsage } from "@/types";
 
 function tokens(value: number): string {
   return value.toLocaleString();
@@ -241,6 +241,7 @@ function SummaryTab({ agency }: { agency: PlatformAgency }) {
           {error && <Alert>{error}</Alert>}
         </div>
       </section>
+      <PeopleSection agencyId={agency.id} hasInvitation={!blocked} />
       <section className="form-section">
         <div className="section-copy">
           <h2>{t("platform.detail.inviteTitle")}</h2>
@@ -262,6 +263,60 @@ function SummaryTab({ agency }: { agency: PlatformAgency }) {
         </div>
       </section>
     </>
+  );
+}
+
+/** Who is in the agency. The rest of the profile is counts and switches, which
+ * read the same whether an account is in daily use or was opened once and left;
+ * the names and addresses are what answer that. */
+function PeopleSection({ agencyId }: { agencyId: string; hasInvitation: boolean }) {
+  const t = useT();
+  const { lang } = useLanguage();
+  const [people, setPeople] = useState<PlatformAgencyUser[] | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api<PlatformAgencyUser[]>(`/platform/agencies/${agencyId}/users`)
+      .then((rows) => { if (active) setPeople(rows); })
+      .catch(() => { if (active) setPeople([]); });
+    return () => { active = false; };
+  }, [agencyId]);
+
+  return (
+    <section className="form-section">
+      <div className="section-copy">
+        <h2>{t("platform.detail.peopleTitle")}</h2>
+        <p>{t("platform.detail.peopleCopy")}</p>
+      </div>
+      <div className="form-fields">
+        {people === null ? (
+          <p className="muted">{t("common.loading")}</p>
+        ) : people.length === 0 ? (
+          <p className="muted">{t("platform.detail.peopleNone")}</p>
+        ) : (
+          <ul className="platform-people">
+            {people.map((person) => (
+              <li key={person.id}>
+                <span className="entity-avatar tiny">
+                  <UserRound size={15} />
+                </span>
+                <span className="platform-people-id">
+                  <strong>{person.name}</strong>
+                  <small>{person.email}</small>
+                </span>
+                <span className={`status ${person.role === "admin" ? "status-active" : "status-inactive"}`}>
+                  <i />
+                  {person.role === "admin" ? t("platform.detail.peopleAdmin") : t("platform.detail.peopleAgent")}
+                </span>
+                <small className="platform-people-since">
+                  {t("platform.detail.peopleSince", { date: new Date(person.created_at).toLocaleDateString(lang === "es" ? "es-ES" : "en-GB") })}
+                </small>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 }
 

@@ -55,6 +55,18 @@ class PlatformAgencyOut(BaseModel):
     channel_used: dict[str, int]
 
 
+class PlatformAgencyUserOut(BaseModel):
+    """One person of an agency, for the platform owner: who runs the account and
+    who works in it. Enough to tell a live agency from an abandoned one, and
+    never anything of the credential itself."""
+
+    id: uuid.UUID
+    name: str
+    email: str
+    role: str
+    created_at: datetime
+
+
 class PlatformAccessUpdate(BaseModel):
     status: Literal["active", "blocked"]
     reason: str | None = Field(default=None, max_length=500)

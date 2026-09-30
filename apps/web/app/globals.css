@@ -559,6 +559,16 @@ textarea { line-height: 1.55; }
 .form-section, .settings-section { padding: 30px; display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 54px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow); }
 .section-copy h2, .settings-copy h3 { margin: 0 0 7px; color: var(--ink); font-size: 16px; font-weight: 600; }
 .section-copy p, .settings-copy p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+/* The people of an agency on the platform profile: one row each, admin first.
+   Reuses the entity avatar and the status pill, so a name reads the same here
+   as it does in the agency's own panel. */
+.platform-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.platform-people li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.platform-people li:last-child { border-bottom: 0; }
+.platform-people-id { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.platform-people-id strong { font-size: 13px; font-weight: 600; }
+.platform-people-id small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.platform-people-since { color: var(--subtle); font-size: 12px; white-space: nowrap; }
 .form-fields, .settings-fields { display: flex; flex-direction: column; gap: 18px; }
 .form-grid { gap: 16px; }
 .switch-row { min-height: 66px; border-radius: 8px; }

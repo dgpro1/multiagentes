@@ -71,6 +71,28 @@ def agency_out(db: Session, agency: Agency) -> dict:
     }
 
 
+def agency_users(db: Session, agency: Agency) -> list[dict]:
+    """The people of an agency, for the platform owner.
+
+    Without this the agency profile can only show counts, so a live account and
+    an abandoned one look the same. Administrators first, then the rest in the
+    order they joined, because who runs the account is what the reader is after.
+    """
+    rows = db.scalars(
+        select(User).where(User.agency_id == agency.id).order_by(User.created_at)
+    ).all()
+    return [
+        {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role,
+            "created_at": user.created_at,
+        }
+        for user in sorted(rows, key=lambda u: (u.role != "admin", u.created_at))
+    ]
+
+
 def invitation_out(invitation: AgencyAdminInvitation, agency: Agency) -> dict:
     now = datetime.now(timezone.utc)
     if invitation.accepted_at is not None:
