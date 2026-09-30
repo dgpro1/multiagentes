@@ -8,7 +8,7 @@ Two levels, both ceilings that only restrict what the levels below chose:
 
 A line can be created when the agency is under its quota AND the client is under
 its allocation. An absent key means **unlimited**, so an installation that never
-sets one behaves exactly as it did before this existed — no backfill, no change.
+sets one behaves exactly as it did before this existed â€” no backfill, no change.
 
 Every channel table lives in the control plane (``app/data_plane.py``), so all of
 this is a plain count: nothing depends on where a client keeps its data.
@@ -24,6 +24,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from . import agency_features
 from .models import Agency, Client, SocialChannel, WhatsAppChannel, WhatsAppCloudChannel, WidgetChannel
 
 # The channel types that can be counted, keyed exactly like the module catalog
@@ -138,7 +139,7 @@ def _scoped(query, model, provider: str | None, *, agency_id=None, client_id=Non
 
 def _count(db: Session, key: str, *, agency_id: uuid.UUID | None = None, client_id: uuid.UUID | None = None) -> int:
     """Rows of one channel type, per agency or per client. Every existing row
-    counts — connected or not, enabled or not — because a disconnected line
+    counts â€” connected or not, enabled or not â€” because a disconnected line
     still holds a number and a live Evolution instance; deleting it frees the
     slot."""
     model, provider = _rows(key)
@@ -187,15 +188,23 @@ def check(db: Session, agency: Agency, client: Client, key: str) -> None:
     quota. Called at every point that creates a channel row, inside the same
     transaction as the insert.
 
+    The module switch comes first, because it is a different question from the
+    quota: a quota of zero says "your plan does not buy this many", while the
+    switch says "your plan does not include this kind of line at all". Both are
+    the platform's decision, and an agency that already has lines connected
+    keeps them either way â€” only adding another one is refused.
+
     The agency row is locked first: two simultaneous creations would otherwise
     both read "under the quota" and both insert, breaking the promise the
     platform made to the agency.
 
     Which limit was hit decides what the message says, because the two have
     different owners: the client's share is the agency's to change, the plan is
-    the platform's. When both are full, saying so is the only useful answer —
+    the platform's. When both are full, saying so is the only useful answer -
     otherwise the agency reassigns lines that do not exist.
     """
+    agency_features.ensure_enabled(agency, key)
+
     db.execute(select(Agency.id).where(Agency.id == agency.id).with_for_update())
 
     label = LABELS.get(key, key)
@@ -242,7 +251,7 @@ def check(db: Session, agency: Agency, client: Client, key: str) -> None:
 # --- Reporting ---------------------------------------------------------------
 
 def usage(db: Session, agency: Agency) -> list[dict]:
-    """What the agency has, what it uses, and how it spread it — the platform's
+    """What the agency has, what it uses, and how it spread it â€” the platform's
     planning view and the agency's own summary. One query per channel type."""
     quotas = normalize(getattr(agency, "channel_quotas", None))
     clients = list(db.scalars(select(Client).where(Client.agency_id == agency.id).order_by(Client.name)))

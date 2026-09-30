@@ -4,21 +4,16 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { ArrowLeft, BadgeCheck, Ban, Bot, CalendarRange, CheckCircle2, ChevronDown, Clock, Download, FileSpreadsheet, Inbox, LoaderCircle, Merge, MessageCircle, MessageSquarePlus, MessageSquareText, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, UserRound, Users, X } from "lucide-react";
 import { TemplatePicker } from "./templates";
 import { Alert, EmptyState, Modal } from "@/components/ui";
-import { MessageAttachments, type GalleryImage } from "@/components/attachments";
-import { RichText } from "@/components/rich-text";
-import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
-import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
-import { QuotedSnippet, ReactionBadge } from "@/components/message-gestures";
-import { DeliveryTicks } from "@/components/delivery-ticks";
-import { activityText } from "@/lib/activity";
-import { ChannelIcon, channelLabel, isSocialChannel } from "@/lib/channels";
+import type { GalleryImage } from "@/components/attachments";
+import { MessageThread } from "@/components/messages/message-thread";
+import { ChannelIcon, channelLabel } from "@/lib/channels";
 import { useAttachmentOwners } from "@/lib/linked-threads";
 import { chatToText, downloadText } from "@/lib/export";
 import { useToast } from "@/components/toast";
 import { PhoneInput } from "@/components/phone-input";
 import { formatPhone } from "@/lib/dial-codes";
 import { api, ApiError, apiUrl, apiWithHeaders, messageFrom } from "@/lib/api";
-import { formatTime, formatWhen } from "@/lib/datetime";
+import { formatWhen } from "@/lib/datetime";
 import { useLanguage, useT, type I18nKey } from "@/lib/i18n";
 import { tagStyle } from "@/lib/tags";
 import { TagEditor } from "@/components/tag-editor";
@@ -540,28 +535,18 @@ export function ContactsView({ slug, channels, openConversation, can, agentName,
           <div><dt><MessageSquareText size={13} /> {t("portal.contacts.preview.messages")}</dt><dd><strong>{previewMessages.length}</strong></dd></div>
           <div><dt><Clock size={13} /> {t("portal.contacts.preview.lastActivity")}</dt><dd><strong>{formatWhen(preview.updated_at, lang)}</strong></dd></div>
         </dl>
-        <div className="portal-messages preview-thread">
-          {previewLoading && <div className="no-conversations"><LoaderCircle className="spin" size={16} /></div>}
-          {(preview.messages ?? []).map((message, index, all) => {
-            if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
-            if (isAppointmentActivity(message)) return <AppointmentActivityCard key={message.id} message={message} />;
-            if (message.kind === "activity") return <div key={message.id} className="activity-line"><span>{activityText(t, message)}</span><time>{formatTime(message.created_at, lang)}</time></div>;
-            const prev = index > 0 ? all[index - 1] : null;
-            const grouped = Boolean(prev && prev.kind !== "activity" && prev.role === message.role && prev.sender_name === message.sender_name);
-            const stamp = formatTime(message.created_at, lang);
-            const hasAudio = message.attachments?.some((a) => a.kind === "audio");
-            const mine = message.role === "assistant";
-            return <article key={message.id} className={`${message.role}${mine ? " mine" : ""}${mine && message.sender_type === "ai" ? " ai" : ""}${grouped ? " grouped" : ""}`}>
-              {!grouped && <small>{message.sender_name || (mine ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor"))}{mine && message.sender_type === "ai" && <span className="preview-ai-tag">AI</span>}</small>}
-              <MessageAttachments attachments={message.attachments} urlFor={previewUrl} gallery={previewGallery} stamp={stamp} />
-              {message.content && <p><QuotedSnippet messages={preview.messages ?? []} quotedId={message.quoted_message_id} /><RichText text={message.content} /><time className="msg-time">{stamp}{mine && (preview.channel === "whatsapp_cloud" || isSocialChannel(preview.channel)) && <DeliveryTicks status={message.delivery_status} error={message.delivery_error} />}</time></p>}
-              <ReactionBadge emoji={message.reaction} />
-              <ReactionBadge emoji={message.incoming_reaction} incoming />
-              {!message.content && !hasAudio && message.attachments?.length ? <time className="msg-time bare">{stamp}</time> : null}
-            </article>;
-          })}
-          {!previewLoading && !(preview.messages ?? []).length && <p className="muted">{t("portal.inbox.list.noMessages")}</p>}
-        </div>
+        <MessageThread
+          messages={preview.messages}
+          surface="preview"
+          t={t}
+          lang={lang}
+          urlFor={previewUrl}
+          gallery={previewGallery}
+          channel={preview.channel}
+          className="preview-thread"
+          before={previewLoading ? <div className="no-conversations"><LoaderCircle className="spin" size={16} /></div> : null}
+          after={!previewLoading && !(preview.messages ?? []).length ? <p className="muted">{t("portal.inbox.list.noMessages")}</p> : null}
+        />
         <div className="modal-actions preview-actions">
           <span className="preview-tools">
             <button type="button" className="button small" onClick={() => downloadText(previewTranscript(), `${preview.contact_name || preview.title}-${preview.created_at.slice(0, 10)}`)} disabled={previewLoading}><Download size={14} /> {t("portal.contacts.preview.download")}</button>

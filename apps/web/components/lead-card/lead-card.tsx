@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Copy, GitMerge, Link2, MoreHorizontal, Settings2, UserRound, X } from "lucide-react";
+import { Ban, ChevronDown, Copy, GitMerge, Link2, MoreHorizontal, Settings2, Unlock, UserRound, X } from "lucide-react";
 import { InlineInput, parseAmount } from "@/components/lead-card/inline-input";
 import { FieldManager } from "@/components/lead-card/field-manager";
 import { AppointmentsSection } from "@/components/lead-card/appointments-section";
 import { useLeadScope } from "@/components/lead-card/scope";
+import { useEscape } from "@/components/messages/use-escape";
 import { MergeDialog } from "@/components/merge-leads/merge-dialog";
 import { SharedContentList } from "@/components/shared-content";
 import { TagEditor } from "@/components/tag-editor";
+import { ContactCreator } from "@/components/lead-card/contact-creator";
 import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
@@ -22,21 +24,11 @@ type Member = { id: string; name: string };
 // The card as loaded for one conversation; kept with its id so a card of the previous conversation is never shown for the next.
 type Loaded = { id: string; card: LeadCardData | null; error: string | null };
 
-/** Runs `onEscape` on Escape while `active` (menus that close before the panel does). */
-function useEscape(active: boolean, onEscape: () => void) {
-  useEffect(() => {
-    if (!active) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onEscape(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [active, onEscape]);
-}
-
 /** The side panel of an open conversation, Kommo-style: the lead's number and
  * tags, its stage in the pipeline, who is responsible, its budget, the client's
  * custom fields and the contact's details, plus the files shared in the chat.
  * Where the data lives (agency or portal) comes from the LeadScope above it. */
-export function LeadCard({ conversationId, number, messages, urlFor, overlay = false, onClose, onChanged, onMerged, syncKey }: {
+export function LeadCard({ conversationId, number, messages, urlFor, overlay = false, onClose, onChanged, onMerged, onBlockContact, syncKey }: {
   conversationId: string;
   /** The lead's number, shown while the card is still loading. */
   number: number;
@@ -50,6 +42,9 @@ export function LeadCard({ conversationId, number, messages, urlFor, overlay = f
   onChanged?: () => void;
   /** Called after this lead was merged with another; receives the primary lead, which the host opens and reloads. */
   onMerged?: (primary: LeadCardData) => void;
+  /** Called when the person asked to block or unblock the contact. The host owns
+   * the call, because blocking takes the lead out of the list it is looking at. */
+  onBlockContact?: () => void;
   /** Changes when the thread does (a new message); the card reloads quietly, since the agent may have moved the lead. */
   syncKey?: string | number | null;
 }) {
@@ -198,6 +193,12 @@ export function LeadCard({ conversationId, number, messages, urlFor, overlay = f
               {scope.leadLink && <button type="button" role="menuitem" onClick={() => copy(scope.leadLink!(shownNumber), t("lead.linkCopied"))}><Link2 size={15} /><span><strong>{t("lead.copyLink")}</strong></span></button>}
               <button type="button" role="menuitem" onClick={() => copy(String(shownNumber), t("lead.numberCopied"))}><Copy size={15} /><span><strong>{t("lead.copyNumber")}</strong></span></button>
               {scope.canEditContact && card && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setMerging(true); }}><GitMerge size={15} /><span><strong>{t("lead.mergeWith")}</strong></span></button>}
+              {/* Blocking lives with the contact it acts on rather than in the
+                  thread header: it is a decision about a person, and it takes
+                  the lead out of the list it is looked at from. */}
+              {scope.canBlockContact && card?.contact.id
+                ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onBlockContact?.(); }}>{card.contact.blocked ? <Unlock size={15} /> : <Ban size={15} />}<span><strong>{card.contact.blocked ? t("lead.unblockContact") : t("lead.blockContact")}</strong></span></button>
+                : null}
             </div>
           </>}
         </span>
@@ -211,7 +212,11 @@ export function LeadCard({ conversationId, number, messages, urlFor, overlay = f
         : <div className="lead-skeleton"><ListRowsSkeleton rows={5} /></div>)
         : <>
           <section className="lead-section">
-            <TagEditor tags={catalog} value={card.contact.tags} onToggle={toggleTag} onCreate={createTag} canCreate={scope.canCreateTags} busy={tagsBusy} readOnly={!card.contact.id || !scope.canEditContact} />
+            {card.contact.id
+              ? <TagEditor tags={catalog} value={card.contact.tags} onToggle={toggleTag} onCreate={createTag} canCreate={scope.canCreateTags} busy={tagsBusy} readOnly={!scope.canEditContact} />
+              : scope.canEditContact
+                ? <ContactCreator path={scope.attachContactPath(conversationId)} onAttached={(next) => setLoaded({ id: conversationId, card: next, error: null })} />
+                : <p className="lead-empty"><small>{t("lead.noContact")}</small></p>}
           </section>
 
           {stages && <StageSelect stages={stages} current={card.stage} onPick={(stage) => savePipeline(stage, card.deal_value)} />}

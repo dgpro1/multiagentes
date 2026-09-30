@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Bot, CheckCircle2, CircleAlert, Facebook, Instagram, History, LoaderCircle, Plug, Power, ShieldCheck } from "lucide-react";
+import { moduleAllowed } from "@/lib/agency-modules";
 import { Alert, Modal } from "@/components/ui";
 import { AccountList } from "@/components/account-list";
 import { ApiError, messageFrom } from "@/lib/api";
@@ -21,7 +22,7 @@ export function SocialChannelSetup({ provider, apiBase, hrefFor, client }: { pro
 
 function SocialScreen({ provider }: { provider: SocialProvider }) {
   const { t } = useLanguage();
-  const { hrefFor, portal } = useChannelsScope();
+  const { hrefFor, portal, modules } = useChannelsScope();
   const { api } = useChannelsApi();
   const { clientId: id, loadClient } = useChannelClient();
   const backLabel = useBackToChannels();
@@ -154,8 +155,18 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
   async function authorize() {
     if (!agentId) return;
     await run(async () => {
+      // The server only returns the OAuth dance to the connection screen of the
+      // client bound into it, and it spells that screen with the client's id
+      // (``/clients/{id}/channels/{provider}``). The page was sending the address
+      // a person reads, with the client's name, and was refused every time - so
+      // connecting a social account from the agency never worked. The id is the
+      // form the server asks for, and these pages move it to the name once they
+      // open, so the operator still lands on the address they can read.
+      const returnPath = portal
+        ? hrefFor.type(provider)
+        : `/clients/${resolvedId}/channels/${provider}`;
       const result = await api<{ authorization_url: string }>(`/social/${provider}/oauth/start`, {
-        method: "POST", body: JSON.stringify({ client_id: resolvedId, agent_id: agentId, next_path: hrefFor.type(provider) }),
+        method: "POST", body: JSON.stringify({ client_id: resolvedId, agent_id: agentId, next_path: returnPath }),
       });
       window.open(result.authorization_url, "_blank", "noopener");
       setPendingApproval(true);
@@ -205,6 +216,8 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
   const nameOf = (line: SocialChannel) => accountName(line, t("social.accountFallback", { n: lines.indexOf(line) + 1 }));
   const listView = !adding && !channel;
   const agentNameOf = (line: SocialChannel) => client.agents.find((agent) => agent.id === line.agent_id)?.name || t("clients.detail.noAgent");
+  // El canal social se apaga por proveedor (Instagram, Messenger).
+  const addBlocked = moduleAllowed(modules, `channels.${provider}`) ? undefined : t("channels.moduleOff");
   const rows = lines.map((line) => {
     const live = line.is_enabled && line.status === "connected";
     return {
@@ -223,7 +236,7 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
     <header className="wa-header"><div className={`wa-mark ${provider}`}><Icon size={26} /></div><div><span>{listView ? t("clients.whatsapp.channelOf", { name: client.name }) : `${t(`social.${provider}.title`)} · ${client.name}`}</span><h1>{channel ? accountTitle(channel, nameOf(channel)) : adding ? t("social.newAccount") : t(`social.${provider}.title`)}</h1><p>{t(`social.${provider}.description`)}</p></div>{channel && <div className={`wa-state ${connected ? "connected" : channel.status === "error" ? "error" : "disconnected"}`}>{connected ? <CheckCircle2 size={17} /> : <CircleAlert size={17} />} {t(statusLabel)}</div>}</header>
     {error && <Alert>{error}</Alert>}
     {callbackNotice && <Alert>{t(callbackNotice === "ready" ? "social.approvalReady" : "social.approvalError")}</Alert>}
-    {listView && <AccountList rows={rows} summary={lines.length === 1 ? t("clients.detail.channelAccountOne") : t("clients.detail.channelAccounts", { count: lines.length, connected: connectedCount })} addLabel={t("clients.detail.addAccount")} openLabel={t("clients.detail.configure")} onOpen={(lineId) => { const line = lines.find((item) => item.id === lineId); if (line) { applyChannel(line); setError(""); setSaved(false); void loadHistory(line.id); } }} onAdd={() => startAdding(client)} />}
+    {listView && <AccountList rows={rows} summary={lines.length === 1 ? t("clients.detail.channelAccountOne") : t("clients.detail.channelAccounts", { count: lines.length, connected: connectedCount })} addLabel={t("clients.detail.addAccount")} openLabel={t("clients.detail.configure")} onOpen={(lineId) => { const line = lines.find((item) => item.id === lineId); if (line) { applyChannel(line); setError(""); setSaved(false); void loadHistory(line.id); } }} onAdd={() => startAdding(client)} addBlocked={addBlocked} />}
     {saved && <p className="social-feedback" role="status"><CheckCircle2 size={16} /> {t("social.saved")}</p>}
     {!listView && <div className="wa-layout"><main>
       <section className="wa-panel"><div className="wa-panel-head"><span><Bot size={19} /></span><div><h2>{t("clients.whatsapp.assignedAgent")}</h2><p>{t("clients.whatsapp.assignedAgentCopy")}</p></div></div><div className="wa-agent-row"><label>{t("clients.whatsapp.agentToRespond")}<select value={agentId} onChange={(event) => setAgentId(event.target.value)} disabled={busy}><option value="">{t("clients.whatsapp.selectAgent")}</option>{client.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}{agent.is_active ? "" : t("clients.whatsapp.inactiveSuffix")}</option>)}</select></label><label>{t("social.accountName")}<input value={label} maxLength={80} placeholder={t("social.accountNamePlaceholder")} onChange={(event) => setLabel(event.target.value)} disabled={busy} /></label>{channel && <button className="button secondary" disabled={!agentId || !dirty || busy} onClick={saveDetails}>{t("social.agentSave")}</button>}</div><p className="social-meta">{t("social.accountNameHint")}</p>{!client.agents.length && <Alert>{t("clients.whatsapp.needsAgent")}</Alert>}</section>

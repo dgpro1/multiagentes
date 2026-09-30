@@ -17,6 +17,7 @@ import { createContext, useCallback, useContext, useMemo, type ReactNode } from 
 import { useParams } from "next/navigation";
 import { api as rawApi, ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { useAgencyModules } from "@/lib/agency-modules";
 import { clientChannelPath, portalChannelPath, type ChannelType } from "@/lib/routes";
 import type { Client } from "@/types";
 
@@ -46,6 +47,10 @@ export type ChannelsScope = {
   client: { id: string; slug: string; name: string };
   /** The client has been resolved to its UUID for the agency address (always true in the portal). */
   clientReady: boolean;
+  /** The modules the platform left this agency; null until the session answers.
+   * The server refuses a line of a channel whose module is off, so the screens
+   * consult this before offering one. */
+  modules: string[] | null;
 };
 
 const ScopeContext = createContext<ChannelsScope | null>(null);
@@ -54,15 +59,20 @@ export function ChannelsScopeProvider({ apiBase = "", hrefFor, client, children 
   const params = useParams<{ slug?: string }>();
   const key = client?.slug ?? params.slug ?? "";
   const resolved = Boolean(client?.id);
+  const inPortal = apiBase !== "";
+  // The agency learns what the platform allows from its own session; the portal
+  // already hides the functions its own session does not carry.
+  const modules = useAgencyModules(!inPortal);
   const value = useMemo<ChannelsScope>(
     () => ({
       apiBase,
-      portal: apiBase !== "",
+      portal: inPortal,
       hrefFor: hrefFor ?? agencyChannelHrefs(key),
       client: { id: client?.id ?? "", slug: key, name: client?.name ?? "" },
       clientReady: resolved,
+      modules,
     }),
-    [apiBase, hrefFor, client?.id, key, client?.name],
+    [apiBase, inPortal, hrefFor, client?.id, key, client?.name, resolved, modules],
   );
   return <ScopeContext.Provider value={value}>{children}</ScopeContext.Provider>;
 }

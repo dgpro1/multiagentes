@@ -238,6 +238,12 @@ async def begin_oauth(db: Session, user: User, provider_name: str, client_id, ag
     graph.provider_name(provider_name)
     client = owned_client(db, user, client_id, agent_id)
     provider.require_config()
+    # A line of this kind is not in the agency's plan. The account is only
+    # written when the dance comes back, so without asking here the operator
+    # would authorize with the provider and be refused at the end, having done
+    # the whole round trip for nothing. A quota of zero is not "unlimited": an
+    # absent key is.
+    channel_quotas.check(db, db.get(Agency, user.agency_id), client, f"channels.{provider_name}")
     if confined_client_id(user) is not None:
         # From the portal the flow returns to the portal's own screen.
         next_url = portal_return.portal_url(client, provider_name, next_path=next_path)

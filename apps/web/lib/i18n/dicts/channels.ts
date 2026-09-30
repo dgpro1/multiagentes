@@ -5,6 +5,9 @@ const en = {
     title: "Channels",
     description: "Connect each client's number to its own agent and Inbox. Every connection belongs to a single client: its number, agent, session and conversations stay separate from other spaces.",
   },
+  // The platform switched this channel off for the whole agency. The lines
+  // already connected keep working; only another one is not offered.
+  moduleOff: "The platform switched this channel off for your agency. The numbers already connected keep working.",
   toolbar: {
     clientLabel: "Client",
     allClients: "All clients",
@@ -77,10 +80,11 @@ const es: typeof en = {
     title: "Canales",
     description: "Conecta el número de cada cliente con su propio agente e Inbox. Cada conexión pertenece a un solo cliente: su número, agente, sesión y conversaciones permanecen separados de los demás espacios.",
   },
-  toolbar: {
-    clientLabel: "Cliente",
-    allClients: "Todos los clientes",
-    openClient: "Abrir cliente",
+  moduleOff: "La plataforma apagó este canal para tu agencia. Los números ya conectados siguen funcionando.",
+    toolbar: {
+      clientLabel: "Cliente",
+      allClients: "Todos los clientes",
+      openClient: "Abrir cliente",
   },
   whatsappCloud: {
     status: "Disponible",

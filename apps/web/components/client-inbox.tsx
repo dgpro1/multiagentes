@@ -2,54 +2,48 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowLeft,
+  Ban,
   Bot,
   Calendar as CalendarIcon,
   Check,
   ChevronDown,
   Clock,
   Filter,
-  Images,
   Inbox,
-  Link2,
   LoaderCircle,
-  Lock,
   Paperclip,
   Plus,
   Reply,
   Search,
   Smile,
-  SmilePlus,
   UserRound,
   X,
 } from "lucide-react";
-import { MessageAttachments, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
-import { MediaPanel } from "@/components/media-panel";
+import { PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { LeadCard } from "@/components/lead-card/lead-card";
-import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
+import { MessageThread } from "@/components/messages/message-thread";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
 import { AppointmentModal } from "@/components/appointment-modal";
-import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
 import { ScheduleMessageModal } from "@/components/schedule-message-modal";
 import { ScheduledMessagesBanner } from "@/components/scheduled-messages-banner";
 import { VariablesPopover } from "@/components/variables-popover";
-import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
+import { LeadHeaderButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
-import { RichText } from "@/components/rich-text";
 import { GrowingTextarea } from "@/components/growing-textarea";
-import { QuotedSnippet, ReactionBadge, ReactionPicker } from "@/components/message-gestures";
-import { DeliveryTicks } from "@/components/delivery-ticks";
+import { ReactionPicker } from "@/components/message-gestures";
 import { useToast } from "@/components/toast";
-import { EmptyState } from "@/components/ui";
+import { EmptyState, Modal } from "@/components/ui";
 import { ListRowsSkeleton } from "@/components/skeleton";
-import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels, MessageChannelMark } from "@/lib/channels";
+import { LeadRowActions, pinnedFirst } from "@/components/lead-row-actions";
+import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels } from "@/lib/channels";
 import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
 import { PhonePauseNotice, SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
 import { api, apiUrl, messageFrom } from "@/lib/api";
-import { activityText as activityLine } from "@/lib/activity";
-import { formatTime, formatWhen, isNearBottom } from "@/lib/datetime";
+import { formatWhen, isNearBottom } from "@/lib/datetime";
 import { useLanguage, useT } from "@/lib/i18n";
 import { clientPath } from "@/lib/routes";
 import type { Attachment, Conversation, Message, ScheduledMessage } from "@/types";
@@ -121,9 +115,9 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variablesQuery, setVariablesQuery] = useState("");
   const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
+  const [blockingContact, setBlockingContact] = useState(false);
   const [scheduledModalOpen, setScheduledModalOpen] = useState(false);
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
-  const [mediaOpen, setMediaOpen] = useState(false);
 
   const composerRef = useRef<HTMLFormElement>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
@@ -149,7 +143,6 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
 
   const channelLabel = useCallback((value: string) => labelForChannel(value, t), [t]);
   const channelIcon = useCallback((value: string) => <ChannelIcon channel={value} />, []);
-  const activityText = useCallback((message: Message) => activityLine(t, message), [t]);
 
   const selectedId = selected?.id;
   const attachmentUrl = useCallback(
@@ -275,6 +268,33 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
     selectedIdRef.current = null;
     if (urlNumber !== undefined) {
       router.push(clientPath(key, "inbox"));
+    }
+  }
+
+  // Resolving a lead from its row. This list comes from `/conversations`,
+  // which does not say who spoke last, so the row cannot show the pending dot
+  // here; what it can do is tell the truth on the next read of the list.
+  async function resolveRow(item: { id: string }) {
+    try {
+      await api<Conversation>(`/conversations/${item.id}/status`, { method: "PATCH", body: JSON.stringify({ status: "resolved" }) });
+      await loadList();
+    } catch (err) {
+      toast.error(messageFrom(err));
+    }
+  }
+
+  // The pin moves the row straight away and the answer confirms it; a failure
+  // puts the row back where it was rather than leaving a lie on screen.
+  async function togglePinRow(item: Conversation) {
+    const pinned = !item.pinned_at;
+    const at = pinned ? new Date().toISOString() : null;
+    setItems((rows) => pinnedFirst(rows.map((row) => (row.id === item.id ? { ...row, pinned_at: at } : row))));
+    try {
+      const conv = await api<Conversation>(`/conversations/${item.id}/pin`, { method: "PATCH", body: JSON.stringify({ pinned }) });
+      setItems((rows) => pinnedFirst(rows.map((row) => (row.id === item.id ? { ...row, pinned_at: conv.pinned_at ?? null } : row))));
+    } catch (err) {
+      setItems((rows) => rows.map((row) => (row.id === item.id ? { ...row, pinned_at: item.pinned_at } : row)));
+      toast.error(messageFrom(err));
     }
   }
 
@@ -529,6 +549,27 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
     }
   }
 
+  /** Block the open lead's contact, asked for from the lead card. Blocking
+   *  takes the conversation out of the inbox, so the thread is closed and the
+   *  list is read again rather than left showing a lead that is gone. */
+  async function blockContact(blocked: boolean) {
+    if (!selected?.contact_id || !selected.client_id) return;
+    setBusy(true);
+    try {
+      await api(`/clients/${selected.client_id}/contacts/${selected.contact_id}/block`, {
+        method: "POST",
+        body: JSON.stringify({ blocked }),
+      });
+      setBlockingContact(false);
+      if (blocked) clearSelection();
+      loadList().catch(() => {});
+    } catch (err) {
+      toast.error(messageFrom(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleScheduleMessage(content: string, scheduledFor: string) {
     if (!selected) return;
     try {
@@ -729,8 +770,8 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
 
         {visibleItems.map((item) => (
           <div key={item.id} className="inbox-row">
-            <button
-              onClick={() => choose(item)}
+            <Link
+              href={clientPath(key, "inbox", item.number)}
               className={`${selected?.id === item.id ? "active" : ""}${item.unread && selected?.id !== item.id ? " unread" : ""}`}
             >
               <span className="entity-avatar tiny"><UserRound size={15} /></span>
@@ -762,7 +803,13 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
                   {item.team_name && <span className="mini-badge team">{item.team_name}</span>}
                 </small>
               </span>
-            </button>
+            </Link>
+            <LeadRowActions
+              pinned={Boolean(item.pinned_at)}
+              onResolve={() => resolveRow(item)}
+              onTogglePin={() => togglePinRow(item)}
+              href={clientPath(key, "inbox", item.number)}
+            />
           </div>
         ))}
         {!visibleItems.length && <div className="no-conversations">{t("inbox.empty")}</div>}
@@ -790,163 +837,85 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
               >
                 <ArrowLeft size={16} />
               </button>
-              <LeadAvatarButton
+              <LeadHeaderButton
                 channel={selected.channel}
                 open={leadOpen}
                 onClick={() => setLeadOpen(!leadPanelOpen)}
-              />
-              <div>
-                <strong>
-                  {selected.contact_name || selected.title}
-                  <span className="lead-number">#{selected.number}</span>
-                </strong>
-                <small className="portal-channel-line">
-                  {replyVia.multi ? (
-                    <ChannelDots channels={[...new Set(replyVia.threads.map((thread) => thread.channel))]} t={t} />
-                  ) : (
-                    <>{channelIcon(selected.channel)} {channelLabel(selected.channel)}</>
-                  )}
-                  {selected.account_label && <span className="account-badge" title={selected.account_label}>{selected.account_label}</span>}
-                  {selected.channel === "whatsapp_cloud" && !selected.reply_window_open && (
-                    <span className="window-pill closed">
-                      <Clock size={11} /> {selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}
-                    </span>
-                  )}
-                </small>
-              </div>
+              >
+                <div>
+                  <strong>
+                    {selected.contact_name || selected.title}
+                    <span className="lead-number">#{selected.number}</span>
+                  </strong>
+                  <small className="portal-channel-line">
+                    {replyVia.multi ? (
+                      <ChannelDots channels={[...new Set(replyVia.threads.map((thread) => thread.channel))]} t={t} />
+                    ) : (
+                      <>{channelIcon(selected.channel)} {channelLabel(selected.channel)}</>
+                    )}
+                    {selected.account_label && <span className="account-badge" title={selected.account_label}>{selected.account_label}</span>}
+                    {selected.channel === "whatsapp_cloud" && !selected.reply_window_open && (
+                      <span className="window-pill closed">
+                        <Clock size={11} /> {selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}
+                      </span>
+                    )}
+                  </small>
+                </div>
+              </LeadHeaderButton>
 
               <div className="thread-actions">
-                <button
-                  type="button"
-                  className="icon-button"
-                  title={t("portal.inbox.copyLink")}
-                  aria-label={t("portal.inbox.copyLink")}
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(window.location.href).then(() => toast.success(t("portal.inbox.linkCopied")));
-                  }}
-                >
-                  <Link2 size={16} />
-                </button>
-                <button
-                  className="icon-button"
-                  onClick={() => setMediaOpen(true)}
-                  title={t("chat.sharedContent")}
-                  aria-label={t("chat.sharedContent")}
-                >
-                  <Images size={16} />
-                </button>
+                
+                
               </div>
             </header>
 
             {/* Messages */}
-            <div className="portal-messages" ref={messagesRef}>
-              {selected.messages?.map((message, index) => {
-                if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
-                if (isAppointmentActivity(message)) return <AppointmentActivityCard key={message.id} message={message} />;
-                if (message.kind === "activity") {
-                  return (
-                    <div key={message.id} className="activity-line">
-                      <span>{activityText(message)}</span>
-                      <time>{formatTime(message.created_at, lang)}</time>
-                    </div>
-                  );
-                }
-                if (message.kind === "note") {
-                  return (
-                    <div key={message.id} className="internal-note-card">
-                      <div className="internal-note-header">
-                        <Lock size={12} />
-                        <span>{message.sender_name || t("portal.inbox.conversation.agent")} · {t("inbox.internalNoteBadge")}</span>
-                        <time>{formatTime(message.created_at, lang)}</time>
-                      </div>
-                      <div className="internal-note-content">
-                        <RichText text={message.content} />
-                      </div>
-                    </div>
-                  );
-                }
-
-                const prev = index > 0 ? selected.messages![index - 1] : null;
-                const grouped = Boolean(prev && prev.kind !== "activity" && prev.role === message.role && prev.sender_name === message.sender_name);
-                const stamp = formatTime(message.created_at, lang);
-                const hasAudio = message.attachments?.some((a) => a.kind === "audio");
-                const mine = message.role === "assistant";
-
-                return (
-                  <article
-                    key={message.id}
-                    className={`${message.role}${mine ? " mine" : ""}${mine && message.sender_type === "ai" ? " ai" : ""}${grouped ? " grouped" : ""}`}
-                  >
-                    {!grouped && (
-                      <small>
-                        {message.sender_name || (message.role === "assistant" ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor"))}
-                      </small>
-                    )}
-                    {policy.canReply && (message.channel ?? selected.channel).startsWith("whatsapp") && (
-                      <span className="bubble-actions">
-                        {message.role === "user" && (
-                          <button
-                            type="button"
-                            title={t("portal.inbox.conversation.react")}
-                            aria-label={t("portal.inbox.conversation.react")}
-                            onClick={() => setReactingTo(reactingTo === message.id ? null : message.id)}
-                          >
-                            <SmilePlus size={14} />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          title={t("portal.inbox.conversation.reply")}
-                          aria-label={t("portal.inbox.conversation.reply")}
-                          onClick={() => {
-                            setQuoting(message);
-                            if (message.conversation_id) replyVia.setVia(message.conversation_id);
-                            replyInputRef.current?.focus();
-                          }}
-                        >
-                          <Reply size={14} />
-                        </button>
-                      </span>
-                    )}
-
-                    <MessageAttachments attachments={message.attachments} urlFor={attachmentUrl} gallery={gallery} stamp={stamp} />
-                    {message.content && (
-                      <p>
-                        <QuotedSnippet messages={selected.messages ?? []} quotedId={message.quoted_message_id} />
-                        <RichText text={message.content} />
-                        <time className="msg-time">
-                          {replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}
-                          {stamp}
-                          {mine && ((message.channel ?? selected.channel) === "whatsapp_cloud" || isSocialChannel(message.channel ?? selected.channel)) && (
-                            <DeliveryTicks status={message.delivery_status} error={message.delivery_error} />
-                          )}
-                        </time>
-                        {mine && message.delivery_status === "failed" && message.delivery_error && (
-                          <span className="msg-error">{message.delivery_error}</span>
-                        )}
-                      </p>
-                    )}
-                    <ReactionBadge emoji={message.reaction} />
-                    <ReactionBadge emoji={message.incoming_reaction} incoming />
-                    {!message.content && !hasAudio && message.attachments?.length ? (
-                      <time className="msg-time bare">
-                        {replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}
-                        {stamp}
-                      </time>
-                    ) : null}
-                    {reactingTo === message.id && (
-                      <ReactionPicker
-                        current={message.reaction}
-                        removeLabel={t("portal.inbox.conversation.removeReaction")}
-                        onPick={(emoji) => sendReaction(message, emoji)}
-                      />
-                    )}
-                  </article>
-                );
-              })}
-            </div>
+            <MessageThread
+              messages={selected.messages}
+              surface="portal"
+              t={t}
+              lang={lang}
+              urlFor={attachmentUrl}
+              gallery={gallery}
+              channel={selected.channel}
+              bubbleActions={{
+                enabled: policy.canReply,
+                onReact: (message) => setReactingTo(reactingTo === message.id ? null : message.id),
+                onReply: (message) => {
+                  setQuoting(message);
+                  if (message.conversation_id) replyVia.setVia(message.conversation_id);
+                  replyInputRef.current?.focus();
+                },
+              }}
+              reactionPicker={(message) => reactingTo === message.id ? (
+                <ReactionPicker
+                  current={message.reaction}
+                  removeLabel={t("portal.inbox.conversation.removeReaction")}
+                  onPick={(emoji) => sendReaction(message, emoji)}
+                />
+              ) : null}
+              containerRef={messagesRef}
+            />
 
             <PhonePauseNotice conversation={selected} onKeepManual={() => setMode("human")} />
+            {blockingContact && selected.contact_id && (
+              <Modal
+                open
+                title={t("portal.contacts.blockTitle", { name: selected.contact_name || selected.title || "" })}
+                onClose={() => setBlockingContact(false)}
+              >
+                <div className="modal-form">
+                  <p className="muted">{t("portal.contacts.blockCopy")}</p>
+                  <p className="muted">{t("portal.contacts.blockUnblockCopy")}</p>
+                  <div className="modal-actions">
+                    <button type="button" className="button" onClick={() => setBlockingContact(false)}>{t("common.cancel")}</button>
+                    <button type="button" className="button danger" disabled={busy} onClick={() => blockContact(true)}>
+                      <Ban size={15} /> {t("portal.contacts.block")}
+                    </button>
+                  </div>
+                </div>
+              </Modal>
+            )}
             <SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
             {pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}
             {quoting && (
@@ -1183,13 +1152,6 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
               </div>
             </form>
 
-            <MediaPanel
-              open={mediaOpen}
-              onClose={() => setMediaOpen(false)}
-              messages={selected.messages ?? []}
-              urlFor={attachmentUrl}
-            />
-
             {appointmentModalOpen && selected && (
               <AppointmentModal
                 open={appointmentModalOpen}
@@ -1228,6 +1190,7 @@ export function ClientInbox({ clientId, portalSlug, urlNumber }: ClientInboxProp
               void choose({ id: primary.conversation_id });
               loadList().catch(() => {});
             }}
+            onBlockContact={() => setBlockingContact(true)}
             syncKey={selected.messages?.at(-1)?.id}
           />
         </LeadScopeProvider>

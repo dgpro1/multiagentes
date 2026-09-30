@@ -23,6 +23,7 @@ from ..schemas_platform import (
     PlatformAgencyCreated,
     PlatformAgencyCreate,
     PlatformAgencyOut,
+    PlatformAgencyUserOut,
     PlatformAgencyUpdate,
     PlatformAuditEventOut,
     PlatformClientOut,
@@ -138,6 +139,26 @@ def get_agency(
     if agency is None:
         raise HTTPException(status_code=404, detail="Agency not found")
     return platform_service.agency_out(db, agency)
+
+
+@router.get("/agencies/{agency_id}/users", response_model=list[PlatformAgencyUserOut])
+def agency_users(
+    agency_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin: PlatformAdmin = Depends(get_current_platform_admin),
+):
+    """Who is in the agency: its administrators and the people who work there.
+
+    The profile showed how many clients and how many agents an agency has, which
+    reads the same whether the account is in daily use or was opened once and
+    forgotten. This is the answer to that, and the invitation form on the profile
+    only ever re-sent the first administrator's invitation, so nothing else
+    showed who was already inside.
+    """
+    agency = db.get(Agency, agency_id)
+    if agency is None:
+        raise HTTPException(status_code=404, detail="Agency not found")
+    return platform_service.agency_users(db, agency)
 
 
 @router.patch("/agencies/{agency_id}", response_model=PlatformAgencyOut)

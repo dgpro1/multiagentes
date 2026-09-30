@@ -559,6 +559,16 @@ textarea { line-height: 1.55; }
 .form-section, .settings-section { padding: 30px; display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 54px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow); }
 .section-copy h2, .settings-copy h3 { margin: 0 0 7px; color: var(--ink); font-size: 16px; font-weight: 600; }
 .section-copy p, .settings-copy p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+/* The people of an agency on the platform profile: one row each, admin first.
+   Reuses the entity avatar and the status pill, so a name reads the same here
+   as it does in the agency's own panel. */
+.platform-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.platform-people li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.platform-people li:last-child { border-bottom: 0; }
+.platform-people-id { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.platform-people-id strong { font-size: 13px; font-weight: 600; }
+.platform-people-id small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.platform-people-since { color: var(--subtle); font-size: 12px; white-space: nowrap; }
 .form-fields, .settings-fields { display: flex; flex-direction: column; gap: 18px; }
 .form-grid { gap: 16px; }
 .switch-row { min-height: 66px; border-radius: 8px; }
@@ -962,12 +972,15 @@ textarea { line-height: 1.55; }
 .inbox-layout { height: 650px; display: grid; grid-template-columns: 310px minmax(0,1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
 .inbox-list { overflow: auto; border-right: 1px solid var(--line); background: var(--surface-2); }
 .inbox-list > header { height: 56px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
-.inbox-list > button { width: 100%; padding: 13px 14px; display: flex; align-items: center; gap: 10px; text-align: left; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; }
-.inbox-list > button.active { background: var(--accent-soft); }
-.inbox-list > button > span:last-child { min-width: 0; display: flex; flex-direction: column; }
+/* The row is a link, so these follow the <a> and not only a <button>; the
+   three-dot menu inside is kept out of them by the rules in the start-line
+   zone, which need the higher specificity this broad selector beats. */
+.inbox-list > button, .inbox-list > .inbox-row > a { width: 100%; padding: 13px 14px; display: flex; align-items: center; gap: 10px; text-align: left; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; }
+.inbox-list > button.active, .inbox-list > .inbox-row.active > a { background: var(--accent-soft); }
+.inbox-list > button > span:last-child, .inbox-list > .inbox-row > a > span:last-of-type { min-width: 0; display: flex; flex-direction: column; }
 .inbox-list button strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .inbox-list button small { color: var(--subtle); font-size: 12px; }
-.inbox-list > button { align-items: flex-start; }
+.inbox-list > button, .inbox-list > .inbox-row > a { align-items: flex-start; }
 .inbox-row-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .inbox-row-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .inbox-row-top strong { flex: 1 1 auto; }
@@ -992,6 +1005,29 @@ textarea { line-height: 1.55; }
 .inbox-row.unread strong { font-weight: 700; }
 .inbox-row.unread .inbox-row-preview { color: var(--ink); }
 .inbox-unread-count { flex: 0 0 auto; align-self: center; min-width: 18px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; border-radius: 20px; color: white; background: var(--purple); font-size: 12px; font-weight: 700; line-height: 1; }
+/* A lead row is a link. The <a> carries the address and its ::after takes the
+   whole row, so the row as a whole is clickable and shareable; the three-dot
+   menu is a sibling on top of it, because a button inside an <a> is invalid.
+   A row waiting for an answer says so with a dot, which opening the lead does
+   not clear: it is about the conversation, not about who has looked. */
+.inbox-row { position: relative; display: flex; align-items: flex-start; }
+.inbox-row > a { flex: 1 1 auto; min-width: 0; }
+/* The row's own click area, the menu, and the layer that dismisses it are three
+   pieces of the same stacking context. The menu has to come last: the click
+   area is a sibling of the link that fills the row, so without an order it
+   paints over the menu and the only way into it is the keyboard. The trigger
+   is a corner affordance, so it takes the smallest size the app already has for
+   one: a 310px row cannot spare a full button. */
+.inbox-row > .start-line-wrap { position: relative; z-index: 2; flex: 0 0 auto; margin: 6px 6px 0 0; }
+.inbox-row > .start-line-wrap > .icon-button { width: 26px; height: 26px; border-color: transparent; background: transparent; }
+/* The menu waits for a deliberate gesture: the row shows its own trigger on
+   hover or on focus, and the menu itself opens on click or from the keyboard.
+   A hover-opened menu cannot work here, since the backdrop that dismisses it
+   covers the pointer before it reaches any item. */
+@media (hover: hover) {
+  .inbox-row .start-line-wrap { visibility: hidden; }
+  .inbox-row:hover .start-line-wrap, .inbox-row:focus-within .start-line-wrap { visibility: visible; }
+}
 .inbox-thread { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .inbox-thread > header { min-height: 62px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
 .inbox-thread > header div { display: flex; flex-direction: column; }
@@ -1091,9 +1127,9 @@ textarea { line-height: 1.55; }
 .portal-inbox > aside { overflow: auto; border-right: 1px solid var(--line); background: var(--surface-2); }
 /* The search row and the thread header share their bottom line: same height. */
 .portal-inbox > aside .inbox-search { min-height: 64px; }
-.portal-inbox > aside button { width: 100%; padding: 14px; display: flex; gap: 10px; text-align: left; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; }
-.portal-inbox > aside button.active { background: var(--accent-soft); }
-.portal-inbox > aside button.unread strong { font-weight: 700; }
+.portal-inbox > aside button, .portal-inbox > aside .inbox-row > a { width: 100%; padding: 14px; display: flex; gap: 10px; text-align: left; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; }
+.portal-inbox > aside button.active, .portal-inbox > aside .inbox-row.active > a { background: var(--accent-soft); }
+.portal-inbox > aside button.unread strong, .portal-inbox > aside .inbox-row.unread strong { font-weight: 700; }
 /* Segmented switch: one list of a kind at a time (open / resolved). The
    portal stretches it across its sidebar. */
 .mini-badge.resolved { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-2); background: var(--green-soft); }
@@ -1111,7 +1147,7 @@ textarea { line-height: 1.55; }
 .archive-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .archive-tools .text-button[disabled] { opacity: .45; cursor: default; }
 .portal-inbox > aside .inbox-row { display: flex; align-items: stretch; }
-.portal-inbox > aside .inbox-row > button { flex: 1; min-width: 0; }
+.portal-inbox > aside .inbox-row > button, .portal-inbox > aside .inbox-row > a { flex: 1; min-width: 0; }
 .portal-inbox > aside .row-pick { display: flex; align-items: center; padding: 0 0 0 12px; border-bottom: 1px solid var(--line-soft); }
 .portal-inbox > aside .row-pick input { width: 16px; height: 16px; }
 .portal-composer.archive-bar { background: var(--canvas); }
@@ -1159,10 +1195,19 @@ textarea { line-height: 1.55; }
 .portal-teams-table .team-members { margin: 0; }
 .start-line-wrap { position: relative; }
 .menu-backdrop { position: fixed; inset: 0; z-index: 29; }
+/* The same job on a lead row, which has a click area of its own: covering the
+   row instead of the screen keeps the menu reachable with the mouse, which a
+   `fixed` backdrop covers along with the trigger that opened it. */
+.lead-row-backdrop { position: absolute; inset: 0; z-index: 29; }
+/* A row lives inside `.portal-inbox > aside button`, which is broad enough to
+   stretch anything. The trigger and the items carry the wrap, which outranks
+   it, so the menu keeps its own size inside a row. On a lead row the trigger
+   is resized further, by the rule that owns the row. */
+.start-line-wrap > .icon-button { width: 34px; height: 34px; padding: 0; flex: 0 0 auto; }
 .start-line-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: flex; flex-direction: column; gap: 2px; width: min(270px, 88vw); padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 10px 32px rgba(var(--shadow-rgb), calc(.16 * var(--shadow-k))); }
 .start-line-menu > small { padding: 4px 9px 2px; color: var(--subtle); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-.start-line-menu button { display: flex; align-items: center; gap: 9px; padding: 7px 9px; text-align: left; border: 0; border-radius: 7px; background: transparent; font-size: 13.5px; cursor: pointer; }
-.start-line-menu button:hover { background: var(--surface-3); }
+.start-line-wrap .start-line-menu button { width: auto; padding: 7px 9px; display: flex; align-items: center; gap: 9px; text-align: left; border: 0; border-bottom: 0; border-radius: 7px; background: transparent; font-size: 13.5px; cursor: pointer; }
+.start-line-wrap .start-line-menu button:hover { background: var(--surface-3); }
 .start-line-menu button strong { display: block; color: var(--ink); font-size: 13.5px; font-weight: 600; }
 .start-line-menu button small { display: block; color: var(--subtle); font-size: 12px; }
 .start-line-menu .channel-dot { width: 26px; height: 26px; flex: 0 0 auto; display: grid; place-items: center; color: white; border-radius: 50%; }
@@ -1239,10 +1284,16 @@ textarea { line-height: 1.55; }
 @media (max-width: 760px) { .template-detail { grid-template-columns: 1fr; } .template-button-row { grid-template-columns: 1fr; } }
 .activity-line { align-self: center; max-width: 90%; display: inline-flex; align-items: baseline; gap: 6px; padding: 2px 12px; background: none; color: var(--muted); font-size: 11px; }
 .activity-line time { color: var(--subtle); font-size: 10px; }
+/* The day a thread crosses, centred over it. The same shape as an activity
+   line, since both are the system speaking about a message rather than a
+   message: centred, muted, small. */
+.msg-day-divider { align-self: center; max-width: 90%; display: inline-flex; align-items: center; padding: 3px 12px; color: var(--muted); font-size: 11px; font-weight: 600; }
+/* The first entry of a day opens a gap; the rest of the thread keeps its own. */
+.portal-messages > .msg-day-divider + article, .inbox-messages > .msg-day-divider + .inbox-message { margin-top: 0; }
 /* Consecutive log lines read as one list: close up the thread's 15px gap. */
 .portal-messages .activity-line + .activity-line { margin-top: -12px; }
-.portal-inbox > aside button.unread .portal-inbox-preview { color: var(--ink); }
-.portal-inbox > aside button > span:last-child { min-width: 0; display: flex; flex-direction: column; }
+.portal-inbox > aside button.unread .portal-inbox-preview, .portal-inbox > aside .inbox-row.unread .portal-inbox-preview { color: var(--ink); }
+.portal-inbox > aside button > span:last-child, .portal-inbox > aside .inbox-row > a > span:last-of-type { min-width: 0; display: flex; flex-direction: column; }
 .portal-inbox > aside strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .portal-inbox > aside small { color: var(--subtle); }
 .portal-inbox-row-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -1751,6 +1802,9 @@ textarea { line-height: 1.55; }
    for, so it leads; then who answers and the state. The channel page shows
    this list until one account is picked. */
 .account-list { margin-bottom: 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
+/* El boton de anadir, sustituido por el motivo: la plataforma apago el
+   canal y el servidor rechazaria la llamada. */
+.account-list-blocked { color: var(--muted); font-size: 12px; max-width: 46ch; }
 .account-list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .account-list-head p { margin: 0; color: var(--muted); font-size: 13px; font-weight: 600; }
 .account-list-head .button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -2252,7 +2306,24 @@ p .msg-time, .bubble .msg-time { float: right; margin: 9px -2px -2px 10px; font-
 .portal-messages article.mine .msg-time.bare, .inbox-message.user .msg-time.bare, .message-row.user .msg-time.bare { margin-left: auto; }
 .portal-messages article.grouped { margin-top: -10px; }
 .inbox-message.grouped { margin-top: -9px; }
+/* The stamp and the sender sit above the bubble, in the reader's language and
+   on a 24-hour clock, so a lead is read the same way in either language. */
 .portal-messages article > small, .inbox-message > small { display: block; margin-bottom: 3px; }
+.msg-meta { display: flex; align-items: baseline; gap: 8px; max-width: 100%; }
+.msg-meta time { flex: 0 0 auto; color: var(--subtle); font-size: 11px; font-variant-numeric: tabular-nums; }
+.msg-meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A grouped entry repeats no meta line: the group reads as one turn. */
+.inbox-message.grouped > .msg-meta, .portal-messages article.grouped > .msg-meta { display: none; }
+/* The channel an entry came in on, under the bubble and next to the avatar, so
+   a lead that answers on two channels says which one each line belongs to. */
+.msg-channel-slot { align-self: flex-start; display: inline-flex; align-items: center; min-height: 1px; margin-top: 3px; }
+.inbox-message.user .msg-channel-slot, .portal-messages article.mine .msg-channel-slot { align-self: flex-end; }
+/* The agency's bubble now carries the same hooks as the portal's, so the rules
+   written for a thread apply to it without a second copy. */
+.inbox-message { position: relative; }
+.inbox-message.mine .bubble-actions { right: auto; left: -4px; }
+.inbox-message:hover .bubble-actions, .bubble-actions:focus-within { opacity: 1; }
+.inbox-message.mine.ai .msg-error, .inbox-message.mine.ai .ticks.failed { color: var(--red-text); opacity: 1; }
 
 /* Contain the in-bubble stamp: reserve space for it and pin it bottom-right
    (the previous float escaped short single-line bubbles) */
@@ -3294,13 +3365,21 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 /* Lead card: the side panel of the inbox (agency inbox, a client's Inbox tab, the portal inbox).
    Beside the thread on a wide inbox (a third grid column, `.has-lead`); on a narrower one, or a
    phone, it covers the screen (`.lead-overlay`, set from the inbox's own width, see use-lead-panel.ts). */
-.lead-avatar-btn { flex: 0 0 auto; margin-right: 10px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
-.lead-avatar-btn .entity-avatar { transition: box-shadow .12s ease, border-color .12s ease; }
-.lead-avatar-btn:hover .entity-avatar, .lead-avatar-btn[aria-pressed="true"] .entity-avatar { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
-.lead-avatar-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* The zone of a thread header that opens the lead card: the avatar, the name and
+   the channel line, plus the gap between them. It took the avatar's own
+   treatment, and its own name, because it is no longer a button and the avatar
+   inside it is not one either. */
+.lead-head-open { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; padding: 4px 10px; margin: 0 -10px; border-radius: 10px; cursor: pointer; }
+.lead-head-open > div { min-width: 0; }
+.lead-avatar { flex: 0 0 auto; }
+.lead-head-open .entity-avatar { transition: box-shadow .12s ease, border-color .12s ease; }
+.lead-head-open:hover .entity-avatar, .lead-head-open[aria-expanded="true"] .entity-avatar { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lead-head-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The zone takes the room the name used to take for itself, so the actions on
+   the right stay where they are however long the contact's name is. */
 .inbox-thread > header > div:not(.thread-actions) { flex: 1 1 0; min-width: 0; }
 @media (min-width: 641px) {
-  .portal-inbox > section > header > div:not(.thread-actions) { flex: 1 1 0; min-width: 120px; }
+  .portal-inbox > section > header > div:not(.thread-actions) { min-width: 120px; }
 }
 
 .inbox-layout.has-lead:not(.lead-overlay) { grid-template-columns: 310px minmax(0, 1fr) 360px; }
@@ -3318,6 +3397,12 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .lead-scroll { flex: 1 1 auto; min-height: 0; padding: 14px 16px 26px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
 .lead-overlay .lead-head, .lead-overlay .lead-scroll { padding-inline: max(16px, calc((100% - 560px) / 2)); }
 .lead-section { min-width: 0; }
+/* Giving a lead its contact: two fields in the space the tag picker takes, so
+   the card does not change size when the tags arrive. */
+.lead-contact-creator { display: flex; flex-direction: column; gap: 8px; }
+.lead-contact-creator label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.lead-contact-creator input { min-height: 32px; padding: 0 10px; font-size: 13px; }
+.lead-contact-creator-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .lead-skeleton, .lead-error { padding-top: 4px; }
 .lead-error { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 13px; }
 .lead-error p { margin: 0; color: var(--ink); font-weight: 600; }

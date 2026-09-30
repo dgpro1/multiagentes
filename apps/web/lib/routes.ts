@@ -100,6 +100,28 @@ export function clientPath(slug: string, tab: ClientTab = "details", leadNumber?
   return `/clients/${slug}/${tab}${tab === "inbox" && leadNumber ? `/${leadNumber}` : ""}`;
 }
 
+/** The agency inbox, and one lead inside it: `/inbox/{clientSlug}/{number}`. The
+ * list spans every client, so a lead there is named by its client and its short
+ * number; the number alone is only unique inside a client. No lead is the bare
+ * `/inbox`. */
+export function agencyInboxPath(clientSlug?: string | null, leadNumber?: number | string | null): string {
+  if (!clientSlug) return "/inbox";
+  return `/inbox/${clientSlug}${leadNumber ? `/${leadNumber}` : ""}`;
+}
+
+/** The lead an agency-inbox address names, or null when it names only the list. */
+export function agencyInboxLead(leadPath: string): { clientSlug: string; leadNumber: number } | null {
+  const [slug, number, ...extra] = leadPath.split("/").filter(Boolean);
+  if (!slug || !number || extra.length || !/^\d+$/.test(number)) return null;
+  // A hand-typed address can carry a broken escape; it names no lead rather
+  // than taking the page down.
+  try {
+    return { clientSlug: decodeURIComponent(slug), leadNumber: Number(number) };
+  } catch {
+    return null;
+  }
+}
+
 /** An agent's address; "basics" is the bare `/agents/{id}`. */
 export function agentPath(id: string, tab: AgentTab = "basics"): string {
   return tab === "basics" ? `/agents/${id}` : `/agents/${id}/${tab}`;

@@ -20,8 +20,12 @@ export type LeadScope = {
   pipelinePath: (conversationId: string) => string;
   /** PATCH of a contact's own fields. */
   contactPath: (contactId: string) => string;
+  /** POST of blocking or unblocking that contact. */
+  contactBlockPath: (contactId: string) => string;
   /** PUT of a contact's whole tag set. */
   contactTagsPath: (contactId: string) => string;
+  /** POST that gives a lead with no contact the person behind it; answers the whole card. */
+  attachContactPath: (conversationId: string) => string;
   /** Base of the client's lead routes (merge candidates and merge): `{leadsBase}/leads/...`. */
   leadsBase: string;
   /** GET/POST of the client's custom fields. */
@@ -38,6 +42,8 @@ export type LeadScope = {
   canManageFields: boolean;
   /** Inline editing of the contact's name, phone, email, company and tags. */
   canEditContact: boolean;
+  /** Blocking the contact, so their messages stop reaching an agent. */
+  canBlockContact: boolean;
   /** Creating a new tag from the picker. */
   canCreateTags: boolean;
   /** Address of the lead a person can paste elsewhere; null when there is none to offer. */
@@ -52,7 +58,9 @@ export function agencyLeadScope(clientId: string): LeadScope {
     leadPath: (id) => `/conversations/${id}/lead`,
     pipelinePath: (id) => `/conversations/${id}/pipeline`,
     contactPath: (id) => `${client}/contacts/${id}`,
+    contactBlockPath: (id) => `${client}/contacts/${id}/block`,
     contactTagsPath: (id) => `${client}/contacts/${id}/tags`,
+    attachContactPath: (id) => `/conversations/${id}/contact`,
     fieldsPath: `${client}/lead-fields`,
     fieldPath: (id) => `${client}/lead-fields/${id}`,
     stagesPath: `${client}/pipeline/stages`,
@@ -60,6 +68,7 @@ export function agencyLeadScope(clientId: string): LeadScope {
     tagCatalogPath: `${client}/contact-tags`,
     canManageFields: true,
     canEditContact: true,
+    canBlockContact: true,
     canCreateTags: true,
     leadLink: (number) => `${window.location.origin}/clients/${clientId}/inbox/${number}`,
   };
@@ -73,7 +82,9 @@ export function portalLeadScope(slug: string, can: (key: string) => boolean, lea
     leadPath: (id) => `${base}/conversations/${id}/lead`,
     pipelinePath: (id) => `${base}/conversations/${id}/pipeline`,
     contactPath: (id) => `${base}/contacts/${id}`,
+    contactBlockPath: (id) => `${base}/contacts/${id}/block`,
     contactTagsPath: (id) => `${base}/contacts/${id}/tags`,
+    attachContactPath: (id) => `${base}/conversations/${id}/contact`,
     fieldsPath: `${base}/lead-fields`,
     fieldPath: (id) => `${base}/lead-fields/${id}`,
     stagesPath: `${base}/pipeline/stages`,
@@ -81,6 +92,7 @@ export function portalLeadScope(slug: string, can: (key: string) => boolean, lea
     tagCatalogPath: `${base}/tags`,
     canManageFields: can("fields.manage"),
     canEditContact: can("contacts.manage"),
+    canBlockContact: can("contacts.manage"),
     canCreateTags: can("tags.manage"),
     leadLink: (number) => `${window.location.origin}${leadHref(number)}`,
   };

@@ -1,35 +1,35 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Images, Inbox as InboxIcon, LoaderCircle, Lock, MapPin, Search, UserRound } from "lucide-react";
-import { PageHead } from "@/components/ui";
-import { AttachButton, MessageAttachments, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { ArrowLeft, Ban, Inbox as InboxIcon, LoaderCircle, MapPin, Reply, Search, UserRound, X } from "lucide-react";
+import { Modal, PageHead } from "@/components/ui";
+import { AttachButton, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { LocationComposer } from "@/components/location-composer";
-import { MediaPanel } from "@/components/media-panel";
 import { LeadCard } from "@/components/lead-card/lead-card";
-import { MergeAuditCard, isMergeActivity } from "@/components/merge-audit-card";
+import { MessageThread } from "@/components/messages/message-thread";
 import { UnifiedComposerTop, type ComposerMode } from "@/components/unified-composer-top";
 import { AppointmentModal } from "@/components/appointment-modal";
-import { AppointmentActivityCard, isAppointmentActivity } from "@/components/appointment-activity-card";
 import { ScheduleMessageModal } from "@/components/schedule-message-modal";
 import { ScheduledMessagesBanner } from "@/components/scheduled-messages-banner";
 import { VariablesPopover } from "@/components/variables-popover";
-import { LeadAvatarButton } from "@/components/lead-card/avatar-button";
+import { ReactionPicker } from "@/components/message-gestures";
+import { LeadHeaderButton } from "@/components/lead-card/avatar-button";
 import { LeadScopeProvider, agencyLeadScope } from "@/components/lead-card/scope";
 import { useLeadPanel } from "@/components/lead-card/use-lead-panel";
-import { DeliveryTicks } from "@/components/delivery-ticks";
-import { RichText } from "@/components/rich-text";
 import { GrowingTextarea } from "@/components/growing-textarea";
-import { QuotedSnippet, ReactionBadge } from "@/components/message-gestures";
 import { ListRowsSkeleton } from "@/components/skeleton";
+import { LeadRowActions, pinnedFirst } from "@/components/lead-row-actions";
 import { useToast } from "@/components/toast";
-import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels, MessageChannelMark } from "@/lib/channels";
+import { ChannelDots, ChannelIcon, channelLabel as labelForChannel, INBOX_CHANNELS, isSocialChannel, leadChannels } from "@/lib/channels";
 import { useAttachmentOwners, useReplyVia } from "@/lib/linked-threads";
 import { PhonePauseNotice, SocialReplyNotice, useReplyPolicy } from "@/components/reply-policy";
 import { api, ApiError, apiUrl, messageFrom } from "@/lib/api";
-import { formatTime, formatWhen, isNearBottom, isSameOpenThread } from "@/lib/datetime";
+import { formatWhen, isNearBottom, isSameOpenThread } from "@/lib/datetime";
 import { useLanguage, useT } from "@/lib/i18n";
-import type { Agent, Attachment, Conversation, ConversationInbox, ScheduledMessage } from "@/types";
+import { agencyInboxLead, agencyInboxPath } from "@/lib/routes";
+import type { Agent, Attachment, Client, Conversation, ConversationInbox, Message, ScheduledMessage } from "@/types";
 
 const LIMIT = 30;
 const POLL_MS = 8000;
@@ -38,12 +38,20 @@ export default function InboxPage() {
   const t = useT();
   const { lang } = useLanguage();
   const toast = useToast();
+  const { lead: leadSegments } = useParams<{ lead?: string[] }>();
+  const router = useRouter();
+  // The address is the source of truth for the open lead, the way Kommo does it:
+  // this list spans every client, so a lead here is named by its client and its
+  // short number (`/inbox/{slug}/{number}`). Reload, Back/Forward and a shared
+  // link all land on the same lead, and the list behind it is still the whole
+  // agency, so opening a lead no longer leaves it.
+  const leadPath = leadSegments?.join("/") ?? "";
   const [agents, setAgents] = useState<Agent[]>([]);
   const [items, setItems] = useState<ConversationInbox[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [agentId, setAgentId] = useState("");
   const [channel, setChannel] = useState("");
-  const [tab, setTab] = useState<"all" | "unread" | "human" | "ai">("all");
+  const [tab, setTab] = useState<"all" | "pending" | "human" | "ai">("all");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
@@ -53,7 +61,11 @@ export default function InboxPage() {
   const [busy, setBusy] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [locating, setLocating] = useState(false);
-  const [mediaOpen, setMediaOpen] = useState(false);
+  const [blockingContact, setBlockingContact] = useState(false);
+  // The emoji palette under a bubble, and the message being answered: the same
+  // two pieces the other inboxes carry over a bubble on hover.
+  const [reactingTo, setReactingTo] = useState<string | null>(null);
+  const [quoting, setQuoting] = useState<Message | null>(null);
   const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
   const [scheduledModalOpen, setScheduledModalOpen] = useState(false);
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
@@ -74,12 +86,23 @@ export default function InboxPage() {
   const channelLabel = (value: string) => labelForChannel(value, t);
   const channelIcon = (value: string) => <ChannelIcon channel={value} />;
 
+  // Where a row lives: its own address in this inbox, which keeps the whole
+  // agency list behind it. A row from a response that carried no slug has no
+  // address to build, so it falls back to the thread itself, which this page
+  // moves to that address as soon as it reads the lead.
+  const leadAddress = useCallback(
+    (item: ConversationInbox) => (item.client_slug ? agencyInboxPath(item.client_slug, item.number) : `/inbox?conversation=${item.id}`),
+    [],
+  );
+
   const buildParams = useCallback((offsetValue: number) => {
     const params = new URLSearchParams();
     if (agentId) params.set("agent_id", agentId);
     if (channel) params.set("channel", channel);
     if (tab === "human" || tab === "ai") params.set("mode", tab);
-    if (tab === "unread") params.set("unread", "1");
+    // The tab is about a lead nobody has answered, which is what `pending`
+    // answers, not about who has looked at it (`unread`, kept for the count).
+    if (tab === "pending") params.set("pending", "1");
     if (search) params.set("search", search);
     params.set("limit", String(LIMIT));
     params.set("offset", String(offsetValue));
@@ -87,6 +110,11 @@ export default function InboxPage() {
   }, [agentId, channel, tab, search]);
 
   const selectedIdRef = useRef<string | null>(null);
+  // Which lead the address asked for and the thread now showing agree on. Without
+  // it the list refresh would reopen the same lead on every poll.
+  const openedLeadRef = useRef("");
+  // A lead the server could not produce, so a dead address is not chased twice.
+  const failedLeadRef = useRef("");
   const messagesRef = useRef<HTMLDivElement>(null);
   useEffect(() => { selectedIdRef.current = selected?.id ?? null; }, [selected]);
   const wasNearBottomRef = useRef(true);
@@ -116,13 +144,17 @@ export default function InboxPage() {
   }, [buildParams, toast]);
 
   // The thread was deleted elsewhere (another operator, a cleanup): close it
-  // and drop the stale row instead of erroring or polling it forever.
+  // and drop the stale row instead of erroring or polling it forever. The
+  // address goes back to the list, which is where a lead that no longer exists
+  // can still be understood.
   const closeGoneThread = useCallback((id: string) => {
+    openedLeadRef.current = "";
     selectedIdRef.current = null;
     setSelected(null);
     setItems((rows) => rows.filter((row) => row.id !== id));
     toast.error(t("inbox.threadGone"));
-  }, [toast, t]);
+    router.replace(agencyInboxPath());
+  }, [router, toast, t]);
 
   const refreshScheduledMessages = useCallback(async (targetId?: string) => {
     const id = targetId || selectedIdRef.current;
@@ -207,16 +239,96 @@ export default function InboxPage() {
     api(`/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   }, [closeGoneThread]);
 
-  // A board card opens its thread in a new tab through ?conversation=<id>.
+  // Resolving a lead from its row: the dot goes and, when the list is filtered
+  // to the leads nobody has answered, the row leaves it. It stays in "all",
+  // where a resolved lead is still a lead. If the contact writes again the
+  // case reopens by itself (services/conversation_state.py) and the dot is back.
+  const resolveRow = useCallback(async (row: ConversationInbox) => {
+    try {
+      await api<Conversation>(`/conversations/${row.id}/status`, { method: "PATCH", body: JSON.stringify({ status: "resolved" }) });
+      setItems((rows) => {
+        const next = rows.map((item) => (item.id === row.id ? { ...item, awaiting_reply: false } : item));
+        return tab === "pending" ? next.filter((item) => item.id !== row.id) : next;
+      });
+    } catch (err) {
+      toast.error(messageFrom(err));
+    }
+  }, [tab, toast]);
+
+  // The pin moves the row straight away and the answer confirms it; a failure
+  // puts the row back where it was rather than leaving a lie on screen.
+  const togglePinRow = useCallback(async (row: ConversationInbox) => {    const pinned = !row.pinned_at;
+    const at = pinned ? new Date().toISOString() : null;
+    setItems((rows) => pinnedFirst(rows.map((item) => (item.id === row.id ? { ...item, pinned_at: at } : item))));
+    try {
+      const conv = await api<Conversation>(`/conversations/${row.id}/pin`, { method: "PATCH", body: JSON.stringify({ pinned }) });
+      setItems((rows) => pinnedFirst(rows.map((item) => (item.id === row.id ? { ...item, pinned_at: conv.pinned_at ?? null } : item))));
+    } catch (err) {
+      setItems((rows) => rows.map((item) => (item.id === row.id ? { ...item, pinned_at: row.pinned_at } : item)));
+      toast.error(messageFrom(err));
+    }
+  }, [toast]);
+
+  // The lead an address names, found in the list when it is already loaded (a row
+  // the operator clicked) and otherwise asked for by the same route the client
+  // inbox uses, so a shared link works on a lead this page has not listed.
+  const resolveLead = useCallback(async (clientSlug: string, leadNumber: number) => {
+    const row = items.find((item) => item.client_slug === clientSlug && item.number === leadNumber);
+    if (row) return row;
+    const client = await api<Client>(`/clients/by-slug/${encodeURIComponent(clientSlug)}`);
+    return api<Conversation>(`/clients/${client.id}/conversations/number/${leadNumber}`);
+  }, [items]);
+
+  // Open the lead the address names, and close it when the address stops naming
+  // one. Navigating between rows only changes the address, so the list, its
+  // filters and its scroll stay exactly as they were.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get("conversation");
+    const target = agencyInboxLead(leadPath);
+    if (!target) {
+      openedLeadRef.current = "";
+      // Back on the list, a lead that could not be read is worth asking again:
+      // the address that failed may be pasted once more.
+      failedLeadRef.current = "";
+      selectedIdRef.current = null;
+      setSelected(null);
+      return;
+    }
+    const key = `${target.clientSlug}/${target.leadNumber}`;
+    // A lead that could not be read is not asked for again: the address already
+    // went back to the list, and a second try would only be the same 404.
+    if (openedLeadRef.current === key || failedLeadRef.current === key) return;
+    openedLeadRef.current = key;
+    setPendingFile(null);
+    if (composerRef.current) composerRef.current.value = "";
+    resolveLead(target.clientSlug, target.leadNumber).then((found) => {
+      if (openedLeadRef.current !== key) return;
+      // A lead absorbed by another one answers with the lead that replaced it:
+      // the address follows it rather than opening a thread nobody sends to.
+      if (found.number !== target.leadNumber) {
+        router.replace(agencyInboxPath(target.clientSlug, found.number));
+        return;
+      }
+      void choose(found.id);
+    }).catch(() => {
+      if (openedLeadRef.current !== key) return;
+      failedLeadRef.current = key;
+      router.replace(agencyInboxPath());
+    });
+  }, [leadPath, resolveLead, choose, router]);
+
+  // A board card still opens a thread through `?conversation=<id>`. Move it to
+  // the lead's own address once, so the address is right from then on.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("conversation");
     if (!id) return;
-    params.delete("conversation");
-    const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
-    window.history.replaceState(window.history.state, "", clean);
-    void choose(id).catch(() => {});
-  }, [choose]);
+    api<Conversation>(`/conversations/${id}`).then(async (conv) => {
+      const client = await api<Client>(`/clients/${conv.client_id}`);
+      router.replace(agencyInboxPath(client.portal_slug, conv.number));
+    }).catch(() => {
+      // Nothing to point at: drop the stale parameter and stay on the list.
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.hash}`);
+    });
+  }, [router]);
 
   async function toggleMode(next: "ai" | "human") {
     if (!selected) return;
@@ -224,7 +336,54 @@ export default function InboxPage() {
     loadFirst({ silent: true });
   }
 
+  /** React to a message, or take the reaction back. The message may live on any
+   * thread of the lead, so the reaction names the thread it belongs to. */
+  async function sendReaction(message: Message, emoji: string) {
+    if (!selected) return;
+    const next = emoji === message.reaction ? "" : emoji;
+    setReactingTo(null);
+    try {
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/messages/${message.id}/reaction`, {
+        method: "POST",
+        body: JSON.stringify({ emoji: next, via_conversation_id: message.conversation_id }),
+      }));
+    } catch (err) {
+      toast.error(messageFrom(err));
+    }
+  }
+
+  /** Block the open lead's contact, asked for from the lead card. Blocking
+   *  takes the conversation out of every inbox, so the thread is closed and the
+   *  list is read again instead of left showing a lead that is gone. */
+  async function blockContact(blocked: boolean) {
+    if (!selected?.contact_id || !selected.client_id) return;
+    setBusy(true);
+    try {
+      await api(`/clients/${selected.client_id}/contacts/${selected.contact_id}/block`, {
+        method: "POST",
+        body: JSON.stringify({ blocked }),
+      });
+      setBlockingContact(false);
+      if (blocked) {
+        closeLead();
+        closeThread();
+      }
+      loadFirst({ silent: true });
+    } catch (err) {
+      toast.error(messageFrom(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Closing a lead is going back to the list, and the list is the bare address.
+  const closeThread = useCallback(() => {
+    openedLeadRef.current = "";
+    selectedIdRef.current = null;
+    setSelected(null);
+    router.push(agencyInboxPath());
+  }, [router]);
   const [composerMode, setComposerMode] = useState<ComposerMode>("chat");
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variablesQuery, setVariablesQuery] = useState("");
@@ -377,9 +536,10 @@ export default function InboxPage() {
     }
     setBusy(true);
     try {
-      setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: content.trim(), ...replyVia.payload }) }));
+      setSelected(await api<Conversation>(`/conversations/${selected.id}/reply`, { method: "POST", body: JSON.stringify({ content: content.trim(), quoted_message_id: quoting?.id ?? null, ...replyVia.payload }) }));
       form.reset();
       setDraft("");
+      setQuoting(null);
       loadFirst({ silent: true });
     } catch (err) { toast.error(messageFrom(err)); } finally { setBusy(false); composerRef.current?.focus(); }
   }
@@ -427,25 +587,33 @@ export default function InboxPage() {
         <div className="inbox-search"><Search size={16} /><input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder={t("inbox.searchPlaceholder")} /></div>
         <div className="inbox-tabs">
           <button className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>{t("inbox.tabAll")}</button>
-          <button className={tab === "unread" ? "active" : ""} onClick={() => setTab("unread")}>{t("inbox.tabUnread")}</button>
+          <button className={tab === "pending" ? "active" : ""} onClick={() => setTab("pending")}>{t("inbox.tabPending")}</button>
           <button className={tab === "human" ? "active" : ""} onClick={() => setTab("human")}>{t("inbox.statusHuman")}</button>
           <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>{t("inbox.statusAi")}</button>
         </div>
         {loading ? <ListRowsSkeleton rows={7} />
           : items.length ? <>
             {items.map((item) => (
-              <button key={item.id} className={`inbox-row ${selected?.id === item.id ? "active" : ""} ${item.unread ? "unread" : ""}`} onClick={() => choose(item.id)}>
-                <span className="inbox-avatar">
-                  <span className="entity-avatar tiny"><UserRound size={15} /></span>
-                  <span className={`channel-badge ${item.channel}`} title={channelLabel(item.channel)}>{channelIcon(item.channel)}</span>
-                </span>
-                <span className="inbox-row-body">
-                  <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
-                  <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
-                  <small className="inbox-row-meta">{item.agent_name} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
-                </span>
-                {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
-              </button>
+              <div key={item.id} className={`inbox-row ${selected?.id === item.id ? "active" : ""} ${item.unread ? "unread" : ""}`}>
+                <Link href={leadAddress(item)}>
+                  <span className="inbox-avatar">
+                    <span className="entity-avatar tiny"><UserRound size={15} /></span>
+                    <span className={`channel-badge ${item.channel}`} title={channelLabel(item.channel)}>{channelIcon(item.channel)}</span>
+                  </span>
+                  <span className="inbox-row-body">
+                    <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
+                    <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
+                    <small className="inbox-row-meta">{item.agent_name} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
+                  </span>
+                  {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
+                </Link>
+                <LeadRowActions
+                  pinned={Boolean(item.pinned_at)}
+                  onResolve={() => resolveRow(item)}
+                  onTogglePin={() => togglePinRow(item)}
+                  href={leadAddress(item)}
+                />
+              </div>
             ))}
             {loadingMore && <div className="no-conversations"><LoaderCircle className="spin" size={15} /></div>}
           </> : <div className="no-conversations">{t("inbox.empty")}</div>}
@@ -456,48 +624,41 @@ export default function InboxPage() {
         {!selected ? <div className="empty-state"><div className="empty-icon"><InboxIcon /></div><h3>{t("inbox.empty")}</h3><p>{t("inbox.selectPrompt")}</p></div>
           : <>
             <header>
-              <button type="button" className="icon-button inbox-back" onClick={() => { selectedIdRef.current = null; setSelected(null); }} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button>
-              <LeadAvatarButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)} />
-              <div><strong>{selected.contact_name || selected.title}</strong><small>{channelLabel(selected.channel)}{selected.account_label && <> <span className="account-badge" title={selected.account_label}>{selected.account_label}</span></>}</small></div>
+              <button type="button" className="icon-button inbox-back" onClick={closeThread} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button>
+              <LeadHeaderButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)}>
+                <div><strong>{selected.contact_name || selected.title}</strong><small>{channelLabel(selected.channel)}{selected.account_label && <> <span className="account-badge" title={selected.account_label}>{selected.account_label}</span></>}</small></div>
+              </LeadHeaderButton>
               <div className="thread-actions">
-                <button className="icon-button" onClick={() => setMediaOpen(true)} title={t("chat.sharedContent")} aria-label={t("chat.sharedContent")}><Images size={16} /></button>
+                
                 <button className={`mode-toggle ${selected.mode}`} onClick={() => toggleMode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("inbox.takeControl") : t("inbox.returnToAi")}</button>
               </div>
             </header>
-            <div className="inbox-messages" ref={messagesRef}>
-              {selected.messages?.map((message, index) => {
-                if (isMergeActivity(message)) return <MergeAuditCard key={message.id} message={message} />;
-                if (isAppointmentActivity(message)) return <AppointmentActivityCard key={message.id} message={message} />;
-                const stamp = formatTime(message.created_at, lang);
-                if (message.kind === "note") {
-                  return (
-                    <div key={message.id} className="internal-note-card">
-                      <div className="internal-note-header">
-                        <Lock size={12} />
-                        <span>{message.sender_name || t("inbox.senderAgent")} · {t("inbox.internalNoteBadge")}</span>
-                        <time>{stamp}</time>
-                      </div>
-                      <div className="internal-note-content">
-                        <RichText text={message.content} />
-                      </div>
-                    </div>
-                  );
-                }
-                const prev = index > 0 ? selected.messages![index - 1] : null;
-                const grouped = Boolean(prev && prev.role === message.role && prev.sender_name === message.sender_name);
-                const hasAudio = message.attachments?.some((a) => a.kind === "audio");
-                return (
-                  <div key={message.id} className={`inbox-message ${message.role}${grouped ? " grouped" : ""}`}>
-                    {!grouped && <small>{message.sender_name || (message.role === "assistant" ? t("inbox.senderAgent") : t("inbox.senderVisitor"))}</small>}
-                    <MessageAttachments attachments={message.attachments} urlFor={attachmentUrl} gallery={gallery} stamp={stamp} />
-                    {message.content && <p><QuotedSnippet messages={selected.messages ?? []} quotedId={message.quoted_message_id} /><RichText text={message.content} /><time className="msg-time">{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{stamp}{message.role === "assistant" && isSocialChannel(message.channel ?? selected.channel) && <DeliveryTicks status={message.delivery_status} error={message.delivery_error} />}</time></p>}
-                    <ReactionBadge emoji={message.reaction} />
-                    <ReactionBadge emoji={message.incoming_reaction} incoming />
-                    {!message.content && !hasAudio && message.attachments?.length ? <time className="msg-time bare">{replyVia.multi && <MessageChannelMark channel={message.channel} t={t} />}{stamp}</time> : null}
-                  </div>
-                );
-              })}
-            </div>
+            <MessageThread
+              messages={selected.messages}
+              surface="agency"
+              t={t}
+              lang={lang}
+              urlFor={attachmentUrl}
+              gallery={gallery}
+              channel={selected.channel}
+              bubbleActions={{
+                enabled: policy.canReply,
+                onReact: (message) => setReactingTo(reactingTo === message.id ? null : message.id),
+                onReply: (message) => {
+                  setQuoting(message);
+                  if (message.conversation_id) replyVia.setVia(message.conversation_id);
+                  composerRef.current?.focus();
+                },
+              }}
+              reactionPicker={(message) => reactingTo === message.id ? (
+                <ReactionPicker
+                  current={message.reaction}
+                  removeLabel={t("portal.inbox.conversation.removeReaction")}
+                  onPick={(emoji) => sendReaction(message, emoji)}
+                />
+              ) : null}
+              containerRef={messagesRef}
+            />
             <PhonePauseNotice conversation={selected} onKeepManual={() => toggleMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
             {pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}
             {locating && <LocationComposer busy={busy} disabled={!policy.canReply} onCancel={() => setLocating(false)} onSend={sendLocation} />}
@@ -530,6 +691,26 @@ export default function InboxPage() {
                 dealValue={selected.deal_value}
                 channel={selected.channel}
               />
+              {quoting && (
+                <div className="composer-quote">
+                  <Reply size={14} />
+                  <span>
+                    <strong>{t("portal.inbox.conversation.replyingTo", {
+                      name: quoting.sender_name || (quoting.role === "assistant" ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor")),
+                    })}</strong>
+                    <small>{(quoting.content || "").slice(0, 140)}</small>
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setQuoting(null)}
+                    aria-label={t("portal.inbox.conversation.cancelReply")}
+                    title={t("portal.inbox.conversation.cancelReply")}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
               <form className="inbox-composer" style={{ border: "none", padding: "8px 12px 10px", margin: 0 }} onSubmit={reply}>
                 {(replyVia.thread?.channel ?? selected.channel) === "whatsapp" && composerMode !== "note" && <button type="button" className="icon-button" title={t("inbox.locationSend")} aria-label={t("inbox.locationSend")} disabled={!policy.canReply || busy} onClick={() => setLocating((open) => !open)}><MapPin size={17} /></button>}
                 {composerMode !== "note" && <AttachButton onFile={setPendingFile} disabled={!policy.canAttach || busy} title={t("chat.attachFile")} />}
@@ -585,12 +766,25 @@ export default function InboxPage() {
                 </button>
               </form>
             </div>
-            <MediaPanel open={mediaOpen} onClose={() => setMediaOpen(false)} messages={selected.messages ?? []} urlFor={attachmentUrl} />
           </>}
       </section>
       {leadOpen && selected && leadScope && <LeadScopeProvider scope={leadScope}>
-        <LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { loadFirst({ silent: true }); refreshSelected(); }} onMerged={(primary) => { void choose(primary.conversation_id).catch(() => {}); loadFirst({ silent: true }); }} syncKey={selected.messages?.at(-1)?.id} />
+        <LeadCard conversationId={selected.id} number={selected.number} messages={selected.messages ?? []} urlFor={attachmentUrl} overlay={leadOverlay} onClose={closeLead} onChanged={() => { loadFirst({ silent: true }); refreshSelected(); }} onMerged={(primary) => { void choose(primary.conversation_id).catch(() => {}); loadFirst({ silent: true }); }} onBlockContact={() => setBlockingContact(true)} syncKey={selected.messages?.at(-1)?.id} />
       </LeadScopeProvider>}
+      {blockingContact && selected?.contact_id && (
+        <Modal open title={t("portal.contacts.blockTitle", { name: selected.contact_name || selected.title || "" })} onClose={() => setBlockingContact(false)}>
+          <div className="modal-form">
+            <p className="muted">{t("portal.contacts.blockCopy")}</p>
+            <p className="muted">{t("portal.contacts.blockUnblockCopy")}</p>
+            <div className="modal-actions">
+              <button type="button" className="button" onClick={() => setBlockingContact(false)}>{t("common.cancel")}</button>
+              <button type="button" className="button danger" disabled={busy} onClick={() => blockContact(true)}>
+                <Ban size={15} /> {t("portal.contacts.block")}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {appointmentModalOpen && selected && selected.client_id && (
         <AppointmentModal
           open={appointmentModalOpen}

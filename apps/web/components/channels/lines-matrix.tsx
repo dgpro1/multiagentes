@@ -7,6 +7,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { moduleAllowed, useAgencyModules } from "@/lib/agency-modules";
 import { api, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { QuotaStepper } from "@/components/quota-stepper";
@@ -32,6 +33,10 @@ export function LinesMatrix() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  // Un tipo que la plataforma apago no se lista: no hay nada que repartir
+  // entre los clientes de una linea que el plan no compra.
+  const modules = useAgencyModules(true);
+  const shown = (matrix?.types ?? []).filter((type) => moduleAllowed(modules, type.key));
 
   async function setAllocation(clientId: string, key: string, value: number | null) {
     setBusy(`${clientId}:${key}`);
@@ -85,7 +90,7 @@ export function LinesMatrix() {
           <thead>
             <tr>
               <th style={head}>{t("channels.toolbar.clientLabel")}</th>
-              {matrix.types.map((type) => (
+              {shown.map((type) => (
                 <th key={type.key} style={head}>
                   {titleOf(type.key)}
                   <br />
@@ -102,7 +107,7 @@ export function LinesMatrix() {
                 <td style={{ ...cell, whiteSpace: "nowrap" }}>
                   <Link href={clientPath(row.slug)}>{row.name}</Link>
                 </td>
-                {matrix.types.map((type) => {
+                {shown.map((type) => {
                   const used = row.used[type.key] ?? 0;
                   const allocation = row.allocations[type.key] ?? null;
                   const allowed = allocation === null ? type.quota : type.quota === null ? allocation : Math.min(allocation, type.quota);
@@ -131,7 +136,7 @@ export function LinesMatrix() {
             ))}
             <tr>
               <td style={{ ...cell, fontWeight: 600 }}>{t("channels.quota.usedLabel")}</td>
-              {matrix.types.map((type) => (
+              {shown.map((type) => (
                 <td
                   key={type.key}
                   style={{ ...cell, fontWeight: 600, color: type.quota !== null && type.used > type.quota ? "#b91c1c" : "var(--ink)" }}

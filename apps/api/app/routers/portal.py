@@ -26,6 +26,7 @@ from ..schemas import (
     ContactBlockUpdate,
     BulkResult,
     ConversationArchiveUpdate,
+    ConversationPinUpdate,
     ConversationSelection,
     AgentSummary,
     CannedResponseCreate,
@@ -81,6 +82,7 @@ from ..schemas import (
 from ..security import create_portal_token, decode_portal_token, verify_password
 from ..schemas_lead_card import (
     LeadCardOut,
+    LeadContactAttach,
     LeadFieldCreate,
     LeadFieldOut,
     LeadFieldUpdate,
@@ -112,6 +114,8 @@ from ..services import lead_fields as lead_fields_service
 from ..services.text_search import folded_like
 from ..services.contact_edit import (
     assert_phone_free as _assert_phone_free,
+    attach_contact,
+    block_contact,
     contact_out as _contact_out,
     contact_stats as _contact_stats,
     contact_view,
@@ -1121,10 +1125,16 @@ def _conversation_page(
         )
     # A conversation moves up only when the contact writes. Reading it,
     # replying, assigning or resolving all touch updated_at, and none of them
-    # should reshuffle the list under the person working it.
+    # should reshuffle the list under the person working it. Pins come before
+    # all of it: `desc()` alone would put every null first in Postgres, so the
+    # unpinned rows are asked for last explicitly.
     total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
     rows = db.execute(
-        query.order_by(func.coalesce(last_inbound.c.at, Conversation.created_at).desc(), Conversation.created_at.desc())
+        query.order_by(
+            Conversation.pinned_at.desc().nullslast(),
+            func.coalesce(last_inbound.c.at, Conversation.created_at).desc(),
+            Conversation.created_at.desc(),
+        )
         .limit(limit)
         .offset(offset)
     ).all()
@@ -1649,29 +1659,9 @@ def portal_block_contact(
     sender_name: str = Depends(_sender_name),
     db: Session = Depends(get_db),
 ):
-    """Block or unblock a contact.
-
-    Blocked, their messages are stored but never reach the agent or a phone,
-    and their conversations leave the inboxes. Unblocking does not answer the
-    backlog: the open conversation is resolved with a note, and the contact's
-    next message opens a fresh one that the agent handles as usual.
-    """
-    contact = _portal_contact(db, client, contact_id)
-    open_ones = select(Conversation).where(Conversation.contact_id == contact.id, Conversation.status == "open")
-    if payload.blocked and contact.blocked_at is None:
-        contact.blocked_at = now_utc()
-        for conversation in db.scalars(open_ones).all():
-            record_activity(db, conversation, "blocked", actor=sender_name)
-    elif not payload.blocked and contact.blocked_at is not None:
-        contact.blocked_at = None
-        for conversation in db.scalars(open_ones).all():
-            set_status(db, conversation, "resolved", actor=sender_name)
-            record_activity(db, conversation, "unblocked", actor=sender_name)
-    db.commit()
-    db.refresh(contact)
-    stats = _contact_stats()
-    row = db.execute(select(stats).where(stats.c.cid == contact.id)).first()
-    return _contact_out(contact, row)
+    """Block or unblock a contact, with the same rule the agency's door uses
+    (``services.contact_edit.block_contact``)."""
+    return block_contact(db, client, contact_id, payload.blocked, sender_name)
 
 
 @router.delete("/{slug}/contacts/{contact_id}", dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))], status_code=status.HTTP_204_NO_CONTENT)
@@ -2530,6 +2520,25 @@ def portal_update_lead(
     return lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, conversation_id))
 
 
+@router.post(
+    "/{slug}/conversations/{conversation_id}/contact", response_model=LeadCardOut,
+    dependencies=[Depends(require_feature("contacts")), Depends(require_permission(CONTACTS_MANAGE))],
+)
+def portal_attach_lead_contact(
+    slug: str,
+    conversation_id: uuid.UUID,
+    payload: LeadContactAttach,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+):
+    """The same door the agency has: a lead that arrived without a person gets
+    one from its own card, and a phone that already belongs to somebody links
+    that contact instead of making a second one."""
+    conversation = lead_card_service.get_lead(db, client, conversation_id, act=True)
+    attach_contact(db, client, conversation, payload)
+    return lead_card_service.lead_card(db, client, lead_card_service.get_lead(db, client, conversation_id))
+
+
 @router.get("/{slug}/leads/merge-candidates", response_model=list[LeadMergeCandidateOut], dependencies=[Depends(require_feature("inbox"))])
 def portal_lead_merge_candidates(
     slug: str,
@@ -2575,6 +2584,26 @@ def portal_status(
     conversation = _detail(db, client, conversation_id, act=True)
     changed = set_status(db, conversation, payload.status, actor=sender_name)
     if changed:
+        db.commit()
+    return _present(_detail(db, client, conversation_id))
+
+
+@router.patch("/{slug}/conversations/{conversation_id}/pin", response_model=ConversationDetail, dependencies=[Depends(require_feature("inbox"))])
+def portal_pin(
+    slug: str,
+    conversation_id: uuid.UUID,
+    payload: ConversationPinUpdate,
+    client: Client = Depends(_portal_client),
+    db: Session = Depends(get_db),
+):
+    # The same pin the agency inbox has: it lives on the lead, so this portal
+    # and the agency see one order and not two truths. A thread merged into a
+    # lead is pinned through its primary, which is why this acts on the lead.
+    # Gated like the other lead actions of the portal, on the inbox feature.
+    conversation = _detail(db, client, conversation_id, act=True)
+    pinned_at = now_utc() if payload.pinned else None
+    if conversation.pinned_at != pinned_at:
+        conversation.pinned_at = pinned_at
         db.commit()
     return _present(_detail(db, client, conversation_id))
 

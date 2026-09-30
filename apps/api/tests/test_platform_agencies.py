@@ -6,7 +6,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from app.models import Client
+from app.models import Client, User
 from conftest import TestingSession
 from test_platform_auth import _login, _platform_admin
 
@@ -112,3 +112,65 @@ def test_platform_routes_refuse_every_other_identity(client, authenticated_clien
     assert client.get("/api/platform/agencies").status_code == 401
     assert authenticated_client.get("/api/platform/agencies").status_code == 401
     assert authenticated_client.get("/api/platform/agencies", headers={"Authorization": "Bearer ol_nonsense"}).status_code == 401
+
+
+def _add_person(agency_id: str, email: str, name: str, role: str) -> None:
+    with TestingSession() as db:
+        db.add(User(agency_id=uuid.UUID(agency_id), name=name, email=email, password_hash="x", role=role))
+        db.commit()
+
+
+def test_the_agency_shows_who_is_in_it(client):
+    """Counts of clients and agents read the same whether an agency is in daily
+    use or was opened once and left; the people are what tell them apart."""
+    _admin(client)
+    agency = _create(client, name="Agencia Norte", email="owner@norte.example.com")["agency"]
+    # An invitation is not a person: whoever has not accepted it cannot sign in
+    # and is not in the account yet.
+    _add_person(agency["id"], "agente@norte.example.com", "Ana Agente", "agent")
+    _add_person(agency["id"], "owner@norte.example.com", "Vicente Owner", "admin")
+
+    people = client.get(f"/api/platform/agencies/{agency['id']}/users")
+    assert people.status_code == 200, people.text
+    body = people.json()
+    # Who runs the account comes first, whoever joined last.
+    assert [(item["name"], item["role"]) for item in body] == [
+        ("Vicente Owner", "admin"),
+        ("Ana Agente", "agent"),
+    ]
+    assert {item["email"] for item in body} == {"owner@norte.example.com", "agente@norte.example.com"}
+    # Nothing of the credential itself travels with the person.
+    assert all("password_hash" not in item for item in body)
+    assert all(item["created_at"] for item in body)
+
+
+def test_people_are_never_mixed_between_agencies(client):
+    _admin(client)
+    a = _create(client, name="Agencia A", slug="ag-a", email="a@a.example.com")["agency"]
+    b = _create(client, name="Agencia B", slug="ag-b", email="b@b.example.com")["agency"]
+    _add_person(a["id"], "de-a@a.example.com", "Persona A", "admin")
+    _add_person(b["id"], "de-b@b.example.com", "Persona B", "agent")
+
+    assert [item["email"] for item in client.get(f"/api/platform/agencies/{a['id']}/users").json()] == ["de-a@a.example.com"]
+    assert [item["email"] for item in client.get(f"/api/platform/agencies/{b['id']}/users").json()] == ["de-b@b.example.com"]
+
+
+def test_an_agency_with_nobody_yet_answers_with_an_empty_list(client):
+    """The invitation the platform sends is still open: nobody is inside yet, and
+    the profile has to say so rather than fail or invent someone."""
+    _admin(client)
+    agency = _create(client, name="Agencia Vacia", email="vacia@vacia.example.com")["agency"]
+    assert client.get(f"/api/platform/agencies/{agency['id']}/users").json() == []
+
+
+def test_people_are_refused_to_every_other_identity(client, authenticated_client):
+    _platform_admin()
+    agency_id = str(uuid.uuid4())
+    assert client.get(f"/api/platform/agencies/{agency_id}/users").status_code == 401
+    assert authenticated_client.get(f"/api/platform/agencies/{agency_id}/users").status_code == 401
+    assert client.get(f"/api/platform/agencies/{agency_id}/users").status_code == 401
+
+
+def test_people_of_an_agency_that_is_not_there(client):
+    _admin(client)
+    assert client.get(f"/api/platform/agencies/{uuid.uuid4()}/users").status_code == 404

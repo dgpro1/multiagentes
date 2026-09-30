@@ -33,11 +33,16 @@ class LoginRequest(BaseModel):
 
 
 class AgencyOut(ORMModel):
-    id: uuid.UUID
-    name: str
-    slug: str
-    brand_color: str
-    logo_url: str | None = None
+      id: uuid.UUID
+      name: str
+      slug: str
+      brand_color: str
+      logo_url: str | None = None
+      # The modules this agency may use, decided by the platform. The panel needs
+      # them to leave out what it may not offer: an option the server would
+      # refuse is worse than no option at all. Filled in by the routes that
+      # hand a session to the web; empty means "no catalog reached this caller".
+      modules: list[str] = []
 
 
 class AgencyUpdate(BaseModel):
@@ -529,6 +534,7 @@ class ConversationOut(ORMModel):
     phone_pause_until: datetime | None = None
     taken_over_at: datetime | None = None
     waiting_since: datetime | None = None
+    pinned_at: datetime | None = None
     assignee_id: uuid.UUID | None = None
     assignee_name: str | None = None
     team_id: uuid.UUID | None = None
@@ -634,6 +640,11 @@ class ConversationInboxOut(BaseModel):
     agent_id: uuid.UUID
     agent_name: str
     client_id: uuid.UUID
+    # The address of the lead is built from the client's slug, never its id
+    # (lib/routes.ts), so the agency-wide list has to carry the slug: its rows
+    # span every client and each one is linked on its own. It is the same slug
+    # the agency panel addresses the client by (`/clients/{slug}`).
+    client_slug: str = ""
     title: str
     contact_name: str | None = None
     channel: str
@@ -646,6 +657,11 @@ class ConversationInboxOut(BaseModel):
     last_inbound_at: datetime | None = None
     channels: list[str] = []
     linked_count: int = 0
+    # Open and the contact spoke last: nobody has answered it yet. Unlike
+    # ``unread`` this does not depend on who has looked at the thread, so
+    # opening a lead cannot clear it. Any outgoing message does.
+    awaiting_reply: bool = False
+    pinned_at: datetime | None = None
 
 
 class LocationSend(BaseModel):
@@ -686,6 +702,10 @@ class ConversationStatusUpdate(BaseModel):
 
 class ConversationArchiveUpdate(BaseModel):
     archived: bool
+
+
+class ConversationPinUpdate(BaseModel):
+    pinned: bool
 
 
 class ConversationSelection(BaseModel):
