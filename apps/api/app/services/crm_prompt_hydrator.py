@@ -22,7 +22,14 @@ from sqlalchemy.orm import Session
 
 from ..models import Agent, Appointment, Client, Contact, Conversation, Message, Service, now_utc
 from .appointments import get_client_timezone
-from .prompt_variables import DYNAMIC_DATA_HEADER, cited_blocks, declared_tools, has_declarative_tools
+# has_declarative_tools is re-exported for the callers that already import it from
+# here; it belongs to the variable table, but the hydrator is where they look.
+from .prompt_variables import (  # noqa: F401
+    DYNAMIC_DATA_HEADER,
+    cited_blocks,
+    declared_tools,
+    has_declarative_tools,
+)
 
 DAYS_ES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 MONTHS_ES = [
@@ -257,6 +264,26 @@ class AgentContextResult:
     is_commercial: bool
 
 
+def hydrate_cited_blocks(
+    db: Session,
+    agent: Agent,
+    conversation: Conversation,
+    system_content: str,
+    contact: Contact | None = None,
+) -> str:
+    """Inject the blocks a prompt cites, whether or not it cites a single tool.
+
+    A citation is a request for that data, so it is honoured on its own terms: a
+    prompt may want the catalogue and the business hours and nothing else. Tools
+    are a separate decision and never gate this, which is why it does not live
+    behind ``has_declarative_tools``.
+    """
+    client = agent.client or getattr(conversation, "client", None)
+    if client is None:
+        return system_content
+    return hydrate_commercial_prompt(db, client, conversation, system_content, contact=contact)
+
+
 def build_agent_context(
     db: Session,
     agent: Agent,
@@ -267,11 +294,14 @@ def build_agent_context(
     contact: Contact | None = None,
 ) -> AgentContextResult:
     """Build unified agent prompt context and tool specs across channels."""
-    if has_declarative_tools(agent.instructions):
-        declared = declared_tools(agent.instructions)
+    declared = declared_tools(agent.instructions)
+    effects: CommercialEffects | None = None
+    specs: list[ToolSpec] = []
+    c = contact or getattr(conversation, "contact", None)
+    client = agent.client or (conversation.client if hasattr(conversation, "client") else None)
+
+    if declared:
         effects = CommercialEffects()
-        client = agent.client or (conversation.client if hasattr(conversation, "client") else None)
-        c = contact or getattr(conversation, "contact", None)
         if c is None and client is not None:
             if conversation.contact_id:
                 c = db.get(Contact, conversation.contact_id)
@@ -286,18 +316,11 @@ def build_agent_context(
                 conversation.contact_id = c.id
                 db.flush()
         specs = build_commercial_tools(db, client, conversation, agent, c, declared, effects)
-        hydrated_content = hydrate_commercial_prompt(db, client, conversation, base_system_content, contact=c)
-        return AgentContextResult(
-            system_content=hydrated_content,
-            extra_specs=specs,
-            effects=effects,
-            is_commercial=True,
-        )
 
     return AgentContextResult(
-        system_content=base_system_content,
-        extra_specs=[],
-        effects=None,
-        is_commercial=False,
+        system_content=hydrate_cited_blocks(db, agent, conversation, base_system_content, contact=c),
+        extra_specs=specs,
+        effects=effects,
+        is_commercial=bool(declared),
     )
 

@@ -39,7 +39,7 @@ from .escalation import (
     escalation_prompt,
 )
 from .pipeline import build_pipeline_spec, list_stages as pipeline_stages, pipeline_enabled, pipeline_prompt
-from .crm_prompt_hydrator import build_agent_context, has_declarative_tools
+from .crm_prompt_hydrator import build_agent_context, has_declarative_tools, hydrate_cited_blocks
 from .tools.commercial_tools import apply_commercial_effects
 from .tools.resource_tool import deliver_resources
 from .whatsapp import deliver_reaction, send_channel_media, send_channel_message, signal_channel_read
@@ -515,6 +515,9 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
             if pipeline_enabled(stages):
                 system_content += "\n\n" + pipeline_prompt(stages)
                 extra_specs.append(build_pipeline_spec(stages, pipeline_holder))
+        # A prompt that cites a block and no tool still gets its block: the
+        # citation is the request, and the tools are a separate decision.
+        system_content = hydrate_cited_blocks(db, agent, conversation, system_content)
     messages = [
         {"role": "system", "content": system_content},
         *llm_turns(history, agent.prompt_language),

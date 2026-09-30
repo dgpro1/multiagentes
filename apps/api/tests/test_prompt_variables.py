@@ -14,6 +14,7 @@ import pytest
 
 from app.models import Agency, Agent, Client, ClientResource, Contact, Conversation
 from app.services import crm_prompt_hydrator, prompt_variables
+from app.services.knowledge import build_system_prompt
 from app.services.prompt_variables import (
     BLOCKS,
     SILENCE_TOKEN,
@@ -265,6 +266,109 @@ def _known_shapes() -> tuple[set[str], list[re.Pattern[str]]]:
             re.compile("^" + re.escape(fold(head)) + r"[^\]]+" + re.escape(fold(tail)) + "$")
         )
     return exact, templates
+
+
+def test_a_block_cited_without_any_tool_is_still_injected(db_session):
+    """The bug this table came out of: a prompt can ask for the catalogue and
+    nothing else, and the citation used to be a dead letter.
+
+    It matters that the tool set stays empty and ``is_commercial`` stays false:
+    a prompt that cites no tool asked for no tools, and saying otherwise would
+    take away the channel's own context, escalation rules and pipeline.
+    """
+    client, agent, contact, conversation = make_client(db_session, instructions=BLOCKS[2].token)
+    assert cited_blocks(agent.instructions) == {"catalog"}, cited_blocks(agent.instructions)
+    assert agent.client is not None
+    result = crm_prompt_hydrator.build_agent_context(
+        db_session, agent, conversation, build_system_prompt(agent, ""), "whatsapp", contact=contact
+    )
+    assert BLOCKS[2].token in result.system_content
+    assert "Dental Marbella" in result.system_content
+    assert result.extra_specs == []
+    assert result.effects is None
+    assert result.is_commercial is False
+
+
+def test_a_prompt_with_blocks_and_tools_still_gets_both(db_session):
+    client, agent, contact, conversation = make_client(db_session)
+    agent.instructions = f"{BLOCKS[2].token}\n[Herramienta: check_calendar_availability]"
+    db_session.flush()
+    result = crm_prompt_hydrator.build_agent_context(
+        db_session, agent, conversation, build_system_prompt(agent, ""), "whatsapp", contact=contact
+    )
+    assert BLOCKS[2].token in result.system_content
+    assert [spec.name for spec in result.extra_specs] == ["check_calendar_availability"]
+    assert result.is_commercial is True
+    assert result.effects is not None
+
+
+def test_a_prompt_with_neither_is_left_alone(db_session):
+    client, agent, contact, conversation = make_client(db_session, instructions="Solo texto.")
+    db_session.flush()
+    base = build_system_prompt(agent, "")
+    result = crm_prompt_hydrator.build_agent_context(
+        db_session, agent, conversation, base, "whatsapp", contact=contact
+    )
+    assert result.system_content == base
+    assert result.extra_specs == []
+    assert result.effects is None
+    assert result.is_commercial is False
+
+
+def test_the_marker_a_block_is_answered_with(db_session):
+    """And the header the block arrives under is the marker that cited it, so the
+    model can tell which part of the prompt asked for it."""
+    client, agent, contact, conversation = make_client(db_session, instructions=BLOCKS[5].token)
+    db_session.flush()
+    hydrated = crm_prompt_hydrator.hydrate_cited_blocks(
+        db_session, agent, conversation, build_system_prompt(agent, ""), contact=contact
+    )
+    assert hydrated.count(BLOCKS[5].token) == 2, "the citation in the prompt and the block's own header"
+
+
+def test_a_prompt_with_only_blocks_gets_them_over_whatsapp(authenticated_client, monkeypatch):
+    """The channel that dropped them: WhatsApp only opened the declarative path
+    when a tool was cited, so a prompt that cited a block and nothing else lost
+    it, and the citation was a dead letter in the stored prompt.
+
+    The channel's own context, escalation and pipeline have to survive that, or
+    fixing this would quietly strip a live agent of what it could do.
+    """
+    from app.config import get_settings
+    from app.services import ai as ai_service
+    from app.services import whatsapp_inbound as inbound
+
+    client = authenticated_client
+    customer = client.post("/api/clients", json={"name": "Casa", "is_active": True}).json()
+    client.put("/api/providers/openrouter", json={"api_key": "secret"})
+    client.post(f"/api/clients/{customer['id']}/pipeline/stages", json={"name": "Descubrimiento"})
+    agent = client.post("/api/agents", json={
+        "client_id": customer["id"], "provider": "openrouter", "model": "gpt-4.1-mini",
+        "name": "Bella", "instructions": BLOCKS[2].token, "is_active": True,
+    }).json()
+    channel = client.put(f"/api/whatsapp/channels/{customer['id']}", json={"agent_id": agent["id"]}).json()
+
+    seen: dict = {}
+
+    async def capture(db, agent, base_url, api_key, messages, **kwargs):
+        seen["system"] = messages[0]["content"]
+        seen["specs"] = kwargs.get("extra_specs")
+        return ai_service.Completion(text="Hola")
+
+    monkeypatch.setattr(inbound, "run_completion", capture)
+    response = client.post(
+        f"/api/internal/whatsapp/channels/{channel['id']}/inbound",
+        headers={"X-Bridge-Token": get_settings().whatsapp_bridge_token},
+        json={
+            "external_message_id": "wamid.BLOCKS1", "remote_jid": "573001112233@s.whatsapp.net",
+            "sender_name": "Maria", "text": "Hola",
+        },
+    )
+    assert response.status_code == 200, response.text
+    system = seen["system"]
+    assert BLOCKS[2].token in system, "the cited block never arrived"
+    assert "No hay servicios" in system, "the block arrived empty"
+    assert seen["specs"], "the channel lost its own tools to the hydration"
 
 
 def test_every_marker_the_table_ships_is_well_formed_and_unique():
