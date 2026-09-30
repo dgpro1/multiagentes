@@ -239,6 +239,7 @@ export function expandToWhole(
  * it. Returns null when the mirror cannot say, and the caller falls back.
  */
 export function caretLine(root: HTMLElement, offset: number): { top: number; bottom: number } | null {
+  const lineHeight = Number.parseFloat(getComputedStyle(root).lineHeight) || 0;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let seen = 0;
   let node = walker.nextNode() as Text | null;
@@ -251,10 +252,19 @@ export function caretLine(root: HTMLElement, offset: number): { top: number; bot
       range.collapse(true);
       let rect = range.getBoundingClientRect();
       if (!rect.height && at > 0) {
-        // The end of a line has no box of its own; the character before it does,
-        // and that is the line the caret is read on.
+        // The end of a line has no box of its own. The character before it is on
+        // the line just written, so one line lower is where the caret is.
         range.setStart(node, at - 1);
-        rect = range.getBoundingClientRect();
+        const previous = range.getBoundingClientRect();
+        if (previous.height) {
+          const afterBreak = node.data[at - 1] === "\n";
+          rect = {
+            ...previous.toJSON(),
+            top: afterBreak ? previous.bottom : previous.top,
+            bottom: afterBreak ? previous.bottom + lineHeight : previous.bottom,
+            height: afterBreak ? lineHeight : previous.height,
+          } as DOMRect;
+        }
       }
       return rect.height ? { top: rect.top, bottom: rect.bottom } : null;
     }

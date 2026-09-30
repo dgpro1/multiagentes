@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { AlertCircle, Brackets, Check, ChevronRight, FileText, Film, ImageIcon, Layers, Link2, Music, Undo2, Wrench } from "lucide-react";
 import { Alert, Modal } from "@/components/ui";
 import { useLanguage, type I18nKey, type TranslateFn } from "@/lib/i18n";
@@ -50,6 +50,11 @@ type ListPlacement =
 /** A list this tall is enough to scan; less and the list is in the way. */
 const MIN_LIST_HEIGHT = 150;
 const LIST_GAP = 6;
+
+// The paint is applied after the browser has had its say about the DOM, so the two
+// layers never disagree on screen. On the server there is no layout to read, and
+// React asks for the passive effect there instead.
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -246,6 +251,48 @@ export function AgentPromptEditor({
     if (!input || !mirror) return;
     mirror.scrollTop = input.scrollTop;
     mirror.scrollLeft = input.scrollLeft;
+  }, []);
+
+  /**
+   * The paint is only shown while it provably sits on the text.
+   *
+   * The browser scrolls a textarea to reach the caret, and it does that before
+   * React has repainted the mirror from the new text. Syncing only on the scroll
+   * event leaves a window where the mirror is showing a different part of the
+   * prompt than the one being written into, which reads as the text landing a line
+   * or two off. So the scroll is re-applied after every paint, and if the two
+   * layers ever disagree about their size the decoration is dropped entirely: an
+   * uncoloured prompt that is in the right place beats a coloured one that is not.
+   */
+  const [aligned, setAligned] = useState(true);
+  useIsomorphicLayoutEffect(() => {
+    const input = textareaRef.current;
+    const mirror = mirrorRef.current;
+    if (!input || !mirror) return;
+    mirror.scrollTop = input.scrollTop;
+    mirror.scrollLeft = input.scrollLeft;
+    const agrees =
+      mirror.scrollHeight === input.scrollHeight &&
+      mirror.clientWidth === input.clientWidth;
+    setAligned((was) => (was === agrees ? was : agrees));
+  });
+
+  // A render is not the only way the two layers can part ways: a font arriving, a
+  // window resized, the box dragged taller by hand. Watching both boxes covers
+  // those, and the guard above decides what to show.
+  useEffect(() => {
+    const input = textareaRef.current;
+    const mirror = mirrorRef.current;
+    if (!input || !mirror || typeof ResizeObserver === "undefined") return;
+    const check = () => {
+      mirror.scrollTop = input.scrollTop;
+      mirror.scrollLeft = input.scrollLeft;
+      setAligned(mirror.scrollHeight === input.scrollHeight && mirror.clientWidth === input.clientWidth);
+    };
+    const observer = new ResizeObserver(check);
+    observer.observe(input);
+    observer.observe(mirror);
+    return () => observer.disconnect();
   }, []);
 
   /**
@@ -636,7 +683,7 @@ export function AgentPromptEditor({
       </div>
 
       <div ref={wrapRef} style={{ position: "relative" }}>
-        <div className="prompt-editor">
+        <div className={`prompt-editor${aligned ? "" : " prompt-editor-unaligned"}`}>
           <div ref={mirrorRef} className="prompt-editor-mirror" aria-hidden="true">
             {painted.map((part, index) =>
               part.span ? (

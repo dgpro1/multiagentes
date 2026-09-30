@@ -3036,6 +3036,11 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .prompt-editor-input::selection { background: rgba(59, 130, 246, 0.32); }
 :root[data-theme="light"] .prompt-editor-input::selection { background: rgba(59, 130, 246, 0.22); }
 
+/* When the two layers cannot be shown to agree, the decoration is dropped and the
+   textarea's own text is painted instead: right place, no colours. */
+.prompt-editor-unaligned .prompt-editor-mirror { visibility: hidden; }
+.prompt-editor-unaligned .prompt-editor-input { color: var(--ink); }
+
 /* One variable, painted as one piece. The line colour and weight are the whole
    treatment, so a new kind is two custom properties and nothing else. */
 .pv {
