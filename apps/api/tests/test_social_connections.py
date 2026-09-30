@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.models import Client, SocialChannel, SocialOAuthState, now_utc
@@ -264,3 +264,41 @@ def test_refresh_scrubs_expired_states(authenticated_client):
         db.commit()
         asyncio.run(service.refresh_due_channels(db))
         assert db.get(SocialOAuthState, state_id) is None
+
+
+from test_channel_quotas import _set_quota
+
+
+def test_a_zero_quota_stops_the_connection_before_the_provider_is_opened(authenticated_client):
+    """Zero is a number, not "unlimited": the absent key is what means that.
+
+    The account row is only written when the authorization comes back, so
+    without this the operator authorizes with the provider and is refused at the
+    end, having done the whole round trip for nothing.
+    """
+    client = authenticated_client
+    customer, agent = resources(client)
+    agency_id = client.get("/api/agency").json()["id"]
+    _set_quota(agency_id, "channels.instagram", 0)
+    base = {"client_id": customer["id"], "agent_id": agent["id"]}
+
+    refused = client.post("/api/social/instagram/oauth/start", json=base)
+    assert refused.status_code == 409, refused.text
+    assert "not included in this agency's plan" in refused.json()["detail"]
+    # No window was opened, so nothing is half-connected.
+    with TestingSession() as db:
+        assert db.scalar(select(func.count()).select_from(SocialChannel)) == 0
+
+    # One line of room and the same call goes through.
+    _set_quota(agency_id, "channels.instagram", 1)
+    assert client.post("/api/social/instagram/oauth/start", json=base).status_code == 200
+
+
+def test_an_unlimited_quota_is_not_a_zero_one(authenticated_client):
+    """The absent key means unlimited, and must not read as zero."""
+    client = authenticated_client
+    customer, agent = resources(client)
+    agency_id = client.get("/api/agency").json()["id"]
+    _set_quota(agency_id, "channels.instagram", None)
+    base = {"client_id": customer["id"], "agent_id": agent["id"]}
+    assert client.post("/api/social/instagram/oauth/start", json=base).status_code == 200
