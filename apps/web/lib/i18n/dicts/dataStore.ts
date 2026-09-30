@@ -46,7 +46,6 @@ const en = {
   copied: "Link copied.",
   notConfigured: "The Supabase OAuth app is not configured on this server (SUPABASE_OAUTH_CLIENT_ID / SECRET).",
   regionWarning: "This project is in {region}, far from the server ({recommended}): every reply waits on several round trips to it. Create the project in {recommended}.",
-  planWarning: "A business with steady traffic needs Supabase Pro: the free plan pauses inactive projects and holds 500 MB, which a busy WhatsApp line fills in weeks.",
   connect: {
     title: "Connect your database",
     intro: "{agency} will keep {client}'s data in your own Supabase project. You authorize with Supabase and pick the project; HunterAI creates its own access there, with nothing else to copy.",
@@ -118,7 +117,6 @@ const es: typeof en = {
   copied: "Enlace copiado.",
   notConfigured: "La app OAuth de Supabase no está configurada en este servidor (SUPABASE_OAUTH_CLIENT_ID / SECRET).",
   regionWarning: "Este proyecto está en {region}, lejos del servidor ({recommended}): cada respuesta espera varias idas y vueltas hasta él. Crea el proyecto en {recommended}.",
-  planWarning: "Un negocio con tráfico constante necesita Supabase Pro: el plan gratuito pausa los proyectos inactivos y tiene 500 MB, que una línea de WhatsApp activa llena en semanas.",
   connect: {
     title: "Conecta tu base de datos",
     intro: "{agency} guardará los datos de {client} en tu propio proyecto de Supabase. Autorizas con Supabase y eliges el proyecto; HunterAI crea allí su propio acceso, sin nada más que copiar.",

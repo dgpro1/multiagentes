@@ -117,7 +117,6 @@ export function DataStorePanel({ clientId }: { clientId: string }) {
 
     {connected && store.region && store.recommended_region && store.region !== store.recommended_region
       && <Alert><AlertTriangle size={14} /> {t("dataStore.regionWarning", { region: store.region, recommended: store.recommended_region })}</Alert>}
-    {!connected && <Alert type="info">{t("dataStore.planWarning")}</Alert>}
 
     <div className="storage-share">
       <strong>{t("dataStore.link")}</strong>
