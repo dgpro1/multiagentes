@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from .. import agency_features
 from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_user
@@ -14,6 +15,30 @@ from ..slugs import unique_slug
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+def _with_modules(user: User) -> dict:
+    """The session, carrying the modules the platform left this agency.
+
+    The panel has to know what it may offer: an option the server would refuse
+    is worse than no option, and the server does refuse (see
+    ``channel_quotas.check``). Read from the same catalog the platform switches,
+    so the two cannot drift.
+    """
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "agency": {
+            "id": user.agency.id,
+            "name": user.agency.name,
+            "slug": user.agency.slug,
+            "brand_color": user.agency.brand_color,
+            "logo_url": user.agency.logo_url,
+            "modules": agency_features.enabled_keys(user.agency),
+        },
+    }
 
 
 def _set_session_cookie(response: Response, user: User) -> None:
@@ -91,7 +116,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     ensure_agency_active(user.agency)
     _set_session_cookie(response, user)
-    return user
+    return _with_modules(user)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -101,4 +126,4 @@ def logout(response: Response):
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
-    return user
+    return _with_modules(user)

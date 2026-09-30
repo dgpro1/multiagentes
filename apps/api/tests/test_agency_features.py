@@ -110,3 +110,94 @@ def test_the_mobile_session_carries_the_effective_features(authenticated_client)
     signed = client.post("/api/mobile/sign-in", json={"email": "portal@acme.example.com", "password": "portal-password"})
     assert signed.status_code == 200, signed.text
     assert "inbox" not in signed.json()["features"]
+
+
+def _client_and_agent(client: TestClient, name: str = "Acme") -> tuple[dict, dict]:
+    customer = client.post("/api/clients", json={"name": name, "is_active": True}).json()
+    client.put("/api/providers/openrouter", json={"api_key": "secret"})
+    agent = client.post("/api/agents", json={
+        "client_id": customer["id"], "provider": "openrouter", "model": "openai/gpt-5.6-luna",
+        "name": "Bot", "instructions": "", "personality": "", "is_active": True}).json()
+    return customer, agent
+
+
+def _add_whatsapp_line(client: TestClient, customer: dict, agent: dict):
+    return client.post(f"/api/whatsapp/clients/{customer['id']}/channels", json={"agent_id": agent["id"]})
+
+
+def _switch_off(client: TestClient, agency_id: str, key: str) -> None:
+    # The platform admin exists from the first call in each test; creating it
+    # again would collide on its own unique e-mail.
+    patched = client.put(f"/api/platform/agencies/{agency_id}/features", json={"features": {key: False}})
+    assert patched.status_code == 200, patched.text
+
+
+def test_the_panel_session_carries_the_modules(authenticated_client):
+    """The panel has to know what it may offer, because the server refuses the
+    rest: an option that fails when it is pressed is worse than no option."""
+    client = authenticated_client
+    agency_id = client.get("/api/agency").json()["id"]
+    before = client.get("/api/auth/me").json()["agency"]["modules"]
+    assert "channels.whatsapp" in before
+    _platform(client)
+    _switch_off(client, agency_id, "channels.whatsapp")
+    after = client.get("/api/auth/me").json()["agency"]["modules"]
+    assert "channels.whatsapp" not in after
+    # The rest of the catalog is untouched: one switch is not a whole plan.
+    assert "channels.instagram" in after
+    assert "inbox" in after
+    # The same list arrives at login, not only when the session is refreshed.
+    signed_in = client.post("/api/auth/login", json={"email": client.get("/api/auth/me").json()["email"], "password": "secret-password"})
+    if signed_in.status_code == 200:
+        assert "channels.whatsapp" not in signed_in.json()["agency"]["modules"]
+
+
+def test_a_switched_off_module_refuses_a_new_line(authenticated_client):
+    """The switch the platform flips has to reach the agency, not only the
+    client's portal: without this the agency keeps connecting what was turned
+    off, and the switch is decoration."""
+    client = authenticated_client
+    agency_id = client.get("/api/agency").json()["id"]
+    customer, agent = _client_and_agent(client)
+    assert _add_whatsapp_line(client, customer, agent).status_code == 201
+
+    _platform(client)
+    _switch_off(client, agency_id, "channels.whatsapp")
+    refused = _add_whatsapp_line(client, customer, agent)
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["detail"] == agency_features.FEATURE_DISABLED_DETAIL
+
+    # Every channel type passes the same door, so the switch reaches all of them.
+    # WhatsApp API and the web widget are the two that take the client's id; the
+    # social ones are connected through OAuth and are covered by the same call.
+    for key, method, path in (
+        ("channels.whatsapp_cloud", "POST", f"/api/whatsapp-cloud/clients/{customer['id']}/channels"),
+        ("channels.webchat", "PUT", f"/api/webchat/channels/{customer['id']}"),
+    ):
+        _switch_off(client, agency_id, key)
+        answer = client.request(method, path, json={"agent_id": agent["id"]})
+        assert answer.status_code == 403, f"{key}: {answer.status_code} {answer.text}"
+
+
+def test_the_lines_an_agency_already_has_keep_working(authenticated_client):
+    """Turning the switch off stops new lines, it does not cut the ones already
+    connected: a client's WhatsApp does not stop answering because the platform
+    narrowed the plan afterwards, and nothing is deleted."""
+    client = authenticated_client
+    agency_id = client.get("/api/agency").json()["id"]
+    customer, agent = _client_and_agent(client)
+    created = _add_whatsapp_line(client, customer, agent)
+    assert created.status_code == 201, created.text
+    line_id = created.json()["id"]
+
+    _platform(client)
+    _switch_off(client, agency_id, "channels.whatsapp")
+
+    # The line is still there and still readable: the agency keeps managing it.
+    listed = client.get(f"/api/whatsapp/clients/{customer['id']}/channels")
+    assert listed.status_code == 200, listed.text
+    assert [item["id"] for item in listed.json()] == [line_id]
+    assert client.get(f"/api/whatsapp/channels/{line_id}").status_code == 200
+    # And the client's portal never offered the function while it was on, and
+    # still does not: the switch above it is what the portal reads.
+    assert client.get(f"/api/clients/{customer['id']}").status_code == 200

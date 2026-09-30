@@ -33,11 +33,16 @@ class LoginRequest(BaseModel):
 
 
 class AgencyOut(ORMModel):
-    id: uuid.UUID
-    name: str
-    slug: str
-    brand_color: str
-    logo_url: str | None = None
+      id: uuid.UUID
+      name: str
+      slug: str
+      brand_color: str
+      logo_url: str | None = None
+      # The modules this agency may use, decided by the platform. The panel needs
+      # them to leave out what it may not offer: an option the server would
+      # refuse is worse than no option at all. Filled in by the routes that
+      # hand a session to the web; empty means "no catalog reached this caller".
+      modules: list[str] = []
 
 
 class AgencyUpdate(BaseModel):

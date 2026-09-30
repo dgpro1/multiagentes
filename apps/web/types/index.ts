@@ -10,7 +10,16 @@ export type User = {
   agency: Agency;
 };
 
-export type Agency = { id: string; name: string; slug: string; brand_color: string; logo_url: string | null };
+export type Agency = {
+  id: string;
+  name: string;
+  slug: string;
+  brand_color: string;
+  logo_url: string | null;
+  /** The modules the platform left this agency. Empty only when the caller is
+   * not the agency panel, which has no catalog to be given. */
+  modules?: string[];
+};
 
 export type AgentSummary = { id: string; name: string; is_active: boolean };
 
