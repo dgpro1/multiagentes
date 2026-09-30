@@ -543,10 +543,6 @@ textarea { line-height: 1.55; }
 .entity-avatar.tiny { width: 30px; height: 30px; border-radius: 50%; }
 .inbox-avatar { position: relative; flex: 0 0 auto; }
 .channel-badge { position: absolute; right: -3px; bottom: -3px; width: 16px; height: 16px; display: grid; place-items: center; color: white; border: 2px solid var(--surface); border-radius: 50%; }
-.channel-badge.whatsapp { background: var(--green); }
-.channel-badge.whatsapp_cloud { background: var(--green); }
-.channel-badge.widget { background: var(--blue); }
-.channel-badge.playground { background: var(--violet); }
 .row-arrow { width: 34px; height: 34px; display: grid; place-items: center; color: var(--muted); border-radius: 6px; }
 .row-arrow:hover { color: var(--accent-text); background: var(--accent-soft); }
 .table-link { color: var(--accent-text); font-weight: 500; }
@@ -661,6 +657,9 @@ textarea { line-height: 1.55; }
 .portal-main-pipeline .embedded-portal-view { width: 100%; height: 100%; }
 .embedded-portal-view.client-pipeline-view { width: 100%; overflow-x: hidden; }
 .pipeline-view { display: flex; flex-direction: column; width: 100%; min-height: 100%; background: #fbfcfb; overflow-x: hidden; }
+/* Stands in for the leads the capped board left out, so a column that ends at
+   400 reads as a limit rather than as the whole pipeline. */
+.pipeline-truncated { margin: 0; padding: 7px 24px; color: #92400e; background: #fef3c7; border-bottom: 1px solid #fde68a; font-size: 12px; font-weight: 600; }
 :root[data-theme="dark"] .pipeline-view { background: var(--canvas); }
 
 .pipeline-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 24px; background: #ffffff; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 20; min-height: 60px; }
@@ -2275,11 +2274,27 @@ button.composer-attach.record.recording svg { animation: record-pulse 1.2s ease-
 
 /* Channel dot inline with the channel name + mode chip (one straight line) */
 .channel-dot { width: 16px; height: 16px; flex: 0 0 auto; display: inline-grid; place-items: center; color: white; border-radius: 50%; }
-.channel-dot.whatsapp { background: var(--green); }
-.channel-dot.whatsapp_cloud { background: var(--green); }
-.channel-dot.widget { background: var(--blue); }
-.channel-dot.playground { background: var(--violet); }
 .channel-dot svg { display: block; }
+
+/* One colour per channel kind, declared once and read by both the dot beside a
+   name and the badge on an avatar, so the same channel is never two colours.
+
+   They do not borrow the theme's tokens on purpose: the light theme paints
+   --green, --violet and --accent the same teal and --pink one shade away, which
+   left WhatsApp, its API variant and the playground indistinguishable. A mark
+   has to say which kind of channel it is, so a re-skin of the theme cannot fuse
+   two of them. Each hue is far enough from the others to read at 16px in either
+   theme, and the two WhatsApp kinds are deliberately steps apart. */
+.channel-dot.whatsapp, .channel-badge.whatsapp { background: #1f9d55; }
+.channel-dot.whatsapp_cloud, .channel-badge.whatsapp_cloud { background: #0e7490; }
+.channel-dot.instagram, .channel-badge.instagram { background: #c13584; }
+.channel-dot.messenger, .channel-badge.messenger { background: #1877f2; }
+.channel-dot.widget, .channel-badge.widget { background: #7c3aed; }
+.channel-dot.playground, .channel-badge.playground { background: #b45309; }
+/* A lead created by hand (services/pipeline.py writes channel="manual") is not a
+   messaging channel, so it takes the neutral instead of a hue, and one that
+   follows the theme because it is meant to recede. */
+.channel-dot.manual, .channel-badge.manual { background: var(--muted); }
 
 /* Voice note: waveform truly centered between play and the speed pill;
    the time row floats underneath like WhatsApp */
@@ -2391,9 +2406,8 @@ p .msg-time, .bubble .msg-time { float: none; position: absolute; right: 11px; b
 .combo-option .combo-tag { margin-left: 0; }
 .combo-value .combo-tag { background: var(--accent-soft); color: var(--accent-text); }
 
-/* Social accounts share the existing channel setup and inbox layout. */
-.channel-badge.instagram, .channel-dot.instagram { background: var(--pink); }
-.channel-badge.messenger, .channel-dot.messenger { background: #1877f2; }
+/* Social accounts share the existing channel setup and inbox layout. The dot and
+   the badge of each kind are coloured in one place, above. */
 .wa-mark.instagram { color: var(--pink-text); background: var(--pink-soft); }
 .wa-mark.messenger { color: #1877f2; background: var(--blue-soft); }
 .social-account { display: flex; align-items: center; gap: 14px; margin: 22px 0; padding: 18px; border: 1px solid var(--line); border-radius: 12px; }

@@ -28,9 +28,14 @@ export function leadChannels(item: { channel: string; channels?: string[] }): st
   return item.channels && item.channels.length ? item.channels : [item.channel];
 }
 
-/** Small round channel icons side by side, one per channel. */
+/** Small round channel icons side by side, one per channel.
+ *
+ * A lead reached through the same kind of channel twice shows two dots of one
+ * colour, which is the point: what has to be told apart is the kind, not the
+ * thread. The position is in the key because the kind repeats and React needs
+ * each mark addressed on its own. */
 export function ChannelDots({ channels, t, size = 10 }: { channels: string[]; t: (key: I18nKey) => string; size?: number }) {
-  return <span className="channel-dots">{channels.map((channel) => <span key={channel} className={`channel-dot ${channel}`} title={channelLabel(channel, t)}><ChannelIcon channel={channel} size={size} /></span>)}</span>;
+  return <span className="channel-dots">{channels.map((channel, at) => <span key={`${channel}-${at}`} className={`channel-dot ${channel}`} title={channelLabel(channel, t)}><ChannelIcon channel={channel} size={size} /></span>)}</span>;
 }
 
 /** The tiny channel icon at a message's edge, shown when the lead's thread mixes several channels. */
