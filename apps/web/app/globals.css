@@ -3028,6 +3028,10 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
   background: transparent;
   border-color: var(--line);
   resize: vertical;
+  /* The gutter is always reserved, so the text does not re-wrap the moment the
+     prompt grows past the box and a scrollbar appears. The paint is inset by the
+     same amount, which is what keeps the two layers the same width. */
+  scrollbar-gutter: stable;
 }
 .prompt-editor-input::placeholder { color: var(--faint); }
 .prompt-editor-input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }

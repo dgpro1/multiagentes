@@ -256,44 +256,69 @@ export function AgentPromptEditor({
   /**
    * The paint is only shown while it provably sits on the text.
    *
-   * The browser scrolls a textarea to reach the caret, and it does that before
-   * React has repainted the mirror from the new text. Syncing only on the scroll
-   * event leaves a window where the mirror is showing a different part of the
-   * prompt than the one being written into, which reads as the text landing a line
-   * or two off. So the scroll is re-applied after every paint, and if the two
-   * layers ever disagree about their size the decoration is dropped entirely: an
-   * uncoloured prompt that is in the right place beats a coloured one that is not.
+   * The two layers have to be the same width, and they are not by default: a
+   * textarea's scrollbar takes its width out of the text inside it, while the
+   * layer that paints has no scrollbar and keeps the full width. Fifteen pixels
+   * wider means the paint wraps later than the text, and from that point on it
+   * sits a line higher than what the caret is on. So the paint is inset by the
+   * width the scrollbar took, and if the two ever still disagree the decoration
+   * is dropped: an uncoloured prompt that is in the right place beats a coloured
+   * one that is not.
    */
   const [aligned, setAligned] = useState(true);
-  useIsomorphicLayoutEffect(() => {
+  const recheck = useRef<number | null>(null);
+  const agree = useCallback(() => {
     const input = textareaRef.current;
     const mirror = mirrorRef.current;
     if (!input || !mirror) return;
     mirror.scrollTop = input.scrollTop;
     mirror.scrollLeft = input.scrollLeft;
-    const agrees =
-      mirror.scrollHeight === input.scrollHeight &&
-      mirror.clientWidth === input.clientWidth;
-    setAligned((was) => (was === agrees ? was : agrees));
-  });
+    const style = getComputedStyle(input);
+    const borders = Number.parseFloat(style.borderLeftWidth) + Number.parseFloat(style.borderRightWidth);
+    const scrollbar = Math.max(0, Math.round(input.offsetWidth - input.clientWidth - borders));
+    mirror.style.right = `${scrollbar}px`;
+
+    const inStep = () =>
+      mirror.scrollHeight === input.scrollHeight && mirror.clientWidth === input.clientWidth;
+    if (inStep()) {
+      if (recheck.current !== null) {
+        cancelAnimationFrame(recheck.current);
+        recheck.current = null;
+      }
+      setAligned((was) => (was ? was : true));
+      return;
+    }
+    // One frame of disagreement is ordinary: a font arriving, a scroll the paint
+    // has not caught up with yet. The colours are only given up if the
+    // disagreement is still there on the next frame.
+    if (recheck.current !== null) return;
+    recheck.current = requestAnimationFrame(() => {
+      recheck.current = null;
+      const el = textareaRef.current;
+      const paint = mirrorRef.current;
+      if (!el || !paint) return;
+      setAligned(paint.scrollHeight === el.scrollHeight && paint.clientWidth === el.clientWidth);
+    });
+  }, []);
+
+  useIsomorphicLayoutEffect(agree);
+
+  useEffect(() => () => {
+    if (recheck.current !== null) cancelAnimationFrame(recheck.current);
+  }, []);
 
   // A render is not the only way the two layers can part ways: a font arriving, a
   // window resized, the box dragged taller by hand. Watching both boxes covers
-  // those, and the guard above decides what to show.
+  // those, and the check above decides what to show.
   useEffect(() => {
     const input = textareaRef.current;
     const mirror = mirrorRef.current;
     if (!input || !mirror || typeof ResizeObserver === "undefined") return;
-    const check = () => {
-      mirror.scrollTop = input.scrollTop;
-      mirror.scrollLeft = input.scrollLeft;
-      setAligned(mirror.scrollHeight === input.scrollHeight && mirror.clientWidth === input.clientWidth);
-    };
-    const observer = new ResizeObserver(check);
+    const observer = new ResizeObserver(agree);
     observer.observe(input);
     observer.observe(mirror);
     return () => observer.disconnect();
-  }, []);
+  }, [agree]);
 
   /**
    * Puts the insert list under the line the caret is on, so writing is never
