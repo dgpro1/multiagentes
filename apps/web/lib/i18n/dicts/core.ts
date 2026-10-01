@@ -78,6 +78,8 @@ const en = {
     themeSystem: "System",
     themeLight: "Light",
     themeDark: "Dark",
+    switchToLight: "Switch to light theme",
+    switchToDark: "Switch to dark theme",
   },
   auth: {
     statusError: "Could not check whether this installation is ready. Try again to continue.",
@@ -198,6 +200,8 @@ const es: typeof en = {
     themeSystem: "Sistema",
     themeLight: "Claro",
     themeDark: "Oscuro",
+    switchToLight: "Cambiar a tema claro",
+    switchToDark: "Cambiar a tema oscuro",
   },
   auth: {
     statusError: "No se pudo comprobar si esta instalación está lista. Inténtalo de nuevo para continuar.",

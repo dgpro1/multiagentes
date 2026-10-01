@@ -6,6 +6,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { BarChart3, Bot, Building2, CreditCard, Inbox, LayoutDashboard, LogOut, Menu, MessageSquareText, PanelLeftClose, PanelLeftOpen, Radio, Settings, Sparkles, Wallet, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useT, type I18nKey } from "@/lib/i18n";
+import { ThemeQuickToggle } from "@/components/theme-quick-toggle";
 import { rememberAgencyName } from "@/lib/login-brand";
 import { NAV_COLLAPSED_CLASS, useCollapsibleNav } from "@/lib/sidebar";
 import type { User } from "@/types";
@@ -128,14 +129,17 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="stitch-mobile-topbar-name">{user.agency.name}</span>
           </div>
         </Link>
-        <button
-          type="button"
-          className="stitch-mobile-menu-btn"
-          onClick={() => setMobileOpen(true)}
-          aria-label={t("shell.openMenu")}
-        >
-          <Menu size={20} />
-        </button>
+        <div className="stitch-mobile-topbar-actions">
+          <ThemeQuickToggle className="stitch-mobile-theme-btn" />
+          <button
+            type="button"
+            className="stitch-mobile-menu-btn"
+            onClick={() => setMobileOpen(true)}
+            aria-label={t("shell.openMenu")}
+          >
+            <Menu size={20} />
+          </button>
+        </div>
       </header>
 
       {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
@@ -152,6 +156,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               drawer and its own close button take over. */}
           <button type="button" className="icon-button inverse sidebar-toggle" onClick={toggle} aria-expanded={!collapsed} aria-controls="app-sidebar" title={t(collapsed ? "shell.expandSidebar" : "shell.collapseSidebar")} aria-label={t(collapsed ? "shell.expandSidebar" : "shell.collapseSidebar")}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
         </div>
+        <div className="sidebar-theme-row"><ThemeQuickToggle /></div>
         <nav>
           <span className="nav-label">{t("nav.section")}</span>
           {navigation.map((item) => {
