@@ -1,8 +1,16 @@
+import { apiErrorInSpanish } from "@/lib/i18n/api-errors";
+
 // Empty means same-origin: the app and the API are served from one domain
 // through the gateway, so requests use a relative "/api/..." path. Set
 // NEXT_PUBLIC_API_URL only when the API lives on a different origin (e.g. running
 // the frontend on its own during local development).
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+
+/** The API writes its errors in English; a screen in Spanish shows them translated. */
+function shownError(message: string): string {
+  if (typeof document === "undefined" || document.documentElement.lang !== "es") return message;
+  return apiErrorInSpanish(message);
+}
 
 export class ApiError extends Error {
   status: number;
@@ -42,17 +50,17 @@ export async function apiWithHeaders<T>(path: string, options: RequestInit = {})
       if (typeof data.detail === "string") {
         message = data.detail;
       } else if (Array.isArray(data.detail) && typeof data.detail[0]?.msg === "string") {
-        message = `Revisa los campos del formulario: ${data.detail[0].msg}`;
+        message = `Check the form fields: ${data.detail[0].msg}`;
       }
     } catch {}
-    throw new ApiError(message, response.status);
+    throw new ApiError(shownError(message), response.status);
   }
   if (response.status === 204) return { data: undefined as T, headers: response.headers };
   return { data: (await response.json()) as T, headers: response.headers };
 }
 
 export function messageFrom(error: unknown): string {
-  return error instanceof Error ? error.message : "An unexpected error occurred";
+  return error instanceof Error ? error.message : shownError("An unexpected error occurred");
 }
 
 // Absolute URL for API resources referenced outside fetch() (e.g. <img>/<audio>
