@@ -61,6 +61,7 @@ from ..services.whatsapp_templates import (
     validate_template_name,
 )
 from ..services import dns as dns_service
+from ..services import agency_backend
 from ..slugs import slugify, unique_slug
 
 
@@ -108,7 +109,7 @@ def list_clients(db: Session = Depends(get_db), user: User = Depends(get_current
 
 
 @router.post("", response_model=ClientOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(CLIENTS_WRITE))])
-def create_client(payload: ClientCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def create_client(payload: ClientCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     check_industry(payload.industry, payload.business_type)
     client = Client(
         agency_id=user.agency_id,
@@ -117,6 +118,7 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db), user: Us
     )
     db.add(client)
     db.commit()
+    await agency_backend.adopt_default(db, client)
     return _client(db, user, client.id)
 
 

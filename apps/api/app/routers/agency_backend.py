@@ -47,6 +47,10 @@ class AgencyProjectChoice(BaseModel):
     ref: str = Field(min_length=20, max_length=20)
 
 
+class AgencyTokenIn(BaseModel):
+    token: str = Field(min_length=20, max_length=400)
+
+
 class AgencyStorageOut(BaseModel):
     status: Literal["none", "pending", "connected", "error"]
     module_enabled: bool
@@ -67,6 +71,13 @@ def get_backend(db: Session = Depends(get_db), user: User = Depends(get_current_
 @router.post("/backend/connect")
 def start_connect(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return {"authorization_url": agency_backend.start_connection(db, user.agency)}
+
+
+@router.put("/backend/token", response_model=AgencyBackendOut)
+async def connect_token(payload: AgencyTokenIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Connect Supabase with a personal access token instead of OAuth."""
+    await agency_backend.connect_token(db, user.agency, payload.token)
+    return agency_backend.out(db, user.agency)
 
 
 @router.get("/backend/projects", response_model=list[AgencyProjectOut])

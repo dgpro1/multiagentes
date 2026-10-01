@@ -323,6 +323,8 @@ export const API_ERRORS_ES: Record<string, string> = {
   "features must be an object of switches": "features debe ser un objeto de interruptores",
   "portal_features must be an object of switches": "portal_features debe ser un objeto de interruptores",
   // The agency's own backend.
+  "Supabase did not accept that token": "Supabase no aceptó ese token",
+  "That does not look like a Supabase access token": "Eso no parece un token de acceso de Supabase",
   "Connect the agency's Cloudflare bucket first": "Primero conecta el bucket de Cloudflare de la agencia",
   "Connect the agency's Supabase project first": "Primero conecta el proyecto de Supabase de la agencia",
   "Connect the client's own bucket first": "Primero conecta el bucket propio del cliente",

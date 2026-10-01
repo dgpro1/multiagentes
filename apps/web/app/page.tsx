@@ -5,8 +5,9 @@ import { useEffect, useState } from "react";
 import { Bot, Building2, Calendar, MessageSquareText, MessagesSquare, Plus, Radio, Sparkles, UserRound, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useLanguage } from "@/lib/i18n";
+import { useAgencyModules } from "@/lib/agency-modules";
 import { PanelSkeleton, Skeleton } from "@/components/skeleton";
-import type { Agent, AgentSummary, Conversation, Provider, User } from "@/types";
+import type { Agent, AgentSummary, AgencyBackend, AgencyStorage, Conversation, Provider, User } from "@/types";
 
 type Dashboard = {
   clients: number;
@@ -57,6 +58,17 @@ export default function HomePage() {
   const [agencyName, setAgencyName] = useState("HunterAI");
   const [stepsHidden, setStepsHidden] = useState(false);
 
+  // The agency's own Supabase and bucket are the first thing to connect, once the platform allowed them.
+  const modules = useAgencyModules(true);
+  const backendOn = modules?.includes("agency_backend") === true;
+  const [backendReady, setBackendReady] = useState(false);
+  useEffect(() => {
+    if (!backendOn) return;
+    Promise.all([api<AgencyBackend>("/agency/backend"), api<AgencyStorage>("/agency/storage")])
+      .then(([project, bucket]) => setBackendReady(project.status === "connected" && bucket.status === "connected"))
+      .catch(() => setBackendReady(false));
+  }, [backendOn]);
+
   useEffect(() => {
     try {
       if (localStorage.getItem(NEXT_STEPS_HIDE_KEY) === "1") setStepsHidden(true);
@@ -105,7 +117,7 @@ export default function HomePage() {
   const totalTokens = (metrics?.tokens_in ?? 0) + (metrics?.tokens_out ?? 0);
   const maxUsage = Math.max(1, ...usage.map((u) => u.input_tokens + u.output_tokens));
   const firstName = firstNameOf(userName);
-  const stepsDone = Boolean(loadedCore && data?.clients && data?.agents && modelConnected);
+  const stepsDone = Boolean(loadedCore && data?.clients && data?.agents && modelConnected && (!backendOn || backendReady));
   const showSteps = !stepsHidden && !stepsDone;
 
   const dismissSteps = () => {
@@ -182,22 +194,29 @@ export default function HomePage() {
               </button>
             </div>
             <ol>
+              {backendOn && <li className={backendReady ? "done" : ""}>
+                <span>{backendReady ? "✓" : "1"}</span>
+                <div>
+                  <strong><Link href="/settings#backend">{t("home.nextSteps.step0Title")}</Link></strong>
+                  <small>{t("home.nextSteps.step0Desc")}</small>
+                </div>
+              </li>}
               <li className={loadedCore && data?.clients ? "done" : ""}>
-                {loadedCore ? <span>{data?.clients ? "✓" : "1"}</span> : <span><Skeleton style={{ width: 18, height: 18, borderRadius: 999 }} /></span>}
+                {loadedCore ? <span>{data?.clients ? "✓" : backendOn ? "2" : "1"}</span> : <span><Skeleton style={{ width: 18, height: 18, borderRadius: 999 }} /></span>}
                 <div>
                   <strong>{t("home.nextSteps.step1Title")}</strong>
                   <small>{t("home.nextSteps.step1Desc")}</small>
                 </div>
               </li>
               <li className={loadedCore && data?.agents ? "done" : ""}>
-                {loadedCore ? <span>{data?.agents ? "✓" : "2"}</span> : <span><Skeleton style={{ width: 18, height: 18, borderRadius: 999 }} /></span>}
+                {loadedCore ? <span>{data?.agents ? "✓" : backendOn ? "3" : "2"}</span> : <span><Skeleton style={{ width: 18, height: 18, borderRadius: 999 }} /></span>}
                 <div>
                   <strong>{t("home.nextSteps.step2Title")}</strong>
                   <small>{t("home.nextSteps.step2Desc")}</small>
                 </div>
               </li>
               <li className={loadedCore && modelConnected ? "done" : ""}>
-                {loadedCore ? <span>{modelConnected ? "✓" : "3"}</span> : <span><Skeleton style={{ width: 18, height: 18, borderRadius: 999 }} /></span>}
+                {loadedCore ? <span>{modelConnected ? "✓" : backendOn ? "4" : "3"}</span> : <span><Skeleton style={{ width: 18, height: 18, borderRadius: 999 }} /></span>}
                 <div>
                   <strong>{t("home.nextSteps.step3Title")}</strong>
                   <small>{t("home.nextSteps.step3Desc")}</small>

@@ -106,6 +106,42 @@ def ready(db: Session, agency: Agency) -> bool:
 
 # Connecting the project (an agency administrator, signed in).
 
+async def _access(db: Session, store: AgencyDataStore) -> str:
+    """The token the Management API is called with: a personal access token the
+    administrator pasted (it has no refresh and no expiry), or the OAuth grant,
+    refreshed when it ran out."""
+    if store.encrypted_refresh_token:
+        return await data_store._access_token(db, store)
+    if store.encrypted_access_token:
+        return decrypt_secret(store.encrypted_access_token)
+    raise HTTPException(status_code=409, detail="Authorize with Supabase first")
+
+
+async def connect_token(db: Session, agency: Agency, token: str) -> AgencyDataStore:
+    """Keep a Supabase personal access token (from the account's Access Tokens
+    page) after proving it lists projects. It is the way in when the installation
+    has no Supabase OAuth app of its own, and it works the same way afterwards."""
+    ensure_module(agency)
+    token = (token or "").strip()
+    if not 20 <= len(token) <= 400 or any(c.isspace() for c in token):
+        raise HTTPException(status_code=422, detail="That does not look like a Supabase access token")
+    store = get_or_create(db, agency)
+    try:
+        await supabase.list_projects(token)
+    except supabase.SupabaseError as exc:
+        store.last_error = "Supabase did not accept that token"
+        db.commit()
+        raise HTTPException(status_code=422, detail="Supabase did not accept that token") from exc
+    store.encrypted_access_token = encrypt_secret(token)
+    store.encrypted_refresh_token = None
+    store.access_token_expires_at = None
+    if store.status != "connected":
+        store.status = "authorized"
+    store.last_error = None
+    db.commit()
+    db.refresh(store)
+    return store
+
 def start_connection(db: Session, agency: Agency) -> str:
     ensure_module(agency)
     if not supabase.configured():
@@ -148,7 +184,7 @@ async def projects(db: Session, agency: Agency) -> list[dict]:
     ensure_module(agency)
     store = get_or_create(db, agency)
     try:
-        return await supabase.list_projects(await data_store._access_token(db, store))
+        return await supabase.list_projects(await _access(db, store))
     except supabase.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -160,7 +196,7 @@ async def choose_project(db: Session, agency: Agency, ref: str) -> AgencyDataSto
     store = get_or_create(db, agency)
     if store.status == "connected" and store.project_ref and store.project_ref != ref and _clients_in_agency_mode(db, agency.id):
         raise HTTPException(status_code=409, detail="Move the agency's clients out of the connected project before choosing another one")
-    access = await data_store._access_token(db, store)
+    access = await _access(db, store)
     try:
         listed = {p["ref"]: p for p in await supabase.list_projects(access)}
         if ref not in listed:
@@ -187,7 +223,7 @@ async def recheck(db: Session, agency: Agency) -> AgencyDataStore:
     if not store or not store.project_ref:
         raise HTTPException(status_code=409, detail="This agency has not connected a Supabase project")
     try:
-        await supabase.run_query(await data_store._access_token(db, store), store.project_ref, "select 1")
+        await supabase.run_query(await _access(db, store), store.project_ref, "select 1")
         store.status, store.last_error = "connected", None
     except supabase.SupabaseError:
         store.status = "error"
@@ -269,7 +305,7 @@ async def provision_client(db: Session, client: Client) -> ClientAgencySchema:
         db.commit()
         db.refresh(row)
     if not await asyncio.to_thread(_probe_existing, row):
-        access = await data_store._access_token(db, store)
+        access = await _access(db, store)
         password = secrets.token_hex(24)
         try:
             await supabase.run_query(access, store.project_ref, provisioning_sql(name, password))
@@ -428,7 +464,7 @@ async def drop_safety_copy(db: Session, client: Client) -> None:
     store = db.scalar(select(AgencyDataStore).where(AgencyDataStore.agency_id == client.agency_id))
     if not store or store.status != "connected":
         raise HTTPException(status_code=409, detail="Connect the agency's Supabase project first")
-    access = await data_store._access_token(db, store)
+    access = await _access(db, store)
     try:
         await supabase.run_query(access, store.project_ref, drop_sql(row.schema_name))
     except supabase.SupabaseError as exc:
@@ -459,3 +495,29 @@ async def purge_retired(db: Session, *, days: int = RETENTION_DAYS) -> int:
             logger.info("Safety copy of client %s kept: %s", client_id, exc.detail)
             db.rollback()
     return dropped
+
+
+# What a new client starts with.
+
+async def adopt_default(db: Session, client: Client) -> None:
+    """A client that was just created starts in its agency's own project and
+    bucket, whichever of the two the agency has ready. It never fails the
+    creation: if Supabase or the bucket does not answer, the client simply stays
+    where every client starts and the reason is kept for the panel."""
+    from . import file_move, tenant_switch
+
+    agency = db.get(Agency, client.agency_id)
+    if agency is None:
+        return
+    if ready(db, agency):
+        try:
+            await tenant_switch.to_agency(db, client, settle=0)
+        except Exception as exc:  # noqa: BLE001 - a new client is never refused over its backend
+            logger.warning("Client %s could not start in its agency's project: %s", client.id, exc)
+            db.rollback()
+    if storage_ready(db, agency):
+        try:
+            await file_move.move(db, client, "agency")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Client %s could not start in its agency's bucket: %s", client.id, exc)
+            db.rollback()

@@ -129,7 +129,7 @@ async def retry_kept() -> int:
     return replayed
 
 
-async def _move_in(db: Session, client: Client, mode: str, store, engine) -> dict:
+async def _move_in(db: Session, client: Client, mode: str, store, engine, settle: float | None = None) -> dict:
     """Copy the client's central data into ``engine`` and switch it to ``mode``.
     Whichever way it ends the client's kept webhooks are replayed."""
     if client.data_mode != "central":
@@ -138,7 +138,7 @@ async def _move_in(db: Session, client: Client, mode: str, store, engine) -> dic
         raise HTTPException(status_code=409, detail="Prepare the client's database first (its tables are not up to date)")
     _mark(db, client, "switching")
     try:
-        await asyncio.sleep(SETTLE_SECONDS)
+        await asyncio.sleep(SETTLE_SECONDS if settle is None else settle)
         # Rows left there by an earlier move back are older than the central
         # ones, which are the truth now: replace them.
         clear_client(engine, client.id)
@@ -173,15 +173,16 @@ async def to_own_database(db: Session, client: Client) -> dict:
     return await _move_in(db, client, "supabase", client.data_store, engine)
 
 
-async def to_agency(db: Session, client: Client) -> dict:
+async def to_agency(db: Session, client: Client, *, settle: float | None = None) -> dict:
     """Move a central client into a schema of its agency's Supabase project,
-    creating the schema and its role first if the client has none yet."""
+    creating the schema and its role first if the client has none yet. A client
+    that was created a moment ago has nothing in flight, so it passes ``settle=0``."""
     from . import agency_backend
 
     if client.data_mode != "central":
         raise HTTPException(status_code=409, detail="The client is not using the central database")
     schema = await agency_backend.provision_client(db, client)
-    result = await _move_in(db, client, "agency", schema, _engine(schema, "This client's agency schema is not ready"))
+    result = await _move_in(db, client, "agency", schema, _engine(schema, "This client's agency schema is not ready"), settle)
     schema.retired_at = None
     db.commit()
     return result

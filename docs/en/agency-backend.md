@@ -10,8 +10,12 @@ The platform owner switches it on per agency (module `agency_backend`, off by de
 
 In **Settings → Agency backend**:
 
-- **Supabase.** Authorize your project through Supabase's own consent screen and pick it from the list. HunterAI never needs the project's password: it creates a database role per client through the Management API. Use a plan that does not pause the project for inactivity, and a region close to the HunterAI servers (Settings warns when it is not).
+- **Supabase.** Create an access token in your Supabase account (Account → Access Tokens), paste it and pick the project from the list. If the platform owner registered a Supabase OAuth app, you can authorize through Supabase's consent screen instead. Either way HunterAI never needs the project's password: it creates a database role per client through the Management API. The token is stored encrypted and you can revoke it in Supabase whenever you like. Use a plan that does not pause the project for inactivity, and a region close to the HunterAI servers (Settings warns when it is not).
 - **Cloudflare R2.** Enter the account ID, a bucket, and an S3 API token. The bucket is probed with a write, a read and a delete before anything is kept, and the secret is never shown again.
+
+## New clients start here
+
+Once the agency has connected its Supabase project, every client it creates (from the panel or the API) starts in that project, and once it has connected its bucket, its files start in that bucket: whichever of the two is ready is used. Clients that already existed stay where they are until you move them. Creating a client never fails because of this: if Supabase or the bucket does not answer, the client starts in HunterAI as before and the reason shows on its Database tab. The home page lists "Connect your backend" as the first step while the module is on and nothing is connected yet.
 
 ## Choose where a client lives
 

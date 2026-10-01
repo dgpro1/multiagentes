@@ -25,7 +25,12 @@ from app.services import agency_backend, data_store, supabase_mgmt as supabase, 
 from conftest import TestingSession
 
 # Clients here start central on purpose; under HUNTERAI_TENANT_TESTS they are born switched.
-pytestmark = pytest.mark.central_only("moves clients between databases itself")
+# The agency's default for a new client has its own suite (test_agency_defaults.py), so here
+# a client is created where every client used to start and the test moves it itself.
+pytestmark = [
+    pytest.mark.central_only("moves clients between databases itself"),
+    pytest.mark.usefixtures("born_central"),
+]
 
 URL = os.environ["DATABASE_URL"]
 REF = "a" * 20
@@ -46,6 +51,14 @@ def _drop_agency_roles() -> None:
             conn.exec_driver_sql(f'DROP SCHEMA IF EXISTS "{name}" CASCADE')
             conn.exec_driver_sql(f'DROP OWNED BY "{name}"')
             conn.exec_driver_sql(f'DROP ROLE "{name}"')
+
+
+@pytest.fixture
+def born_central(monkeypatch):
+    async def nothing(db, client):
+        return None
+
+    monkeypatch.setattr(agency_backend, "adopt_default", nothing)
 
 
 @pytest.fixture

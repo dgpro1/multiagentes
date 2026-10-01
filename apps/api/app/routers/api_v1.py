@@ -75,6 +75,7 @@ from ..models import (
 from ..schemas import AgentCreate, AgentOut, AgentUpdate, ClientCreate, ClientOut, ClientUpdate, ContactCreate, ContactTagCreate, ContactTagUpdate, ContactUpdate, ConversationModeUpdate, ConversationPipelineUpdate, ConversationStatusUpdate, MessageOut, PipelineStageCreate, PipelineStageReorder, PipelineStageUpdate, QAPairCreate, QAPairOut, QuickLeadCreate, check_reply_delay
 from ..schemas_calendar import CalendarMemberCreate, CalendarMemberOut
 from ..services import calendar as calendar_service
+from ..services import agency_backend
 from ..services import pipeline as pipeline_service
 from ..services.contacts import find_contact, normalize_phone
 from ..services.text_search import folded_like
@@ -279,7 +280,7 @@ def v1_get_client(
 
 
 @router.post("/clients", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require(CLIENTS_WRITE))])
-def v1_create_client(
+async def v1_create_client(
     request: Request, payload: ClientCreate,
     idempotency_key: str | None = Header(default=None),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
@@ -298,6 +299,7 @@ def v1_create_client(
         )
         db.add(client)
         db.commit()
+        await agency_backend.adopt_default(db, client)
         db.refresh(client)
         body = jsonable_encoder({**ClientOut.model_validate(client).model_dump(mode="json"),
                                  "_links": {"self": f"/api/v1/clients/{client.id}"}})

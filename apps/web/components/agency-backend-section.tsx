@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Cloud, Database, HardDrive, LoaderCircle, PlugZap, RefreshCw, Unplug } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, Cloud, Database, ExternalLink, HardDrive, LoaderCircle, PlugZap, RefreshCw, Unplug } from "lucide-react";
 import { Alert } from "@/components/ui";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { PasswordInput } from "@/components/password-input";
 import { StorageConnectForm } from "@/components/storage-connect-form";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
@@ -29,7 +30,9 @@ function Connections() {
   const [backend, setBackend] = useState<AgencyBackend | null>(null);
   const [storage, setStorage] = useState<AgencyStorage | null>(null);
   const [projects, setProjects] = useState<AgencyProject[] | null>(null);
-  const [busy, setBusy] = useState<"" | "connect" | "projects" | "project" | "check" | "bucketCheck">("");
+  const [busy, setBusy] = useState<"" | "connect" | "token" | "projects" | "project" | "check" | "bucketCheck">("");
+  const [token, setToken] = useState("");
+  const anchor = useRef<HTMLElement>(null);
   const [asking, setAsking] = useState<"" | "project" | "bucket">("");
   const [replacing, setReplacing] = useState(false);
   const announced = useRef(false);
@@ -58,6 +61,17 @@ function Connections() {
       const { authorization_url } = await api<{ authorization_url: string }>("/agency/backend/connect", { method: "POST" });
       window.location.assign(authorization_url);
     } catch (err) { toast.error(messageFrom(err)); setBusy(""); }
+  }
+
+  async function connectWithToken(event: FormEvent) {
+    event.preventDefault();
+    setBusy("token");
+    try {
+      setBackend(await api<AgencyBackend>("/agency/backend/token", { method: "PUT", body: JSON.stringify({ token: token.trim() }) }));
+      setToken("");
+      toast.success(t("agencyBackend.settings.result.authorized"));
+    } catch (err) { toast.error(messageFrom(err)); }
+    finally { setBusy(""); }
   }
 
   async function loadProjects() {
@@ -118,14 +132,21 @@ function Connections() {
     finally { setAsking(""); }
   }
 
-  if (!backend || !storage) return <section className="section-block"><LoaderCircle className="spin" size={20} /></section>;
+  // Arriving from the home's first steps lands on this section.
+  const loaded = Boolean(backend && storage);
+  useEffect(() => {
+    if (loaded && window.location.hash === "#backend") anchor.current?.scrollIntoView({ block: "start" });
+  }, [loaded]);
+
+  if (!backend || !storage) return <section className="section-block" id="backend"><LoaderCircle className="spin" size={20} /></section>;
   const projectBadge = backend.status === "connected" ? "human" : backend.status === "error" ? "danger" : "resolved";
   const bucketBadge = storage.status === "connected" ? "human" : storage.status === "error" ? "danger" : "resolved";
   const inUse = backend.clients_in_agency > 0;
   const bucketInUse = storage.clients_hosted > 0;
 
-  return <section className="section-block agency-backend">
+  return <section className="section-block agency-backend" id="backend" ref={anchor}>
     <div className="section-heading"><div><h2><Cloud size={18} /> {t("agencyBackend.settings.title")}</h2><p>{t("agencyBackend.settings.copy")}</p></div></div>
+    <Alert type="info"><CheckCircle2 size={14} /> {t("agencyBackend.settings.defaultCopy")}</Alert>
 
     <div className="storage-panel">
       <div className="section-head">
@@ -138,7 +159,6 @@ function Connections() {
           <button type="button" className="button danger small" onClick={() => setAsking("project")} disabled={inUse} title={inUse ? t("agencyBackend.settings.inUse") : undefined}><Unplug size={14} /> {t("agencyBackend.settings.disconnect")}</button>
         </div>}
       </div>
-      {!backend.oauth_ready && <Alert type="info"><AlertTriangle size={14} /> {t("agencyBackend.settings.notConfigured")}</Alert>}
       {backend.last_error && <Alert><AlertTriangle size={14} /> {apiError(backend.last_error)}</Alert>}
 
       {backend.status === "connected" && <div className="storage-summary">
@@ -150,11 +170,23 @@ function Connections() {
       {backend.status === "connected" && backend.region && backend.recommended_region && backend.region !== backend.recommended_region
         && <Alert><AlertTriangle size={14} /> {t("agencyBackend.settings.regionWarning", { region: backend.region, recommended: backend.recommended_region })}</Alert>}
 
-      {(backend.status === "none" || backend.status === "pending" || backend.status === "error") && backend.oauth_ready && <div className="header-actions">
-        <button type="button" className="button primary small" onClick={connect} disabled={busy === "connect"}>
-          {busy === "connect" ? <><LoaderCircle className="spin" size={14} /> {t("agencyBackend.settings.redirecting")}</> : <><PlugZap size={14} /> {t("agencyBackend.settings.connect")}</>}
-        </button>
-      </div>}
+      {(backend.status === "none" || backend.status === "pending" || backend.status === "error") && <form className="storage-share" onSubmit={connectWithToken} autoComplete="off">
+        <strong>{t("agencyBackend.settings.tokenTitle")}</strong>
+        <span className="field-help">{t("agencyBackend.settings.tokenCopy")}</span>
+        <label>{t("agencyBackend.settings.tokenLabel")}<PasswordInput name="supabase_token" value={token} onChange={(event) => setToken(event.target.value)} required minLength={20} maxLength={400} autoComplete="new-password" placeholder="sbp_…" /></label>
+        <div className="header-actions">
+          <button className="button primary small" disabled={busy === "token" || token.trim().length < 20}>{busy === "token" ? <LoaderCircle className="spin" size={14} /> : <PlugZap size={14} />} {t("agencyBackend.settings.tokenConnect")}</button>
+          <a className="button secondary small" href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noreferrer"><ExternalLink size={14} /> {t("agencyBackend.settings.tokenOpen")}</a>
+        </div>
+        {backend.oauth_ready && <>
+          <span className="field-help">{t("agencyBackend.settings.tokenOr")}</span>
+          <div className="header-actions">
+            <button type="button" className="button secondary small" onClick={connect} disabled={busy === "connect"}>
+              {busy === "connect" ? <><LoaderCircle className="spin" size={14} /> {t("agencyBackend.settings.redirecting")}</> : <>{t("agencyBackend.settings.connect")}</>}
+            </button>
+          </div>
+        </>}
+      </form>}
 
       {(backend.status === "authorized" || (backend.status === "connected" && projects)) && <div className="storage-share">
         <strong>{t("agencyBackend.settings.chooseProject")}</strong>
