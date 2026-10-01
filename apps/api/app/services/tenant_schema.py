@@ -106,7 +106,7 @@ def upgrade_store(db: Session, store) -> str:
     if not store or store.status != "connected" or not store.encrypted_dsn:
         raise HTTPException(status_code=409, detail="This client's database is not connected")
     try:
-        upgrade_engine(tenant_engine(decrypt_secret(store.encrypted_dsn), store.schema_name))
+        upgrade_engine(tenant_engine(decrypt_secret(store.encrypted_dsn), store.schema_name, store.pool_size))
     except Exception as exc:  # noqa: BLE001 - reported to the panel, never the DSN
         store.last_error = f"The schema update failed: {type(exc).__name__}"
         db.commit()

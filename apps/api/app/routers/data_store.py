@@ -163,6 +163,17 @@ async def client_data_store_switch(
     return {**_out(db, client), "counts": result["counts"]}
 
 
+@router.delete("/clients/{client_id}/datastore/agency-copy", response_model=DataStoreOut, dependencies=[Depends(require(DATASTORE_MANAGE))])
+async def client_drop_agency_copy(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Drop the safety copy a client left in the agency's project when it moved away."""
+    from ..services import agency_backend
+
+    client = _client(db, user, client_id)
+    await agency_backend.drop_safety_copy(db, client)
+    db.refresh(client)
+    return _out(db, client)
+
+
 @router.delete("/clients/{client_id}/datastore", response_model=DataStoreOut, dependencies=[Depends(require(DATASTORE_MANAGE))])
 def client_data_store_disconnect(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)

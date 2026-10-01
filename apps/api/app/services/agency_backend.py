@@ -24,7 +24,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .. import agency_features
+from .. import agency_features, database
 from ..config import get_settings
 from ..models import (
     Agency,
@@ -44,6 +44,8 @@ logger = logging.getLogger(__name__)
 
 MODULE = "agency_backend"
 STATE_MINUTES = 10
+# How long the schema a client left stays in the agency's project as a safety copy.
+RETENTION_DAYS = 30
 _REF = re.compile(r"^[a-z0-9]{20}$")
 
 
@@ -406,3 +408,54 @@ def storage_disconnect(db: Session, agency: Agency) -> None:
     conn.last_error = None
     conn.connected_at = None
     db.commit()
+
+
+# The safety copy a client leaves behind.
+
+def drop_sql(name: str) -> str:
+    assert re.fullmatch(r"hunterai_c_[0-9a-f]{20}", name)
+    return f"DROP SCHEMA IF EXISTS {name} CASCADE;\nDROP ROLE IF EXISTS {name};"
+
+
+async def drop_safety_copy(db: Session, client: Client) -> None:
+    """Drop the schema and the role a client left in the agency's project. Only
+    once the client's data lives elsewhere: while it lives there this is refused."""
+    row = client.agency_schema
+    if row is None:
+        raise HTTPException(status_code=409, detail="This client has no copy in the agency's project")
+    if client.data_mode in ("agency", "switching"):
+        raise HTTPException(status_code=409, detail="The client's data lives in that schema right now")
+    store = db.scalar(select(AgencyDataStore).where(AgencyDataStore.agency_id == client.agency_id))
+    if not store or store.status != "connected":
+        raise HTTPException(status_code=409, detail="Connect the agency's Supabase project first")
+    access = await data_store._access_token(db, store)
+    try:
+        await supabase.run_query(access, store.project_ref, drop_sql(row.schema_name))
+    except supabase.SupabaseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if row.encrypted_dsn:
+        database.forget_tenant_engine(decrypt_secret(row.encrypted_dsn), row.schema_name)
+    db.delete(row)
+    db.commit()
+
+
+async def purge_retired(db: Session, *, days: int = RETENTION_DAYS) -> int:
+    """Drop the safety copies older than ``days``; returns how many went. One that
+    cannot be reached (the agency disconnected, the project is paused) stays for the next sweep."""
+    cutoff = now_utc() - timedelta(days=days)
+    ids = list(db.scalars(
+        select(ClientAgencySchema.client_id).where(ClientAgencySchema.retired_at.is_not(None), ClientAgencySchema.retired_at < cutoff)
+    ))
+    dropped = 0
+    for client_id in ids:
+        db.expire_all()
+        client = db.get(Client, client_id)
+        if client is None or client.agency_schema is None or client.agency_schema.retired_at is None:
+            continue
+        try:
+            await drop_safety_copy(db, client)
+            dropped += 1
+        except HTTPException as exc:
+            logger.info("Safety copy of client %s kept: %s", client_id, exc.detail)
+            db.rollback()
+    return dropped

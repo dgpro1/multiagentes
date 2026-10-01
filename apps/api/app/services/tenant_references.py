@@ -58,7 +58,7 @@ def _clear_in_client_database(mapper, connection, target) -> None:
         return
     refs = _REFS.get(mapper.local_table.name, [])
     try:
-        with tenant_engine(decrypt_secret(store.encrypted_dsn), store.schema_name).begin() as conn:
+        with tenant_engine(decrypt_secret(store.encrypted_dsn), store.schema_name, store.pool_size).begin() as conn:
             for table, column in refs:
                 conn.execute(text(f'UPDATE {table} SET "{column}" = NULL WHERE "{column}" = :id'), {"id": target.id})
     except Exception:  # noqa: BLE001 - a dangling id is harmless; never block the delete

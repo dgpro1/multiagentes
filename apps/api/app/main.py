@@ -115,6 +115,23 @@ async def _update_client_schemas() -> None:
 
 
 KEPT_WEBHOOK_RETRY_SECONDS = 60
+PURGE_AGENCY_COPIES_SECONDS = 24 * 60 * 60
+
+
+async def _purge_agency_copies_loop() -> None:
+    """Drop, once a day, the safety copies clients left in their agency's project
+    thirty days ago or more."""
+    from .services import agency_backend
+
+    while True:
+        await asyncio.sleep(PURGE_AGENCY_COPIES_SECONDS)
+        try:
+            with new_session() as db:
+                dropped = await agency_backend.purge_retired(db)
+            if dropped:
+                logger.info("Dropped %s safety copies from agency projects", dropped)
+        except Exception:  # noqa: BLE001 - a sweep must never stop the app
+            logger.exception("The safety copy sweep failed")
 
 
 async def _retry_kept_webhooks_loop() -> None:
@@ -145,6 +162,7 @@ async def lifespan(_: FastAPI):
         asyncio.create_task(_restore_evolution_channels()),
         asyncio.create_task(_update_client_schemas()),
         asyncio.create_task(_retry_kept_webhooks_loop()),
+        asyncio.create_task(_purge_agency_copies_loop()),
     ]
     if settings.auto_resolve_after_hours > 0:
         background.append(asyncio.create_task(_auto_resolve_loop()))

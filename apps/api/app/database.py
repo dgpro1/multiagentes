@@ -50,7 +50,7 @@ class RoutingSession(Session):
         if active is not None:
             tables = _tables_of(mapper, clause)
             if tables and tables <= _data_plane():
-                return tenant_engine(active["dsn"], active["schema"])
+                return tenant_engine(active["dsn"], active["schema"], active.get("pool_size", 2))
             if tables & _data_plane() and tables - _data_plane():
                 raise CrossPlaneQuery(
                     f"A single query cannot join {sorted(tables & _data_plane())} (client database) "
@@ -204,7 +204,7 @@ _tenant_engines: dict[str, object] = {}
 _tenant_lock = threading.Lock()
 
 
-def tenant_engine(dsn: str, schema: str):
+def tenant_engine(dsn: str, schema: str, pool_size: int = 2):
     """An engine for a client's own database, pinned to ``schema``.
 
     The schema is set with ``SET LOCAL`` at the start of every transaction
@@ -218,7 +218,7 @@ def tenant_engine(dsn: str, schema: str):
         url = dsn.replace("postgresql://", "postgresql+psycopg://", 1) if dsn.startswith("postgresql://") else dsn
         created = create_engine(
             url,
-            pool_size=2,
+            pool_size=pool_size,
             max_overflow=1,
             pool_pre_ping=True,
             pool_recycle=240,
@@ -233,6 +233,15 @@ def tenant_engine(dsn: str, schema: str):
 
         _tenant_engines[key] = created
         return created
+
+
+def forget_tenant_engine(dsn: str, schema: str) -> None:
+    """Close and drop the cached engine of a database that no longer exists."""
+    key = hashlib.sha256(f"{schema}\n{dsn}".encode()).hexdigest()
+    with _tenant_lock:
+        engine_ = _tenant_engines.pop(key, None)
+    if engine_ is not None:
+        engine_.dispose()
 
 
 def data_plane_mappers() -> list:
@@ -266,6 +275,7 @@ def use_client(session: Session, client) -> None:
 
     session.info[ACTIVE_CLIENT_KEY] = {
         "client_id": client.id, "dsn": decrypt_secret(store.encrypted_dsn), "schema": store.schema_name,
+        "pool_size": store.pool_size,
     }
 
 

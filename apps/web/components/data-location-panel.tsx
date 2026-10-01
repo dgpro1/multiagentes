@@ -25,7 +25,7 @@ export function DataLocationPanel({ clientId }: { clientId: string }) {
   const modules = useAgencyModules(true);
   const [store, setStore] = useState<DataStore | null>(null);
   const [files, setFiles] = useState<StorageConnection | null>(null);
-  const [asking, setAsking] = useState<Place | "filesToAgency" | "filesToClient" | "">("");
+  const [asking, setAsking] = useState<Place | "filesToAgency" | "filesToClient" | "dropCopy" | "">("");
   const [busy, setBusy] = useState<"" | "data" | "files">("");
 
   const load = useCallback(async () => {
@@ -83,6 +83,14 @@ export function DataLocationPanel({ clientId }: { clientId: string }) {
     toast.success(t("agencyBackend.location.filesMoved"));
   }
 
+  async function dropCopy() {
+    try {
+      setStore(await api<DataStore>(`/clients/${clientId}/datastore/agency-copy`, { method: "DELETE" }));
+      toast.success(t("agencyBackend.location.copyDropped"));
+    } catch (err) { toast.error(messageFrom(err)); }
+    finally { setAsking(""); }
+  }
+
   async function changeFiles(target: "agency" | "client") {
     setBusy("files");
     try { await moveFiles(target); }
@@ -133,7 +141,10 @@ export function DataLocationPanel({ clientId }: { clientId: string }) {
       })}
     </div>
 
-    {store.agency_schema_retired_at && mode !== "agency" && <p className="field-help">{t("agencyBackend.location.retiredCopy", { date: new Date(store.agency_schema_retired_at).toLocaleDateString(lang) })}</p>}
+    {store.agency_schema_retired_at && mode !== "agency" && <div className="data-location-files">
+      <span className="field-help">{t("agencyBackend.location.retiredCopy", { date: new Date(store.agency_schema_retired_at).toLocaleDateString(lang) })}</span>
+      <button type="button" className="button danger small" disabled={switching} onClick={() => setAsking("dropCopy")}>{t("agencyBackend.location.dropCopy")}</button>
+    </div>}
     {store.agency_schema_last_error && <Alert><AlertTriangle size={14} /> {store.agency_schema_last_error}</Alert>}
 
     {(moduleOn || files.hosted_by === "agency") && <div className="data-location-files">
@@ -153,6 +164,7 @@ export function DataLocationPanel({ clientId }: { clientId: string }) {
       onConfirm={() => change(asking)}
       onClose={() => setAsking("")}
     />}
+    {asking === "dropCopy" && <ConfirmModal title={t("agencyBackend.location.dropCopyTitle")} message={t("agencyBackend.location.dropCopyCopy")} confirmLabel={t("agencyBackend.location.dropCopy")} cancelLabel={t("common.cancel")} danger onConfirm={dropCopy} onClose={() => setAsking("")} />}
     {asking === "filesToAgency" && <ConfirmModal title={t("agencyBackend.location.filesToAgencyTitle")} message={t("agencyBackend.location.filesToAgencyCopy")} confirmLabel={t("agencyBackend.location.filesToAgency")} cancelLabel={t("common.cancel")} danger={false} onConfirm={() => changeFiles("agency")} onClose={() => setAsking("")} />}
     {asking === "filesToClient" && <ConfirmModal title={t("agencyBackend.location.filesToClientTitle")} message={t("agencyBackend.location.filesToClientCopy")} confirmLabel={t("agencyBackend.location.filesToClient")} cancelLabel={t("common.cancel")} danger={false} onConfirm={() => changeFiles("client")} onClose={() => setAsking("")} />}
   </section>;

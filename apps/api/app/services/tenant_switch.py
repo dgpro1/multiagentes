@@ -50,7 +50,7 @@ def register_replayer(source: str, replay: Replayer) -> None:
 def _engine(store, missing: str):
     if not store or store.status != "connected" or not store.encrypted_dsn:
         raise HTTPException(status_code=409, detail=missing)
-    return tenant_engine(decrypt_secret(store.encrypted_dsn), store.schema_name)
+    return tenant_engine(decrypt_secret(store.encrypted_dsn), store.schema_name, store.pool_size)
 
 
 def _client_engine(client: Client):

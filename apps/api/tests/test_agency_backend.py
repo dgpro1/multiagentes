@@ -420,3 +420,73 @@ def test_the_platform_moves_a_clients_data_and_audits_it(authenticated_client, a
     assert platform.post(f"{base}/{customer['id']}/datastore/switch", json={"target": "nowhere"}).status_code == 422
     _module(client, False)
     assert platform.post(f"{base}/{customer['id']}/datastore/switch", json={"target": "agency"}).status_code == 403
+
+
+# --- the safety copy a client leaves behind ---------------------------------------------------
+
+
+def _schemas() -> list[str]:
+    with database.engine.connect() as conn:
+        return [r[0] for r in conn.execute(text("SELECT nspname FROM pg_namespace WHERE nspname LIKE 'hunterai_c_%'"))]
+
+
+def _roles() -> list[str]:
+    with database.engine.connect() as conn:
+        return [r[0] for r in conn.execute(text("SELECT rolname FROM pg_roles WHERE rolname LIKE 'hunterai_c_%'"))]
+
+
+def test_a_safety_copy_can_be_dropped_once_the_client_is_elsewhere(authenticated_client, agency_project):
+    client = authenticated_client
+    _module(client, True)
+    _connect_project(client)
+    customer, _ = _widget_client(client)
+    assert _switch(client, customer, "agency").status_code == 200
+    url = f"/api/clients/{customer['id']}/datastore/agency-copy"
+    # While the data lives there, nothing may be dropped.
+    assert client.delete(url).status_code == 409
+    assert _switch(client, customer, "central").status_code == 200
+    assert len(_schemas()) == 1 and len(_roles()) == 1
+
+    dropped = client.delete(url)
+    assert dropped.status_code == 200, dropped.text
+    assert dropped.json()["agency_schema_status"] == "none" and dropped.json()["data_mode"] == "central"
+    assert _schemas() == [] and _roles() == []
+    assert client.delete(url).status_code == 409  # nothing left to drop
+    # The client can come back: a fresh schema and role are made.
+    assert _switch(client, customer, "agency").status_code == 200
+    assert len(_schemas()) == 1
+
+
+def test_the_daily_sweep_drops_only_copies_old_enough(authenticated_client, agency_project):
+    import asyncio
+    from datetime import timedelta as delta
+
+    client = authenticated_client
+    _module(client, True)
+    _connect_project(client)
+    old, _ = _widget_client(client, "Old")
+    recent, _ = _widget_client(client, "Recent")
+    live, _ = _widget_client(client, "Live")
+    for customer in (old, recent, live):
+        assert _switch(client, customer, "agency").status_code == 200
+    assert _switch(client, old, "central").status_code == 200
+    assert _switch(client, recent, "central").status_code == 200
+    with TestingSession() as db:
+        db.execute(update(ClientAgencySchema).where(ClientAgencySchema.client_id == uuid.UUID(old["id"])).values(retired_at=now_utc() - delta(days=31)))
+        db.execute(update(ClientAgencySchema).where(ClientAgencySchema.client_id == uuid.UUID(recent["id"])).values(retired_at=now_utc() - delta(days=5)))
+        db.commit()
+
+    async def sweep() -> int:
+        with TestingSession() as db:
+            return await agency_backend.purge_retired(db)
+
+    assert asyncio.run(sweep()) == 1
+    assert len(_schemas()) == 2  # the recent copy and the client still living there
+    assert _schema_of(old) is None and _schema_of(recent) is not None and _schema_of(live) is not None
+    assert asyncio.run(sweep()) == 0
+
+
+def test_an_agency_client_keeps_a_small_pool_and_its_own_a_normal_one():
+    from app.models import ClientDataStore as Own
+
+    assert ClientAgencySchema.pool_size == 1 and Own.pool_size == 2

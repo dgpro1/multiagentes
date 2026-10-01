@@ -1471,6 +1471,9 @@ class ClientDataStore(Base):
 
         return SCHEMA
 
+    # Connections kept for this client's database (see database.tenant_engine).
+    pool_size = 2
+
 
 class AgencyDataStore(Base):
     """The agency's own Supabase project, shared by the clients whose data the
@@ -1559,6 +1562,10 @@ class ClientAgencySchema(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
     client: Mapped[Client] = relationship(back_populates="agency_schema")
+
+    # An agency has many clients on one project, each with a pool of its own;
+    # one idle connection apiece keeps fifty of them well under the pooler's limit.
+    pool_size = 1
 
 
 class PendingInbound(Base):
