@@ -125,11 +125,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <img src="/brand/hunterai-icon.png" alt="HunterAI" />
           </span>
           <div className="stitch-mobile-topbar-meta">
-            <span className="stitch-mobile-topbar-name">HunterAI</span>
-            <span className="stitch-mobile-topbar-agency">
-              {user.agency.name}
-              <span className="stitch-online-dot" />
-            </span>
+            <span className="stitch-mobile-topbar-name">{user.agency.name}</span>
           </div>
         </Link>
         <button
@@ -149,21 +145,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="hunterai-icon">
               <img src="/brand/hunterai-icon.png" alt="HunterAI" />
             </span>
-            <span>HunterAI</span>
+            <span className="brand-name" title={user.agency.name}>{user.agency.name}</span>
           </Link>
           <button className="sidebar-close" onClick={() => setMobileOpen(false)} aria-label={t("shell.closeMenu")}><X /></button>
           {/* Folds the column into the icon rail. Hidden below 901px, where the
               drawer and its own close button take over. */}
           <button type="button" className="icon-button inverse sidebar-toggle" onClick={toggle} aria-expanded={!collapsed} aria-controls="app-sidebar" title={t(collapsed ? "shell.expandSidebar" : "shell.collapseSidebar")} aria-label={t(collapsed ? "shell.expandSidebar" : "shell.collapseSidebar")}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
-        </div>
-        <div className="sidebar-workspace" title={collapsed ? user.agency.name : undefined}>
-          <div className="sidebar-workspace-avatar">{user.agency.name.slice(0, 2).toUpperCase()}</div>
-          {!collapsed && (
-            <div className="sidebar-workspace-meta">
-              <p className="sidebar-workspace-name">{user.agency.name}</p>
-              <p className="sidebar-workspace-plan">Plan Agencia Pro</p>
-            </div>
-          )}
         </div>
         <nav>
           <span className="nav-label">{t("nav.section")}</span>
