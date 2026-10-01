@@ -328,10 +328,9 @@ function CustomFieldRow({ field, value, onSave }: { field: LeadField; value: Lea
   if (field.type === "select") {
     return <label className="lead-row">
       <span className="lead-row-label">{field.label}</span>
-      <select className="lead-input" value={text} onChange={(event) => onSave(event.target.value || null)} aria-label={field.label}>
+      <select className="lead-input" value={text} onChange={(event) => onSave(event.target.value ? Number(event.target.value) : null)} aria-label={field.label}>
         <option value="">{t("lead.selectNone")}</option>
-        {text && !field.options.includes(text) && <option value={text}>{text}</option>}
-        {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+        {field.options.map((option) => <option key={option.id} value={String(option.id)}>{option.label}</option>)}
       </select>
     </label>;
   }

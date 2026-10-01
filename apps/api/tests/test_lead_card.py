@@ -208,8 +208,12 @@ def test_field_keys_are_slugs_and_unique_and_never_change(lead: Lead):
 
     listed = lead.admin.get(f"{lead.base}/lead-fields").json()
     assert [row["position"] for row in listed] == sorted(row["position"] for row in listed)
-    assert set(listed[0]) == {"id", "key", "label", "type", "options", "position"}
+    assert set(listed[0]) == {"id", "key", "code", "label", "type", "options", "position"}
     assert lead.agency.get(f"/api/clients/{lead.id}/lead-fields").json() == listed
+
+
+def _labels(field: dict) -> list[str]:
+    return [option["label"] for option in field["options"]]
 
 
 def test_only_a_select_has_options_and_they_are_checked(lead: Lead):
@@ -220,8 +224,8 @@ def test_only_a_select_has_options_and_they_are_checked(lead: Lead):
         assert lead.admin.post(f"{lead.base}/lead-fields", json={"label": "Pick", "type": "select", "options": options}).status_code == 422, options
 
     pick = _field(lead.admin, lead.base, "Interest", "select", options=[" Hot ", "Cold"])
-    assert pick["options"] == ["Hot", "Cold"]
-    assert lead.admin.patch(f"{lead.base}/lead-fields/{pick['id']}", json={"options": ["Hot", "Cold", "Warm"]}).json()["options"] == ["Hot", "Cold", "Warm"]
+    assert _labels(pick) == ["Hot", "Cold"]
+    assert _labels(lead.admin.patch(f"{lead.base}/lead-fields/{pick['id']}", json={"options": ["Hot", "Cold", "Warm"]}).json()) == ["Hot", "Cold", "Warm"]
     assert lead.admin.patch(f"{lead.base}/lead-fields/{pick['id']}", json={"options": ["A", "A"]}).status_code == 422
     plain = _field(lead.admin, lead.base, "Plain", "text")
     assert lead.admin.patch(f"{lead.base}/lead-fields/{plain['id']}", json={"options": ["a"]}).status_code == 422
@@ -246,7 +250,9 @@ def test_custom_values_are_checked_per_type(lead: Lead):
         "nickname": "Ri", "seats": 2.5, "visit": "2026-03-01", "interest": "Hot", "vip": True,
     }})
     assert good.status_code == 200, good.text
-    assert good.json()["custom_values"] == {"nickname": "Ri", "seats": 2.5, "visit": "2026-03-01", "interest": "Hot", "vip": True}
+    hot = pick["options"][0]["id"]
+    # A choice sent by its label is stored as the option's code.
+    assert good.json()["custom_values"] == {"nickname": "Ri", "seats": 2.5, "visit": "2026-03-01", "interest": hot, "vip": True}
     assert [row["key"] for row in good.json()["fields"]] == ["nickname", "seats", "visit", "interest", "vip"]
 
     def bad(key: str, value):
@@ -257,7 +263,7 @@ def test_custom_values_are_checked_per_type(lead: Lead):
         ("nickname", 5), ("nickname", "x" * 501), ("nickname", True),
         ("seats", "2"), ("seats", True),
         ("visit", "2026-13-40"), ("visit", "01/03/2026"), ("visit", "20260301"), ("visit", 20260301),
-        ("interest", "Lukewarm"), ("interest", 1),
+        ("interest", "Lukewarm"), ("interest", 1), ("interest", True), ("interest", pick["code"]),
         ("vip", "yes"), ("vip", 1),
         ("ghost", "x"),
     ):
@@ -268,9 +274,77 @@ def test_custom_values_are_checked_per_type(lead: Lead):
 
     # A partial patch keeps the other keys; null clears one.
     cleared = _patch(lead.admin, lead.base, lead.cid, {"custom_values": {"nickname": None, "vip": False}})
-    assert cleared.json()["custom_values"] == {"seats": 2.5, "visit": "2026-03-01", "interest": "Hot", "vip": False}
+    assert cleared.json()["custom_values"] == {"seats": 2.5, "visit": "2026-03-01", "interest": hot, "vip": False}
     assert lead.agency.get(f"/api/conversations/{lead.cid}/lead").json() == cleared.json()
     assert (text["type"], number["type"], day["type"], pick["type"], flag["type"]) == ("text", "number", "date", "select", "checkbox")
+
+
+def test_fields_and_options_share_one_numbering_per_client(lead: Lead):
+    service = _field(lead.admin, lead.base, "Servicio", "select", options=["Carillas", "Coronas"])
+    assert service["code"] == 1000
+    assert service["options"] == [{"id": 1001, "label": "Carillas"}, {"id": 1002, "label": "Coronas"}]
+    note = _field(lead.admin, lead.base, "Nota", "text")
+    assert note["code"] == 1003
+    # Another client starts over at 1000.
+    other = Lead(lead.agency, name="Other Co")
+    assert _field(other.admin, other.base, "Servicio", "text")["code"] == 1000
+
+    # A rename keeps the code of the field and of the option; a new option takes the next number.
+    url = f"{lead.base}/lead-fields/{service['id']}"
+    renamed = lead.admin.patch(url, json={"label": "Tratamiento", "options": [
+        {"id": 1001, "label": "Carillas de porcelana"}, {"id": 1002, "label": "Coronas"}, {"label": "Implantes"},
+    ]})
+    assert renamed.status_code == 200, renamed.text
+    assert (renamed.json()["code"], renamed.json()["key"]) == (1000, "servicio")
+    assert renamed.json()["options"] == [
+        {"id": 1001, "label": "Carillas de porcelana"}, {"id": 1002, "label": "Coronas"}, {"id": 1004, "label": "Implantes"},
+    ]
+    assert lead.admin.patch(url, json={"options": [{"id": 1003, "label": "Nota"}]}).status_code == 422
+    assert lead.admin.patch(url, json={"options": [{"id": 1001, "label": "A"}, {"id": 1001, "label": "B"}]}).status_code == 422
+
+
+def test_a_lead_keeps_its_choice_when_the_option_is_renamed(lead: Lead):
+    service = _field(lead.admin, lead.base, "Servicio", "select", options=["Carillas", "Coronas"])
+    assert _patch(lead.admin, lead.base, lead.cid, {"custom_values": {"servicio": 1001}}).status_code == 200
+    url = f"{lead.base}/lead-fields/{service['id']}"
+    lead.admin.patch(url, json={"options": [{"id": 1001, "label": "Carillas de porcelana"}, {"id": 1002, "label": "Coronas"}]})
+    card = lead.admin.get(f"{lead.base}/conversations/{lead.cid}/lead").json()
+    assert card["custom_values"] == {"servicio": 1001}
+    assert card["fields"][0]["options"][0] == {"id": 1001, "label": "Carillas de porcelana"}
+
+    # Removing the option hides the choice; it is never shown as another option.
+    lead.admin.patch(url, json={"options": [{"id": 1002, "label": "Coronas"}]})
+    assert lead.admin.get(f"{lead.base}/conversations/{lead.cid}/lead").json()["custom_values"] == {}
+
+
+def test_a_prompt_cites_fields_by_code_and_the_model_reads_current_names(lead: Lead):
+    from app.models import Client
+    from app.services.crm_prompt_hydrator import hydrate_commercial_prompt
+
+    service = _field(lead.admin, lead.base, "Servicio", "select", options=["Carillas", "Coronas"])
+    _field(lead.admin, lead.base, "Nota", "text")
+    _patch(lead.admin, lead.base, lead.cid, {"custom_values": {"servicio": 1002}})
+    lead.admin.patch(f"{lead.base}/lead-fields/{service['id']}", json={
+        "label": "Tratamiento", "options": [{"id": 1001, "label": "Carillas de porcelana"}, {"id": 1002, "label": "Coronas"}],
+    })
+    prompt = "Si pide [Campo: 1000 -> 1001], ofrece evaluación. Revisa [Campo: 1000] y [Campo: 1003]. [Campo: 9999] sigue igual."
+    with TestingSession() as db:
+        conversation = db.get(Conversation, uuid.UUID(lead.cid))
+        client = db.get(Client, uuid.UUID(lead.id))
+        hydrated = hydrate_commercial_prompt(db, client, conversation, prompt)
+    assert hydrated.startswith(
+        "Si pide Tratamiento: Carillas de porcelana, ofrece evaluación. Revisa Tratamiento y Nota. [Campo: 9999] sigue igual."
+    )
+    assert "[CAMPOS DEL LEAD]\n- Tratamiento: Coronas\n- Nota: (sin dato)" in hydrated
+
+
+def test_a_choice_stored_as_a_label_still_reads_as_its_code(lead: Lead):
+    _field(lead.admin, lead.base, "Servicio", "select", options=["Carillas"])
+    with TestingSession() as db:
+        conversation = db.get(Conversation, uuid.UUID(lead.cid))
+        conversation.custom_values = {"servicio": "Carillas"}
+        db.commit()
+    assert lead.admin.get(f"{lead.base}/conversations/{lead.cid}/lead").json()["custom_values"] == {"servicio": 1001}
 
 
 def test_the_agency_fills_a_lead_and_the_portal_sees_it(lead: Lead):

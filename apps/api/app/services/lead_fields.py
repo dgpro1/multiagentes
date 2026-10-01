@@ -8,6 +8,10 @@ resolved inside the caller's agency.
 A field's ``key`` (a slug of its label) and ``type`` never change once it
 exists, because conversations store their values under the key. Deleting a
 field leaves those values where they are: they are simply no longer returned.
+
+Fields and the options of a select are numbered from one sequence per client,
+starting at ``FIRST_CODE``: the number is what a prompt cites and what a lead
+stores for a choice, so renaming either one changes nothing that refers to it.
 """
 
 import math
@@ -22,12 +26,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import Client, LeadField
-from ..schemas_lead_card import LeadFieldCreate, LeadFieldUpdate
+from ..schemas_lead_card import LeadFieldCreate, LeadFieldOption, LeadFieldUpdate
 
 MAX_FIELDS = 30
 MAX_OPTIONS = 30
 MAX_OPTION_LENGTH = 60
 MAX_TEXT_LENGTH = 500
+FIRST_CODE = 1000
 _KEY_LENGTH = 50  # leaves room for the _2, _3 suffix inside String(60)
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -47,28 +52,64 @@ def unique_key(label: str, taken: set[str]) -> str:
     return key
 
 
-def clean_options(options: list[str]) -> list[str]:
-    """Trimmed, non-empty, unique and short; the list a select offers."""
-    cleaned = [option.strip() for option in options]
-    if len(cleaned) > MAX_OPTIONS:
+def option_ids(field: LeadField) -> list[int]:
+    return [option["id"] for option in field.options or []]
+
+
+def option_label(field: LeadField, option_id: int) -> str | None:
+    return next((option["label"] for option in field.options or [] if option["id"] == option_id), None)
+
+
+def next_code(fields: list[LeadField]) -> int:
+    """One past the highest number the client's fields and options use."""
+    used = [code for field in fields for code in (field.code, *option_ids(field))]
+    return max(used, default=FIRST_CODE - 1) + 1
+
+
+def build_options(requested: list[LeadFieldOption | str], current: list[dict], first_free: int) -> list[dict]:
+    """The options a select will offer, each with its code.
+
+    An option sent with an id keeps it (that is a rename); one sent as a bare
+    label keeps the id of the current option with that label, and anything
+    else is new and numbered from ``first_free``. Labels are trimmed, non-empty,
+    unique and short.
+    """
+    if len(requested) > MAX_OPTIONS:
         raise HTTPException(status_code=422, detail=f"A select can have up to {MAX_OPTIONS} options")
-    if any(not option for option in cleaned):
-        raise HTTPException(status_code=422, detail="Options cannot be empty")
-    if any(len(option) > MAX_OPTION_LENGTH for option in cleaned):
-        raise HTTPException(status_code=422, detail=f"An option can have up to {MAX_OPTION_LENGTH} characters")
-    if len(set(cleaned)) != len(cleaned):
+    current_ids = {option["id"] for option in current}
+    id_by_label = {option["label"]: option["id"] for option in current}
+    options: list[dict] = []
+    for item in requested:
+        label = (item if isinstance(item, str) else item.label).strip()
+        if not label:
+            raise HTTPException(status_code=422, detail="Options cannot be empty")
+        if len(label) > MAX_OPTION_LENGTH:
+            raise HTTPException(status_code=422, detail=f"An option can have up to {MAX_OPTION_LENGTH} characters")
+        option_id = id_by_label.get(label) if isinstance(item, str) else item.id
+        if option_id is not None and option_id not in current_ids:
+            raise HTTPException(status_code=422, detail=f"Unknown option: {option_id}")
+        options.append({"id": option_id, "label": label})
+    if len({option["label"] for option in options}) != len(options):
         raise HTTPException(status_code=422, detail="Options must be different from each other")
-    return cleaned
+    kept = [option["id"] for option in options if option["id"] is not None]
+    if len(set(kept)) != len(kept):
+        raise HTTPException(status_code=422, detail="An option appears twice")
+    for option in options:
+        if option["id"] is None:
+            option["id"] = first_free
+            first_free += 1
+    return options
 
 
-def list_fields(db: Session, client: Client) -> list[LeadField]:
-    return list(
-        db.scalars(
-            select(LeadField)
-            .where(LeadField.client_id == client.id)
-            .order_by(LeadField.position, LeadField.created_at, LeadField.id)
-        )
+def list_fields(db: Session, client: Client, *, lock: bool = False) -> list[LeadField]:
+    query = (
+        select(LeadField)
+        .where(LeadField.client_id == client.id)
+        .order_by(LeadField.position, LeadField.created_at, LeadField.id)
     )
+    # Numbering reads every code the client uses, so two changes at once wait
+    # for each other instead of handing out the same number.
+    return list(db.scalars(query.with_for_update() if lock else query))
 
 
 def get_field(db: Session, client: Client, field_id: uuid.UUID) -> LeadField:
@@ -79,17 +120,19 @@ def get_field(db: Session, client: Client, field_id: uuid.UUID) -> LeadField:
 
 
 def create_field(db: Session, client: Client, payload: LeadFieldCreate) -> LeadField:
-    existing = list_fields(db, client)
+    existing = list_fields(db, client, lock=True)
     if len(existing) >= MAX_FIELDS:
         raise HTTPException(status_code=409, detail=f"A client can have up to {MAX_FIELDS} lead fields")
     if payload.type != "select" and payload.options:
         raise HTTPException(status_code=422, detail="Only a select field has options")
-    options = clean_options(payload.options) if payload.type == "select" else []
+    code = next_code(existing)
+    options = build_options(payload.options, [], code + 1) if payload.type == "select" else []
     position = payload.position if payload.position is not None else max((row.position for row in existing), default=-1) + 1
     row = LeadField(
         agency_id=client.agency_id,
         client_id=client.id,
         key=unique_key(payload.label, {row.key for row in existing}),
+        code=code,
         label=payload.label,
         type=payload.type,
         options=options,
@@ -99,7 +142,7 @@ def create_field(db: Session, client: Client, payload: LeadFieldCreate) -> LeadF
     try:
         db.commit()
     except IntegrityError:
-        # Two people adding a field with the same label at the same moment.
+        # Two people adding a field at the same moment, before either had one to lock.
         db.rollback()
         raise HTTPException(status_code=409, detail="A field with this name already exists, try again") from None
     db.refresh(row)
@@ -113,10 +156,10 @@ def update_field(db: Session, client: Client, field_id: uuid.UUID, payload: Lead
         row.label = values["label"]
     if values.get("position") is not None:
         row.position = values["position"]
-    if values.get("options") is not None:
+    if payload.options is not None:
         if row.type != "select":
             raise HTTPException(status_code=422, detail="Only a select field has options")
-        row.options = clean_options(values["options"])
+        row.options = build_options(payload.options, list(row.options or []), next_code(list_fields(db, client, lock=True)))
     db.commit()
     db.refresh(row)
     return row
@@ -130,8 +173,8 @@ def delete_field(db: Session, client: Client, field_id: uuid.UUID) -> None:
 
 def field_out(row: LeadField) -> dict:
     return {
-        "id": row.id, "key": row.key, "label": row.label, "type": row.type,
-        "options": list(row.options or []), "position": row.position,
+        "id": row.id, "key": row.key, "code": row.code, "label": row.label, "type": row.type,
+        "options": [dict(option) for option in row.options or []], "position": row.position,
     }
 
 
@@ -155,9 +198,11 @@ def check_value(field: LeadField, value):
             raise HTTPException(status_code=422, detail=problem + "that date does not exist") from None
         return value
     if field.type == "select":
-        if not isinstance(value, str) or value not in (field.options or []):
+        # Stored as the option's code; a label is accepted and turned into it.
+        chosen = _choice(field, value)
+        if chosen is None:
             raise HTTPException(status_code=422, detail=problem + "choose one of the options")
-        return value
+        return chosen
     if field.type == "checkbox":
         if not isinstance(value, bool):
             raise HTTPException(status_code=422, detail=problem + "use true or false")
@@ -181,23 +226,41 @@ def merge_values(fields: list[LeadField], stored: dict | None, changes: dict) ->
     return merged
 
 
+def _choice(field: LeadField, value) -> int | None:
+    """The code of the option ``value`` names, by code or by label."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value in option_ids(field) else None
+    if isinstance(value, str):
+        return next((option["id"] for option in field.options or [] if option["label"] == value), None)
+    return None
+
+
 def shown_values(fields: list[LeadField], stored: dict | None) -> dict:
     """The stored values that still have a definition and still fit its type.
 
     Values of a deleted field stay in the row but are never returned. A new
     field that reuses a deleted one's key must not surface a value of another
-    type, so a value of the wrong shape is left out too.
+    type, so a value of the wrong shape is left out too, and so is the choice of
+    an option that was removed.
     """
     shapes = {
         "text": lambda v: isinstance(v, str),
         "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
         "date": lambda v: isinstance(v, str),
-        "select": lambda v: isinstance(v, str),
         "checkbox": lambda v: isinstance(v, bool),
     }
     stored = stored or {}
-    return {
-        field.key: stored[field.key]
-        for field in fields
-        if field.key in stored and shapes.get(field.type, lambda v: False)(stored[field.key])
-    }
+    shown: dict = {}
+    for field in fields:
+        if field.key not in stored:
+            continue
+        value = stored[field.key]
+        if field.type == "select":
+            value = _choice(field, value)
+            if value is not None:
+                shown[field.key] = value
+        elif shapes.get(field.type, lambda v: False)(value):
+            shown[field.key] = value
+    return shown

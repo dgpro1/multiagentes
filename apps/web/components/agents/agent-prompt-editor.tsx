@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { AlertCircle, Brackets, Check, ChevronRight, FileText, Film, ImageIcon, Layers, Link2, Music, Undo2, Wrench } from "lucide-react";
+import { AlertCircle, Brackets, Check, ChevronRight, FileText, Film, Hash, ImageIcon, Layers, Link2, Music, Undo2, Wrench } from "lucide-react";
 import { Alert, Modal } from "@/components/ui";
 import { useLanguage, type I18nKey, type TranslateFn } from "@/lib/i18n";
 import {
@@ -16,13 +16,13 @@ import {
   spanInside,
   type PromptVariable,
 } from "@/lib/agent-variables";
-import type { ClientResource, PipelineStage } from "@/types";
+import type { ClientResource, LeadField, PipelineStage } from "@/types";
 
 export type PromptItem = {
   key: string;
   token: string;
   label: string;
-  category: "tools" | "blocks" | "stages" | "resources" | "control";
+  category: "tools" | "blocks" | "stages" | "resources" | "fields" | "control";
   description: string;
   /** Set on the item that opens a chooser instead of inserting a bare marker. */
   picker?: string;
@@ -37,6 +37,8 @@ interface AgentPromptEditorProps {
   resources?: ClientResource[];
   /** Builds a file's preview address for the picker; omitted, files show an icon. */
   resourceFileUrl?: (resource: ClientResource) => string;
+  /** The client's lead fields; undefined while loading or where they cannot be read. */
+  leadFields?: LeadField[];
   onChange?: (val: string) => void;
 }
 
@@ -94,6 +96,7 @@ const CATEGORY_COLOR: Record<PromptItem["category"], { line: string; fill: strin
   blocks: { line: "#a78bfa", fill: "rgba(139, 92, 246, 0.2)", text: "#a78bfa" },
   stages: { line: "#f59e0b", fill: "rgba(245, 158, 11, 0.2)", text: "#f59e0b" },
   resources: { line: "#38bdf8", fill: "rgba(56, 189, 248, 0.2)", text: "#38bdf8" },
+  fields: { line: "#f472b6", fill: "rgba(244, 114, 182, 0.2)", text: "#f472b6" },
   control: { line: "#94a3b8", fill: "rgba(148, 163, 184, 0.2)", text: "#94a3b8" },
 };
 
@@ -120,6 +123,7 @@ export function AgentPromptEditor({
   clientTimezone,
   resources,
   resourceFileUrl,
+  leadFields,
   onChange,
 }: AgentPromptEditorProps) {
   const { t } = useLanguage();
@@ -168,6 +172,7 @@ export function AgentPromptEditor({
     const list: PromptItem[] = [];
     const stageShape = catalog?.find((row) => row.kind === "stage")?.template;
     const resourceShape = catalog?.find((row) => row.kind === "resource")?.template;
+    const fieldShape = catalog?.find((row) => row.kind === "field")?.template;
 
     for (const row of catalog ?? []) {
       if (!row.token) continue;
@@ -215,8 +220,31 @@ export function AgentPromptEditor({
       });
     }
 
+    // A field and each of its options are cited by code; the list shows the
+    // names, so the writer picks "Servicio → Carillas" and the prompt keeps the ID.
+    for (const field of fieldShape ? leadFields ?? [] : []) {
+      const token = fieldShape!.replace("{name}", String(field.code));
+      list.push({
+        key: `field-${field.id}`,
+        token,
+        label: field.label,
+        category: "fields",
+        description: `${token} · ${t("agents.detail.varDesc.field")}`,
+      });
+      for (const option of field.options) {
+        const optionToken = fieldShape!.replace("{name}", `${field.code} -> ${option.id}`);
+        list.push({
+          key: `field-${field.id}-${option.id}`,
+          token: optionToken,
+          label: `${field.label} → ${option.label}`,
+          category: "fields",
+          description: `${optionToken} · ${t("agents.detail.varDesc.fieldOption")}`,
+        });
+      }
+    }
+
     return list;
-  }, [catalog, pipelineStages, resources, t]);
+  }, [catalog, pipelineStages, resources, leadFields, t]);
 
   const resourceTool = useMemo(() => items.find((item) => item.picker === "resource"), [items]);
   const resourceToolRe = useMemo(
@@ -236,8 +264,8 @@ export function AgentPromptEditor({
   // The variables in the text, and the two sets that matter: the ones that
   // behave as a single piece, and the ones this release has no variable for.
   const spans = useMemo(
-    () => parseVariables(content, { catalog, stages: pipelineStages, resources }),
-    [content, catalog, pipelineStages, resources],
+    () => parseVariables(content, { catalog, stages: pipelineStages, resources, fields: leadFields }),
+    [content, catalog, pipelineStages, resources, leadFields],
   );
   const atomic = useMemo(() => atomicSpans(spans), [spans]);
   const unknown = useMemo(() => spans.filter((span) => !span.known && !span.draft), [spans]);
@@ -676,6 +704,7 @@ export function AgentPromptEditor({
     if (cat === "tools") return t("agents.detail.toolsCategory");
     if (cat === "blocks") return t("agents.detail.blocksCategory");
     if (cat === "resources") return t("resources.title");
+    if (cat === "fields") return t("agents.detail.fieldsCategory");
     if (cat === "control") return t("agents.detail.controlCategory");
     return t("agents.detail.stagesCategory");
   };
@@ -811,7 +840,7 @@ export function AgentPromptEditor({
                       }}
                     >
                       <span style={{ marginTop: 2, opacity: 0.8 }}>
-                        {item.category === "tools" ? <Wrench size={15} /> : item.category === "blocks" ? <Layers size={15} /> : item.category === "resources" ? <Link2 size={15} /> : <ChevronRight size={15} />}
+                        {item.category === "tools" ? <Wrench size={15} /> : item.category === "blocks" ? <Layers size={15} /> : item.category === "resources" ? <Link2 size={15} /> : item.category === "fields" ? <Hash size={15} /> : <ChevronRight size={15} />}
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

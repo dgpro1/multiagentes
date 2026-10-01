@@ -22,14 +22,19 @@ from sqlalchemy.orm import Session
 
 from ..models import Agent, Appointment, Client, Contact, Conversation, Message, Service, now_utc
 from .appointments import get_client_timezone
+from .lead_fields import list_fields, option_label, shown_values
 # has_declarative_tools is re-exported for the callers that already import it from
 # here; it belongs to the variable table, but the hydrator is where they look.
 from .prompt_variables import (  # noqa: F401
     DYNAMIC_DATA_HEADER,
+    FIELD_TOKEN_RE,
     cited_blocks,
+    cited_fields,
     declared_tools,
     has_declarative_tools,
 )
+
+LEAD_FIELDS_HEADER = "[CAMPOS DEL LEAD]"
 
 DAYS_ES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 MONTHS_ES = [
@@ -229,6 +234,47 @@ _BLOCK_BUILDERS: dict[str, Callable[[Session, Client, Conversation, Contact | No
 }
 
 
+def resolve_field_citations(db: Session, client: Client, conversation: Conversation, instructions: str) -> tuple[str, str | None]:
+    """The prompt with each ``[Campo: code]`` read out under its current names,
+    and the block holding this lead's value of every cited field.
+
+    The model never sees a code: ``[Campo: 1000]`` becomes the field's label and
+    ``[Campo: 1000 -> 1001]`` becomes "label: option". A code the client does
+    not have is left as written, which is how the editor shows it, red.
+    """
+    cited = cited_fields(instructions)
+    if not cited:
+        return instructions, None
+    fields = {field.code: field for field in list_fields(db, client)}
+
+    def name(match) -> str:
+        field = fields.get(int(match.group(1)))
+        if field is None:
+            return match.group(0)
+        if match.group(2) is None:
+            return field.label
+        option = option_label(field, int(match.group(2)))
+        return match.group(0) if option is None else f"{field.label}: {option}"
+
+    values = shown_values(list(fields.values()), conversation.custom_values)
+    lines = [LEAD_FIELDS_HEADER]
+    for code in dict.fromkeys(code for code, _ in cited):
+        field = fields.get(code)
+        if field is None:
+            continue
+        value = values.get(field.key)
+        if value is None:
+            shown = "(sin dato)"
+        elif field.type == "select":
+            shown = option_label(field, value) or "(sin dato)"
+        elif field.type == "checkbox":
+            shown = "Sí" if value else "No"
+        else:
+            shown = str(value)
+        lines.append(f"- {field.label}: {shown}")
+    return FIELD_TOKEN_RE.sub(name, instructions), "\n".join(lines) if len(lines) > 1 else None
+
+
 def hydrate_commercial_prompt(
     db: Session,
     client: Client,
@@ -237,8 +283,9 @@ def hydrate_commercial_prompt(
     contact: Contact | None = None,
 ) -> str:
     """Inject only the dynamic blocks explicitly cited in instructions."""
+    instructions, fields_block = resolve_field_citations(db, client, conversation, instructions)
     cited = cited_blocks(instructions)
-    if not cited:
+    if not cited and fields_block is None:
         return instructions
 
     blocks_to_append = [
@@ -246,6 +293,8 @@ def hydrate_commercial_prompt(
         for key, builder in _BLOCK_BUILDERS.items()
         if key in cited
     ]
+    if fields_block:
+        blocks_to_append.append(fields_block)
 
     separator = "\n\n" + "=" * 50 + f"\n{DYNAMIC_DATA_HEADER}\n" + "=" * 50 + "\n\n"
     return instructions + separator + "\n\n".join(blocks_to_append)

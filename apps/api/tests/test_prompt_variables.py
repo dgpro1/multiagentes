@@ -201,7 +201,7 @@ def test_the_catalog_is_shaped_for_the_editor_and_carries_no_prose():
     that answered with Spanish text would put it in an English panel."""
     rows = public_catalog()
     kinds = {row["kind"] for row in rows}
-    assert kinds == {"tool", "block", "stage", "resource", "control"}
+    assert kinds == {"tool", "block", "stage", "resource", "field", "control"}
     for row in rows:
         assert set(row) <= {"kind", "value", "token", "template", "aliases", "picker"}
         assert row.get("token") or row.get("template"), f"{row} is neither a token nor a template"

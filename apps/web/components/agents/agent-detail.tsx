@@ -23,7 +23,7 @@ import { Combobox } from "@/components/combobox";
 import { AgentPromptEditor } from "./agent-prompt-editor";
 import { DEFAULT_PROVIDER, DEFAULT_AUDIO_MODEL, DEFAULT_EMBEDDING_MODEL, DEFAULT_IMAGE_MODEL, modelsFor, modelOptionsFor, estimateTokens, modelContextWindow, AUDIO_MODELS, EMBEDDING_MODELS, IMAGE_MODELS } from "@/lib/providers";
 import { narrowModels, useAvailableModels } from "@/lib/use-available-models";
-import type { Agent, AgentTool, ClientResource, KnowledgeDocument, QAPair, EmbeddingModelInfo, PipelineStage } from "@/types";
+import type { Agent, AgentTool, ClientResource, KnowledgeDocument, LeadField, QAPair, EmbeddingModelInfo, PipelineStage } from "@/types";
 
 type Tab = AgentTab;
 // Older links (and other screens) used ?tab= with these names; they still land on the right tab.
@@ -104,6 +104,13 @@ function AgentDetail({ id, segments }: { id: string; segments?: string[] }) {
   useEffect(() => {
     if (!resourcesBase) return;
     api<ClientResource[]>(`${resourcesBase}/resources`).then(setResources).catch(() => setResources(undefined));
+  }, [resourcesBase, api]);
+
+  // The client's lead fields, cited in the prompt by their IDs.
+  const [leadFields, setLeadFields] = useState<LeadField[] | undefined>(undefined);
+  useEffect(() => {
+    if (!resourcesBase) return;
+    api<LeadField[]>(`${resourcesBase}/lead-fields`).then(setLeadFields).catch(() => setLeadFields(undefined));
   }, [resourcesBase, api]);
 
   // Mirrors MAX_FULL_CONTEXT_CHARS in the backend: at or below this the whole
@@ -262,6 +269,7 @@ function AgentDetail({ id, segments }: { id: string; segments?: string[] }) {
           clientTimezone={agent.client.timezone}
           resources={resources}
           resourceFileUrl={(resource) => apiUrl(`${resourcesBase}/resources/${resource.id}/file`)}
+          leadFields={leadFields}
           onChange={(val) => {
             setPromptTokens(estimateTokens(val));
           }}

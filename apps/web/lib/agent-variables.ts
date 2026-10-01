@@ -12,9 +12,24 @@
  * writer's.
  */
 import { api } from "@/lib/api";
-import type { ClientResource, PipelineStage } from "@/types";
+import type { ClientResource, LeadField, PipelineStage } from "@/types";
 
-export type VariableKind = "tool" | "block" | "stage" | "resource" | "control";
+export type VariableKind = "tool" | "block" | "stage" | "resource" | "field" | "control";
+
+const FIELD_CITATION_RE = /^(\d{4,})(?:\s*->\s*(\d{4,}))?$/;
+
+/**
+ * Whether `[Campo: 1000]` or `[Campo: 1000 -> 1001]` names a field (and option)
+ * the client has. Like a stage, it is only unknown once the list has arrived.
+ */
+function fieldExists(citation: string, fields: LeadField[] | undefined): boolean {
+  const match = FIELD_CITATION_RE.exec(citation);
+  if (!match) return false;
+  if (fields === undefined) return true;
+  const field = fields.find((row) => row.code === Number(match[1]));
+  if (!field) return false;
+  return match[2] === undefined || field.options.some((option) => option.id === Number(match[2]));
+}
 
 export type PromptVariable = {
   kind: VariableKind;
@@ -134,9 +149,9 @@ function existsIn(
 
 export function parseVariables(
   text: string,
-  options: { catalog?: PromptVariable[] | null; stages?: PipelineStage[]; resources?: ClientResource[] } = {},
+  options: { catalog?: PromptVariable[] | null; stages?: PipelineStage[]; resources?: ClientResource[]; fields?: LeadField[] } = {},
 ): VariableSpan[] {
-  const { catalog = null, stages, resources } = options;
+  const { catalog = null, stages, resources, fields } = options;
   const { exact, templates } = compile(catalog);
   const spans: VariableSpan[] = [];
 
@@ -163,7 +178,9 @@ export function parseVariables(
         ? true
         : template.match.kind === "stage"
           ? existsIn(name, stages)
-          : existsIn(name, resources);
+          : template.match.kind === "field"
+            ? fieldExists(name, fields)
+            : existsIn(name, resources);
       spans.push({ ...base, kind: template.match.kind, value: name, known: exists, draft });
       continue;
     }

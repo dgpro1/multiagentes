@@ -3150,6 +3150,7 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
 .pv-block { --pv-line: #a78bfa; --pv-fill: rgba(139, 92, 246, 0.10); }
 .pv-stage { --pv-line: #f59e0b; --pv-fill: rgba(245, 158, 11, 0.10); }
 .pv-resource { --pv-line: #38bdf8; --pv-fill: rgba(56, 189, 248, 0.10); }
+.pv-field { --pv-line: #f472b6; --pv-fill: rgba(244, 114, 182, 0.10); }
 .pv-control { --pv-line: #94a3b8; --pv-fill: rgba(148, 163, 184, 0.10); }
 .pv-unknown { --pv-line: #ef4444; --pv-fill: rgba(239, 68, 68, 0.10); }
 .pv-draft { --pv-line: #f59e0b; --pv-fill: rgba(245, 158, 11, 0.06); text-decoration-style: dashed; }
@@ -3595,6 +3596,12 @@ select.lead-input { padding-right: 22px; cursor: pointer; }
 .lead-field-row .pipeline-automation-confirm .field-help { max-width: 230px; margin: 0; }
 .lead-field-edit { padding: 12px; display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--accent-line); border-radius: 8px; background: var(--surface-2); }
 .lead-field-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.lead-field-code { display: inline-block; padding: 0 6px; border-radius: 4px; background: var(--surface-3, var(--surface-2)); border: 1px solid var(--line-soft); color: var(--muted); font: 600 11px/18px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; vertical-align: middle; }
+.lead-field-options { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.lead-field-options legend { padding: 0; margin-bottom: 6px; font-weight: 600; }
+.lead-field-option { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lead-field-option .lead-field-code { min-width: 44px; text-align: center; }
+.lead-field-option input { flex: 1 1 auto; min-width: 0; }
 .lead-field-add { margin-top: 4px; padding-top: 14px; display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line-soft); }
 
 /* Lead merge: several channels on one lead, the merge dialog and its audit card. */

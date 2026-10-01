@@ -890,13 +890,17 @@ export type Professional = {
 
 /** The custom fields a client defines for its leads (the "Configure" screen of the lead card). */
 export type LeadFieldType = "text" | "number" | "date" | "select" | "checkbox";
+/** A choice of a select; `id` is its code, which a lead stores and a prompt cites. */
+export type LeadFieldOption = { id: number; label: string };
 export type LeadField = {
   id: string;
   /** Stable key the value is stored under; set once when the field is created. */
   key: string;
+  /** The field's public number, shared sequence with its options; never changes. */
+  code: number;
   label: string;
   type: LeadFieldType;
-  options: string[];
+  options: LeadFieldOption[];
   position: number;
 };
 export type LeadStage = { id: string; name: string; color: string };

@@ -9,6 +9,12 @@ import { api, messageFrom } from "@/lib/api";
 import { useT, type I18nKey } from "@/lib/i18n";
 import type { LeadField, LeadFieldType } from "@/types";
 
+/** An option while it is edited: `id` is absent until the server numbers it. */
+type DraftOption = { id?: number; label: string; key: string };
+
+let draftSeq = 0;
+const draftKey = () => `draft-${++draftSeq}`;
+
 export const LEAD_FIELD_TYPES: readonly LeadFieldType[] = ["text", "number", "date", "select", "checkbox"];
 
 const TYPE_LABEL: Record<LeadFieldType, I18nKey> = {
@@ -48,7 +54,7 @@ export function FieldManager({ open, fields, onClose, onChanged }: {
   useEffect(() => { setItems(fields); }, [fields]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
-  const [editOptions, setEditOptions] = useState("");
+  const [editOptions, setEditOptions] = useState<DraftOption[]>([]);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState("");
@@ -60,7 +66,11 @@ export function FieldManager({ open, fields, onClose, onChanged }: {
     setConfirmingId(null);
     setEditingId(field.id);
     setEditLabel(field.label);
-    setEditOptions(field.options.join("\n"));
+    setEditOptions(field.options.map((option) => ({ ...option, key: `option-${option.id}` })));
+  }
+
+  function changeOption(key: string, label: string) {
+    setEditOptions((current) => current.map((option) => option.key === key ? { ...option, label } : option));
   }
 
   async function saveEdit(event: FormEvent<HTMLFormElement>, field: LeadField) {
@@ -69,7 +79,10 @@ export function FieldManager({ open, fields, onClose, onChanged }: {
     if (!label) return;
     const body: Record<string, unknown> = { label };
     if (field.type === "select") {
-      const options = parseOptions(editOptions);
+      // Each option goes back with its id, so a renamed one keeps its code.
+      const options = editOptions
+        .map((option) => ({ id: option.id, label: option.label.trim() }))
+        .filter((option) => option.label);
       if (!options.length) { toast.error(t("lead.fields.optionsRequired")); return; }
       body.options = options;
     }
@@ -140,7 +153,16 @@ export function FieldManager({ open, fields, onClose, onChanged }: {
           ? <form key={field.id} className="lead-field-edit" onSubmit={(event) => saveEdit(event, field)}>
               <label>{t("lead.fields.label")}<input value={editLabel} onChange={(e) => setEditLabel(e.target.value)} maxLength={80} autoFocus required /></label>
               <label>{t("lead.fields.type")}<input value={t(TYPE_LABEL[field.type])} readOnly disabled /><span className="field-help">{t("lead.fields.typeLocked")}</span></label>
-              {field.type === "select" && <label>{t("lead.fields.options")}<textarea rows={4} value={editOptions} onChange={(e) => setEditOptions(e.target.value)} /></label>}
+              <span className="field-help"><span className="lead-field-code">{t("lead.fields.code", { code: field.code })}</span> {t("lead.fields.codeHint")}</span>
+              {field.type === "select" && <fieldset className="lead-field-options">
+                <legend>{t("lead.fields.optionsEdit")}</legend>
+                {editOptions.map((option) => <div key={option.key} className="lead-field-option">
+                  <span className="lead-field-code">{option.id ?? "—"}</span>
+                  <input value={option.label} onChange={(e) => changeOption(option.key, e.target.value)} maxLength={60} placeholder={t("lead.fields.optionPlaceholder")} aria-label={t("lead.fields.optionPlaceholder")} />
+                  <button type="button" className="icon-button small danger-icon" onClick={() => setEditOptions((current) => current.filter((row) => row.key !== option.key))} aria-label={t("lead.fields.removeOption")} title={t("lead.fields.removeOption")}><X size={13} /></button>
+                </div>)}
+                <div><button type="button" className="button small" onClick={() => setEditOptions((current) => [...current, { label: "", key: draftKey() }])}><Plus size={13} /> {t("lead.fields.addOption")}</button></div>
+              </fieldset>}
               <div className="lead-field-edit-actions">
                 <button type="button" className="button" onClick={() => setEditingId(null)}>{t("common.cancel")}</button>
                 <button className="button primary" disabled={busyId === field.id || !editLabel.trim()}>{busyId === field.id ? <LoaderCircle className="spin" size={15} /> : t("lead.fields.save")}</button>
@@ -151,7 +173,10 @@ export function FieldManager({ open, fields, onClose, onChanged }: {
                 <button type="button" className="icon-button small" disabled={index === 0} onClick={() => move(index, -1)} aria-label={t("lead.fields.moveUp")} title={t("lead.fields.moveUp")}><ArrowUp size={13} /></button>
                 <button type="button" className="icon-button small" disabled={index === items.length - 1} onClick={() => move(index, 1)} aria-label={t("lead.fields.moveDown")} title={t("lead.fields.moveDown")}><ArrowDown size={13} /></button>
               </div>
-              <span className="lead-field-name"><strong>{field.label}</strong><small>{t(TYPE_LABEL[field.type])}{field.type === "select" && field.options.length > 0 ? ` · ${field.options.join(", ")}` : ""}</small></span>
+              <span className="lead-field-name">
+                <strong>{field.label} <span className="lead-field-code">{t("lead.fields.code", { code: field.code })}</span></strong>
+                <small>{t(TYPE_LABEL[field.type])}{field.type === "select" && field.options.length > 0 ? ` · ${field.options.map((option) => `${option.label} (${option.id})`).join(", ")}` : ""}</small>
+              </span>
               {busyId === field.id && <LoaderCircle size={14} className="spin" />}
               {confirmingId === field.id
                 ? <span className="pipeline-automation-confirm">

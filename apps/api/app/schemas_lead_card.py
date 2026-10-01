@@ -17,11 +17,24 @@ def _label(value: str) -> str:
     return label
 
 
+class LeadFieldOption(BaseModel):
+    """One choice of a select. ``id`` is its code: kept when the option is sent
+    back with a new label, left out for an option that is new."""
+
+    id: int | None = None
+    label: str
+
+
+# A bare string is an option named by its label: new, or the existing one with
+# that label. It keeps callers that predate option codes working.
+OptionIn = LeadFieldOption | str
+
+
 class LeadFieldCreate(BaseModel):
     label: str = Field(min_length=1, max_length=80)
     type: FieldType
     # Only a select has options; the service refuses them on any other type.
-    options: list[str] = Field(default_factory=list, max_length=30)
+    options: list[OptionIn] = Field(default_factory=list, max_length=30)
     position: int | None = Field(default=None, ge=0)
 
     @field_validator("label")
@@ -31,10 +44,10 @@ class LeadFieldCreate(BaseModel):
 
 
 class LeadFieldUpdate(BaseModel):
-    """The key and the type never change: conversations store their values under them."""
+    """The key, the code and the type never change: leads and prompts refer to them."""
 
     label: str | None = Field(default=None, min_length=1, max_length=80)
-    options: list[str] | None = Field(default=None, max_length=30)
+    options: list[OptionIn] | None = Field(default=None, max_length=30)
     position: int | None = Field(default=None, ge=0)
 
     @field_validator("label")
@@ -43,12 +56,18 @@ class LeadFieldUpdate(BaseModel):
         return None if value is None else _label(value)
 
 
+class LeadFieldOptionOut(BaseModel):
+    id: int
+    label: str
+
+
 class LeadFieldOut(BaseModel):
     id: uuid.UUID
     key: str
+    code: int
     label: str
     type: str
-    options: list[str] = Field(default_factory=list)
+    options: list[LeadFieldOptionOut] = Field(default_factory=list)
     position: int = 0
 
 

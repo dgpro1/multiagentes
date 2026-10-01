@@ -1612,18 +1612,28 @@ class LeadField(Base):
     a choice or a checkbox). ``key`` and ``type`` never change after creation,
     because conversations store their values under the key in
     ``Conversation.custom_values``; deleting a field leaves those values behind
-    as orphans that are simply no longer shown."""
+    as orphans that are simply no longer shown.
+
+    ``code`` is the field's public identity, the number a prompt cites and the
+    panel shows. Every option of a select carries one too, drawn from the same
+    per-client sequence, so a number names exactly one field or option of that
+    client and a label can change without anything that cites it noticing."""
 
     __tablename__ = "lead_fields"
-    __table_args__ = (UniqueConstraint("client_id", "key", name="uq_lead_fields_client_key"),)
+    __table_args__ = (
+        UniqueConstraint("client_id", "key", name="uq_lead_fields_client_key"),
+        UniqueConstraint("client_id", "code", name="uq_lead_fields_client_code"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
     agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
     client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
     key: Mapped[str] = mapped_column(String(60))
+    code: Mapped[int] = mapped_column(Integer)
     label: Mapped[str] = mapped_column(String(80))
     # text | number | date | select | checkbox
     type: Mapped[str] = mapped_column(String(12))
+    # A select's choices as [{"id": code, "label": text}]; a lead stores the id.
     options: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
     position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

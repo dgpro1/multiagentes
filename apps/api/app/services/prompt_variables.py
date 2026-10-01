@@ -37,6 +37,22 @@ from .tools.resource_tool import TOOL_NAME as RESOURCE_TOOL_NAME
 TOOL_PREFIX = "Herramienta"
 STAGE_PREFIX = "Etapa"
 RESOURCE_PREFIX = "Recurso"
+# A lead field is cited by its code, never its label: ``[Campo: 1000]`` names
+# the field and ``[Campo: 1000 -> 1001]`` one of its options, so renaming either
+# leaves the prompt pointing at the same thing.
+FIELD_PREFIX = "Campo"
+FIELD_TOKEN_RE = re.compile(rf"\[{FIELD_PREFIX}:\s*(\d{{4,}})(?:\s*->\s*(\d{{4,}}))?\s*\]", re.IGNORECASE)
+
+
+def field_token(code: int, option: int | None = None) -> str:
+    return f"[{FIELD_PREFIX}: {code}]" if option is None else f"[{FIELD_PREFIX}: {code} -> {option}]"
+
+
+def cited_fields(instructions: str | None) -> list[tuple[int, int | None]]:
+    """(field code, option code or None) for every field citation, in order."""
+    if not instructions:
+        return []
+    return [(int(field), int(option) if option else None) for field, option in FIELD_TOKEN_RE.findall(instructions)]
 
 #: The reply sentinel. Not a citation: the model emits it (or calls
 #: ``stay_silent``) and the runtime drops the message. A prompt may still name it
@@ -191,7 +207,7 @@ def public_catalog() -> list[dict]:
             "aliases": [],
             "picker": None,
         }
-        for kind, prefix in (("stage", STAGE_PREFIX), ("resource", RESOURCE_PREFIX))
+        for kind, prefix in (("stage", STAGE_PREFIX), ("resource", RESOURCE_PREFIX), ("field", FIELD_PREFIX))
     ]
     catalog += [
         {"kind": "control", "value": SILENCE_TOKEN, "token": SILENCE_TOKEN, "aliases": [], "picker": None},

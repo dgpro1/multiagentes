@@ -41,7 +41,7 @@ Next to a conversation, the lead card shows it as a sales lead (a lead is a conv
 
 - **Responsible** is a label, not an assignment: choosing someone never changes who answers or the AI/human mode. When nobody is chosen it shows the client's **Responsible / director**, set in the client's Details (agency client page or the portal's Details screen). A chosen person who is deactivated falls back to that default.
 - **Currency** is also set in Details (USD, EUR, MXN, COP, CLP, ARS, PEN, BRL, UYU, BOB, PYG, DOP, CRC, GTQ or PAB) and applies to every budget of the client.
-- **Custom fields** are defined per client (up to 30) as text, number, date, select or checkbox. A field's key and type are fixed once created; deleting a field hides its values without erasing them.
+- **Custom fields** are defined per client (up to 30) as text, number, date, select or checkbox. A field's key and type are fixed once created; deleting a field hides its values without erasing them. Every field and every option of a select gets an ID of four or more digits (each client numbers from 1000: a field, then its options), shown in **Configure**. The ID never changes, so a field or option can be renamed freely: a lead stores the option's ID, and an agent's prompt cites `[Campo: 1000]` for a field or `[Campo: 1000 -> 1001]` for an option, which the agent reads under the current names together with the lead's value.
 
 Anyone with the inbox can choose the responsible and fill the fields on a lead. Only portal admins (permission `fields.manage`) and the agency can create, rename, reorder or delete the fields. Agency operators use the same card and the same routes under `/api/conversations/{id}/lead` and `/api/clients/{id}/lead-fields`.
 
