@@ -7,6 +7,7 @@ import { api, messageFrom } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { Alert } from "@/components/ui";
 import { PasswordInput } from "@/components/password-input";
+import { DEFAULT_LOGIN_NAME, rememberedAgencyName } from "@/lib/login-brand";
 
 type AuthStatus = { needs_setup: boolean; registration_open: boolean };
 
@@ -19,6 +20,9 @@ export default function LoginPage() {
   const [statusFailed, setStatusFailed] = useState(false);
   const [statusAttempt, setStatusAttempt] = useState(0);
   const mode = authStatus?.needs_setup ? "register" : "login";
+  // Read after mount: the server render cannot see this browser's storage.
+  const [brandName, setBrandName] = useState(DEFAULT_LOGIN_NAME);
+  useEffect(() => { setBrandName(rememberedAgencyName() ?? DEFAULT_LOGIN_NAME); }, []);
 
   useEffect(() => {
     let active = true;
@@ -50,7 +54,7 @@ export default function LoginPage() {
   return (
     <main className="access-page agency-access">
       <header className="access-topbar">
-        <div className="access-brand"><span className="hunterai-icon"><img src="/brand/hunterai-icon.png" alt="" /></span><strong>HunterAI</strong></div>
+        <div className="access-brand"><span className="hunterai-icon"><img src="/brand/hunterai-icon.png" alt="" /></span><strong>{brandName}</strong></div>
       </header>
       <div className="access-layout">
         <section className="access-intro">

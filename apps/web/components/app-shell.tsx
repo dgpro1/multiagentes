@@ -6,6 +6,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { BarChart3, Bot, Building2, CreditCard, Inbox, LayoutDashboard, LogOut, Menu, MessageSquareText, PanelLeftClose, PanelLeftOpen, Radio, Settings, Sparkles, Wallet, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useT, type I18nKey } from "@/lib/i18n";
+import { rememberAgencyName } from "@/lib/login-brand";
 import { NAV_COLLAPSED_CLASS, useCollapsibleNav } from "@/lib/sidebar";
 import type { User } from "@/types";
 
@@ -90,6 +91,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [isBare, pathname, router]);
+
+  // The login page greets this browser with the agency's name from now on.
+  const agencyName = user?.agency.name;
+  useEffect(() => { if (agencyName) rememberAgencyName(agencyName); }, [agencyName]);
 
   async function logout() {
     await api("/auth/logout", { method: "POST" });
