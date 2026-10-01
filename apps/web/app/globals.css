@@ -3497,6 +3497,10 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
    inside it is not one either. */
 .lead-head-open { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; padding: 4px 10px; margin: 0 -10px; border-radius: 10px; cursor: pointer; }
 .lead-head-open > div { min-width: 0; }
+/* The inbox header lays its divs out as columns; the lead button stays one row:
+   the avatar, then the name over the channel, all to the left. */
+.portal-inbox > section > header .lead-head-open { flex-direction: row; align-items: center; justify-content: flex-start; text-align: left; }
+.portal-inbox > section > header .lead-head-open > div { align-items: flex-start; gap: 1px; }
 .lead-avatar { flex: 0 0 auto; }
 .lead-head-open .entity-avatar { transition: box-shadow .12s ease, border-color .12s ease; }
 .lead-head-open:hover .entity-avatar, .lead-head-open[aria-expanded="true"] .entity-avatar { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
