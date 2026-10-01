@@ -51,7 +51,6 @@ export default function LoginPage() {
     <main className="access-page agency-access">
       <header className="access-topbar">
         <div className="access-brand"><span className="hunterai-icon"><img src="/brand/hunterai-icon.png" alt="" /></span><strong>HunterAI</strong></div>
-        <small>{t("auth.tagline")}</small>
       </header>
       <div className="access-layout">
         <section className="access-intro">
