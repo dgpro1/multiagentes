@@ -81,17 +81,41 @@ def _key_hint(conn: ClientStorageConnection) -> str:
 
 
 def out(db: Session, client: Client) -> dict:
+    from . import agency_backend
+
+    agency_ready = agency_backend.storage_ready(db, db.get(Agency, client.agency_id))
     conn = client.storage_connection
     if not conn:
         return {
             "status": "none",
+            "agency_storage_ready": agency_ready,
             "max_file_mb": DEFAULT_MAX_FILE_MB,
             "quota_mb": DEFAULT_QUOTA_MB,
             "used_bytes": 0,
             "link_active": False,
         }
+    if conn.hosted_by == "agency":
+        # The agency's bucket holds the files: nothing of it is shown here, and
+        # the client's own credentials, if it kept any, only say whether moving
+        # back is possible.
+        return {
+            "status": conn.status,
+            "hosted_by": "agency",
+            "agency_storage_ready": agency_ready,
+            "provider": "agency",
+            "access_key_hint": _key_hint(conn),
+            "last_error": conn.last_error,
+            "last_checked_at": conn.last_checked_at,
+            "connected_at": conn.connected_at,
+            "max_file_mb": conn.max_file_mb,
+            "quota_mb": conn.quota_mb,
+            "used_bytes": used_bytes(db, client),
+            "link_active": conn.connect_expires_at > now_utc(),
+        }
     return {
         "status": conn.status,
+        "hosted_by": "client",
+        "agency_storage_ready": agency_ready,
         "provider": conn.provider,
         "account_id": conn.account_ref,
         "bucket": conn.bucket,
@@ -179,9 +203,11 @@ def disconnect(db: Session, client: Client) -> ClientStorageConnection | None:
     conn.encrypted_secret = None
     conn.account_ref = ""
     conn.bucket = ""
-    conn.status = "pending"
-    conn.last_error = None
-    conn.connected_at = None
+    if conn.hosted_by != "agency":
+        # An agency-hosted client keeps working on the agency's bucket; only its own credentials go.
+        conn.status = "pending"
+        conn.last_error = None
+        conn.connected_at = None
     db.commit()
     db.refresh(conn)
     return conn

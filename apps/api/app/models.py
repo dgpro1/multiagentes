@@ -1410,6 +1410,10 @@ class ClientStorageConnection(Base):
     encrypted_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     # pending: no credentials yet; connected: the last probe passed; error: it failed.
     status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    # "client": the files are in the bucket above; "agency": they are in the
+    # agency's own bucket (AgencyStorageConnection), under this client's keys,
+    # and the credentials above, if any, are kept for moving back.
+    hosted_by: Mapped[str] = mapped_column(String(10), default="client", server_default="client")
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1492,6 +1496,33 @@ class AgencyDataStore(Base):
     encrypted_refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     access_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+class AgencyStorageConnection(Base):
+    """The agency's own Cloudflare R2 bucket, where the files of the clients it
+    looks after live (``ClientStorageConnection.hosted_by == "agency"``).
+
+    Same credentials as a client's own bucket, given by an agency administrator
+    from the panel and stored encrypted. Object keys already start with the
+    agency and client ids, so one bucket holds every client in its own folder.
+    Disconnecting forgets the credentials and leaves the bucket's files alone.
+    """
+
+    __tablename__ = "agency_storage_connections"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), unique=True)
+    provider: Mapped[str] = mapped_column(String(20), default="r2", server_default="r2")
+    account_ref: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    bucket: Mapped[str] = mapped_column(String(63), default="", server_default="")
+    region: Mapped[str] = mapped_column(String(32), default="auto", server_default="auto")
+    encrypted_access_key_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -110,6 +110,11 @@ class Storage:
     def delete(self, key: str) -> None:
         self._run("delete the file", lambda: self._client.delete_object(Bucket=self.bucket, Key=key))
 
+    def size(self, key: str) -> int:
+        return int(self._run(
+            "check the file", lambda: self._client.head_object(Bucket=self.bucket, Key=key)["ContentLength"]
+        ))
+
     def probe(self) -> None:
         """Write, read back and delete a throwaway object: proves the token can
         do everything the library needs."""
@@ -129,8 +134,9 @@ _cache: dict[tuple, Storage] = {}
 _cache_lock = threading.Lock()
 
 
-def for_connection(conn: ClientStorageConnection) -> Storage:
-    """The bucket of a connected client; a client that never connected has none."""
+def storage_of(conn) -> Storage:
+    """The bucket a connection record points at, built once and kept. Works for a
+    client's own record and for the agency's: both carry the same columns."""
     if conn.status != "connected" or not conn.encrypted_access_key_id or not conn.encrypted_secret:
         raise HTTPException(status_code=409, detail="storage_not_connected")
     stamp = (conn.id, conn.updated_at, conn.bucket)
@@ -153,6 +159,25 @@ def for_connection(conn: ClientStorageConnection) -> Storage:
             _cache.clear()
         _cache[stamp] = store
     return store
+
+
+def for_connection(conn: ClientStorageConnection) -> Storage:
+    """The bucket of a connected client; a client that never connected has none.
+    A client whose files the agency hosts reads and writes the agency's bucket."""
+    if conn.hosted_by == "agency":
+        from sqlalchemy import select
+        from sqlalchemy.orm import object_session
+
+        from ..models import AgencyStorageConnection
+
+        session = object_session(conn)
+        agency_conn = session.scalar(
+            select(AgencyStorageConnection).where(AgencyStorageConnection.agency_id == conn.agency_id)
+        ) if session is not None else None
+        if agency_conn is None:
+            raise HTTPException(status_code=409, detail="storage_not_connected")
+        return storage_of(agency_conn)
+    return storage_of(conn)
 
 
 def for_client(client: Client) -> Storage:

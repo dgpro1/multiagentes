@@ -405,6 +405,40 @@ async def agency_client_data_switch(
     return {"data_mode": result["data_mode"], "counts": result["counts"]}
 
 
+class PlatformFileSwitch(BaseModel):
+    target: Literal["agency", "client"]
+
+
+@router.post("/agencies/{agency_id}/clients/{client_id}/storage/switch")
+async def agency_client_storage_switch(
+    agency_id: uuid.UUID,
+    client_id: uuid.UUID,
+    payload: PlatformFileSwitch,
+    db: Session = Depends(get_db),
+    admin: PlatformAdmin = Depends(get_current_platform_admin),
+):
+    """Take a client's files to its agency's bucket or back to its own, on the
+    platform's own authority and with the same copy-then-check the agency gets.
+    Recorded in the audit log."""
+    from ..database import use_client
+    from ..services import file_move
+
+    agency = db.get(Agency, agency_id)
+    client = db.scalar(select(Client).where(Client.id == client_id, Client.agency_id == agency_id))
+    if agency is None or client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    use_client(db, client)
+    before = client.storage_connection.hosted_by if client.storage_connection else "client"
+    result = await file_move.move(db, client, payload.target)
+    platform_service.record_audit(
+        db, admin, "client.files_moved", target_agency_id=agency.id,
+        resource_type="client", resource_id=str(client.id),
+        details={"from": before, "to": payload.target, "copied": result["copied"]},
+    )
+    db.commit()
+    return result
+
+
 @router.get("/features", response_model=PlatformFeaturesOut)
 def feature_catalog(
     db: Session = Depends(get_db),

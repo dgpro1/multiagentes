@@ -1,9 +1,10 @@
-"""The agency's own Supabase project, and a schema per client inside it.
+"""The agency's own Supabase project and R2 bucket, for the clients it looks after.
 
 Adds ``agency_data_stores`` (the agency's OAuth connection to its Supabase
-project) and ``client_agency_schemas`` (one schema and one database role per
-client of that agency), and lets an OAuth state belong to either a client's
-share link or the agency's connection. Everything is new or loosened, so it is
+project), ``client_agency_schemas`` (one schema and one database role per
+client of that agency) and ``agency_storage_connections`` (the agency's R2
+bucket), a ``hosted_by`` on each client's storage connection, and lets an OAuth
+state belong to either a client's share link or the agency's connection. Everything is new or loosened, so it is
 safe against live data: no existing row changes, no client leaves its current
 data mode, and the previous release simply ignores the new tables.
 
@@ -62,6 +63,24 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index("ix_client_agency_schemas_agency_id", "client_agency_schemas", ["agency_id"])
+    op.create_table(
+        "agency_storage_connections",
+        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column("agency_id", sa.Uuid(), sa.ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, unique=True),
+        sa.Column("provider", sa.String(20), nullable=False, server_default="r2"),
+        sa.Column("account_ref", sa.String(64), nullable=False, server_default=""),
+        sa.Column("bucket", sa.String(63), nullable=False, server_default=""),
+        sa.Column("region", sa.String(32), nullable=False, server_default="auto"),
+        sa.Column("encrypted_access_key_id", sa.Text(), nullable=True),
+        sa.Column("encrypted_secret", sa.Text(), nullable=True),
+        sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
+        sa.Column("last_error", sa.Text(), nullable=True),
+        sa.Column("last_checked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("connected_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.add_column("client_storage_connections", sa.Column("hosted_by", sa.String(10), nullable=False, server_default="client"))
 
     op.add_column("data_store_oauth_states", sa.Column("agency_data_store_id", sa.Uuid(), nullable=True))
     op.create_foreign_key(
@@ -85,6 +104,14 @@ def downgrade() -> None:
             f"{moved} client(s) keep their data in an agency schema; move them back to the "
             "central database from the panel before downgrading"
         )
+    hosted = bind.execute(sa.text("SELECT count(*) FROM client_storage_connections WHERE hosted_by = 'agency'")).scalar()
+    if hosted:
+        raise RuntimeError(
+            f"{hosted} client(s) keep their files in the agency's bucket; move them back from the "
+            "panel before downgrading"
+        )
+    op.drop_column("client_storage_connections", "hosted_by")
+    op.drop_table("agency_storage_connections")
     bind.execute(sa.text("DELETE FROM data_store_oauth_states WHERE data_store_id IS NULL"))
     op.alter_column("data_store_oauth_states", "data_store_id", existing_type=sa.Uuid(), nullable=False)
     op.drop_index("ix_data_store_oauth_states_agency_data_store_id", table_name="data_store_oauth_states")

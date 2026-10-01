@@ -33,6 +33,9 @@ class StorageLimitsUpdate(BaseModel):
 
 class StorageConnectionOut(BaseModel):
     status: Literal["none", "pending", "connected", "error"]
+    # Whose bucket holds the files, and whether the agency's is ready to take them.
+    hosted_by: Literal["client", "agency"] = "client"
+    agency_storage_ready: bool = False
     provider: str = "r2"
     account_id: str = ""
     bucket: str = ""

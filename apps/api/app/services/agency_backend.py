@@ -29,13 +29,16 @@ from ..config import get_settings
 from ..models import (
     Agency,
     AgencyDataStore,
+    AgencyStorageConnection,
     Client,
     ClientAgencySchema,
+    ClientStorageConnection,
     DataStoreOAuthState,
     now_utc,
 )
+from ..schemas_resources import StorageConnect
 from ..security import decrypt_secret, encrypt_secret
-from . import data_store, supabase_mgmt as supabase, tenant_schema
+from . import data_store, resource_storage as storage, supabase_mgmt as supabase, tenant_schema
 
 logger = logging.getLogger(__name__)
 
@@ -291,3 +294,115 @@ async def provision_client(db: Session, client: Client) -> ClientAgencySchema:
         tenant_schema.upgrade_store(db, row)
     db.refresh(row)
     return row
+
+
+# The agency's R2 bucket.
+
+def _storage(db: Session, agency: Agency) -> AgencyStorageConnection | None:
+    return db.scalar(select(AgencyStorageConnection).where(AgencyStorageConnection.agency_id == agency.id))
+
+
+def _clients_hosted(db: Session, agency_id) -> int:
+    return db.scalar(
+        select(func.count()).select_from(ClientStorageConnection)
+        .where(ClientStorageConnection.agency_id == agency_id, ClientStorageConnection.hosted_by == "agency")
+    ) or 0
+
+
+def storage_ready(db: Session, agency: Agency) -> bool:
+    """Whether a client of this agency may be moved into the agency's bucket."""
+    conn = _storage(db, agency)
+    return bool(conn and conn.status == "connected" and agency_features.is_enabled(agency, MODULE))
+
+
+def storage_out(db: Session, agency: Agency) -> dict:
+    conn = _storage(db, agency)
+    base = {"module_enabled": agency_features.is_enabled(agency, MODULE), "clients_hosted": _clients_hosted(db, agency.id)}
+    if not conn:
+        return {**base, "status": "none"}
+    hint = ""
+    if conn.encrypted_access_key_id:
+        try:
+            hint = "\u2022\u2022\u2022\u2022" + decrypt_secret(conn.encrypted_access_key_id)[-4:]
+        except Exception:  # noqa: BLE001 - a key that no longer decrypts is reported by status
+            hint = ""
+    return {
+        **base,
+        "status": conn.status,
+        "account_id": conn.account_ref,
+        "bucket": conn.bucket,
+        "access_key_hint": hint,
+        "last_error": conn.last_error,
+        "last_checked_at": conn.last_checked_at,
+        "connected_at": conn.connected_at,
+    }
+
+
+def storage_connect(db: Session, agency: Agency, payload: StorageConnect) -> AgencyStorageConnection:
+    """Probe the credentials and keep them only if the bucket takes a write, a read and a delete."""
+    ensure_module(agency)
+    if not storage.valid_account_id(payload.account_id):
+        raise HTTPException(status_code=422, detail="The Cloudflare account id must be 32 hexadecimal characters")
+    if not storage.valid_bucket(payload.bucket):
+        raise HTTPException(status_code=422, detail="That is not a valid bucket name")
+    conn = _storage(db, agency)
+    if conn is None:
+        conn = AgencyStorageConnection(agency_id=agency.id)
+        db.add(conn)
+        db.commit()
+        db.refresh(conn)
+    if conn.status == "connected" and conn.bucket and (conn.bucket != payload.bucket or conn.account_ref != payload.account_id) and _clients_hosted(db, agency.id):
+        raise HTTPException(status_code=409, detail="Move the agency's clients' files out of the connected bucket before choosing another one")
+    try:
+        storage.Storage(payload.account_id, payload.access_key_id, payload.secret_access_key, payload.bucket).probe()
+    except storage.StorageError as exc:
+        conn.last_error = str(exc)
+        conn.last_checked_at = now_utc()
+        if conn.status != "connected":
+            conn.status = "error"
+        db.commit()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    conn.account_ref = payload.account_id
+    conn.bucket = payload.bucket
+    conn.encrypted_access_key_id = encrypt_secret(payload.access_key_id)
+    conn.encrypted_secret = encrypt_secret(payload.secret_access_key)
+    conn.status = "connected"
+    conn.last_error = None
+    conn.last_checked_at = conn.connected_at = now_utc()
+    db.commit()
+    db.refresh(conn)
+    return conn
+
+
+def storage_recheck(db: Session, agency: Agency) -> AgencyStorageConnection:
+    ensure_module(agency)
+    conn = _storage(db, agency)
+    if not conn or not conn.encrypted_access_key_id:
+        raise HTTPException(status_code=409, detail="This agency has not connected a Cloudflare bucket")
+    try:
+        storage.Storage(
+            conn.account_ref, decrypt_secret(conn.encrypted_access_key_id), decrypt_secret(conn.encrypted_secret or ""),
+            conn.bucket, conn.region,
+        ).probe()
+        conn.status, conn.last_error = "connected", None
+    except storage.StorageError as exc:
+        conn.status, conn.last_error = "error", str(exc)
+    conn.last_checked_at = now_utc()
+    db.commit()
+    db.refresh(conn)
+    return conn
+
+
+def storage_disconnect(db: Session, agency: Agency) -> None:
+    """Forget the credentials. The files stay in the agency's bucket."""
+    conn = _storage(db, agency)
+    if not conn:
+        return
+    if _clients_hosted(db, agency.id):
+        raise HTTPException(status_code=409, detail="Move the agency's clients' files out of the connected bucket before disconnecting it")
+    conn.encrypted_access_key_id = conn.encrypted_secret = None
+    conn.account_ref = conn.bucket = ""
+    conn.status = "pending"
+    conn.last_error = None
+    conn.connected_at = None
+    db.commit()

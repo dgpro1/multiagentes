@@ -40,7 +40,7 @@ CONTROL_PLANE: frozenset[str] = frozenset({
     "client_storage_connections", "client_data_stores", "data_store_oauth_states",
     "canned_responses", "usage_records", "social_outbox", "hunterai_pending_inbound",
     "platform_admins", "agency_admin_invitations", "platform_audit_events", "agency_slug_aliases",
-    "agency_data_stores", "client_agency_schemas",
+    "agency_data_stores", "client_agency_schemas", "agency_storage_connections",
 })
 
 

@@ -8,8 +8,10 @@ credentials they created in their own Cloudflare account.
 """
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,7 +30,7 @@ from ..schemas_resources import (
     StorageLimitsUpdate,
     StorageLinkOut,
 )
-from ..services import resources_catalog, storage_connection
+from ..services import file_move, resources_catalog, storage_connection
 from ..services.attachments import file_response
 
 router = APIRouter(tags=["Resources"])
@@ -153,6 +155,23 @@ def client_storage_limits(
 ):
     client = _client(db, user, client_id)
     storage_connection.update_limits(db, client, payload)
+    return storage_connection.out(db, client)
+
+
+class StorageSwitch(BaseModel):
+    target: Literal["agency", "client"]
+
+
+@router.post("/clients/{client_id}/storage/switch", response_model=StorageConnectionOut, dependencies=[Depends(require(STORAGE_MANAGE))])
+async def client_storage_switch(
+    client_id: uuid.UUID, payload: StorageSwitch, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """Take the client's files to the agency's bucket, or back to its own. Every
+    file is copied and checked before anything changes; a failure leaves the
+    client where it was."""
+    client = _client(db, user, client_id)
+    await file_move.move(db, client, payload.target)
+    db.refresh(client)
     return storage_connection.out(db, client)
 
 
