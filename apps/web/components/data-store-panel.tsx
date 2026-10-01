@@ -6,7 +6,7 @@ import { Alert } from "@/components/ui";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
-import { useLanguage } from "@/lib/i18n";
+import { useLanguage, useApiError } from "@/lib/i18n";
 import type { DataStore } from "@/types";
 
 function formatBytes(bytes: number): string {
@@ -19,6 +19,7 @@ function formatBytes(bytes: number): string {
  * consent itself happens on the public link (app/connect/supabase/[token]). */
 export function DataStorePanel({ clientId }: { clientId: string }) {
   const { t, lang } = useLanguage();
+  const apiError = useApiError();
   const toast = useToast();
   const base = `/clients/${clientId}/datastore`;
   const [store, setStore] = useState<DataStore | null>(null);
@@ -90,7 +91,7 @@ export function DataStorePanel({ clientId }: { clientId: string }) {
     </div>
 
     {!store.oauth_ready && <Alert type="info"><AlertTriangle size={14} /> {t("dataStore.notConfigured")}</Alert>}
-    {store.last_error && <Alert><AlertTriangle size={14} /> {store.last_error}</Alert>}
+    {store.last_error && <Alert><AlertTriangle size={14} /> {apiError(store.last_error)}</Alert>}
 
     {connected && <div className="storage-summary">
       <div><small>{t("dataStore.project")}</small><strong><CheckCircle2 size={14} /> {store.project_name} ({store.project_ref})</strong></div>

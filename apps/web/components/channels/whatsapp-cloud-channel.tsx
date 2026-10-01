@@ -10,7 +10,7 @@ import { ConfirmModal } from "@/components/confirm-modal";
 import { messageFrom } from "@/lib/api";
 import { ChannelsScopeProvider, useBackToChannels, useChannelClient, useChannelsApi, useChannelsScope, type ChannelHrefs } from "@/components/channels/scope";
 import { accountName, accountTitle, messagingLimitLabel, qualityLabel, qualityTone, rememberLine, requestedLine } from "@/lib/channels";
-import { useT, type I18nKey } from "@/lib/i18n";
+import { useT, type I18nKey, useApiError } from "@/lib/i18n";
 import type { Client, WhatsAppCloudChannel } from "@/types";
 
 const stateKeys: Record<WhatsAppCloudChannel["status"], { label: I18nKey; copy: I18nKey }> = {
@@ -42,6 +42,7 @@ export function WhatsAppCloudChannelView({ apiBase, hrefFor, client }: { apiBase
 
 function WhatsAppCloudScreen() {
   const t = useT();
+  const apiError = useApiError();
   const { hrefFor, modules } = useChannelsScope();
   const { api } = useChannelsApi();
   const { clientId: id, loadClient } = useChannelClient();
@@ -216,7 +217,7 @@ function WhatsAppCloudScreen() {
         {channel?.status === "connected" && (channel.quality_rating || channel.messaging_limit) && <p className="wa-quality"><i className={`channel-state-dot ${qualityTone(channel.quality_rating)}`} aria-hidden="true" /><span>{t("clients.whatsappCloud.qualityLabel")}: <strong>{qualityLabel(channel.quality_rating, t)}</strong></span>{messagingLimitLabel(channel.messaging_limit, t) && <span>· {messagingLimitLabel(channel.messaging_limit, t)}</span>}</p>}
         {channel?.status !== "connected" && <p className="social-meta">{t("clients.whatsappCloud.connectionCopy")}</p>}
         {pendingApproval && <p className="social-meta" role="status">{t("clients.whatsappCloud.approvalPending")}</p>}
-        {channel?.last_error && <Alert>{channel.last_error}</Alert>}
+        {channel?.last_error && <Alert>{apiError(channel.last_error)}</Alert>}
         {refreshNotice && <p className="social-meta" role="status">{refreshNotice}</p>}
         <div className="wa-actions">
           {channel && <div className="wa-actions-side">

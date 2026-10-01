@@ -6,7 +6,7 @@ import { Alert, EmptyState, Modal } from "@/components/ui";
 import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, useApiError } from "@/lib/i18n";
 import type { CalendarEvent, CalendarEventsResult, CalendarMember, CalendarOverview } from "@/types";
 
 /** Monday..Sunday of the week containing `date`, in the browser's own timezone. */
@@ -154,6 +154,7 @@ function CalendarMemberCard({ member, canManage, onEdit, onCopy, onRenew, onDisc
   onEdit: () => void; onCopy: () => void; onRenew: () => void; onDisconnect: () => void; onRemove: () => void;
 }) {
   const t = useT();
+  const apiError = useApiError();
   const statusLabel = member.status === "connected" ? t("calendar.statusConnected") : member.status === "error" ? t("calendar.statusError") : t("calendar.statusPending");
   return <article className="calendar-member-card">
     <span className="calendar-avatar" style={{ background: member.color }}><UserRound size={18} /></span>
@@ -161,7 +162,7 @@ function CalendarMemberCard({ member, canManage, onEdit, onCopy, onRenew, onDisc
       <strong>{member.name}{member.role && <small className="calendar-member-role"> · {member.role}</small>}</strong>
       <small className={`calendar-status calendar-status-${member.status}`}><i style={{ background: member.status === "connected" ? "var(--green)" : member.status === "error" ? "var(--red)" : "var(--faint)" }} />{statusLabel}
         {member.status === "connected" && member.google_email && <span> · {member.google_email}</span>}</small>
-      {member.status === "error" && member.last_error && <small className="field-help">{member.last_error}</small>}
+      {member.status === "error" && member.last_error && <small className="field-help">{apiError(member.last_error)}</small>}
       {member.status !== "connected" && member.link_expired && <small className="calendar-link-expired">{t("calendar.linkExpired")}</small>}
     </div>
     <div className="calendar-member-actions">

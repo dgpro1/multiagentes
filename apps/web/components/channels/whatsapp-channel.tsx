@@ -10,7 +10,7 @@ import { ConfirmModal } from "@/components/confirm-modal";
 import { messageFrom } from "@/lib/api";
 import { ChannelsScopeProvider, useBackToChannels, useChannelClient, useChannelsApi, useChannelsScope, type ChannelHrefs } from "@/components/channels/scope";
 import { accountName, accountTitle, rememberLine, requestedLine } from "@/lib/channels";
-import { useT, type I18nKey } from "@/lib/i18n";
+import { useT, type I18nKey, useApiError } from "@/lib/i18n";
 import type { Client, WhatsAppChannel } from "@/types";
 
 const stateKeys: Record<WhatsAppChannel["status"], { label: I18nKey; copy: I18nKey }> = {
@@ -31,6 +31,7 @@ export function WhatsAppChannelView({ apiBase, hrefFor, client }: { apiBase?: st
 
 function WhatsAppScreen() {
   const t = useT();
+  const apiError = useApiError();
   const { hrefFor, modules } = useChannelsScope();
   const { api } = useChannelsApi();
   const { clientId: id, loadClient } = useChannelClient();
@@ -185,7 +186,7 @@ function WhatsAppScreen() {
       <section className="wa-panel"><div className="wa-panel-head"><span><Plug size={19} /></span><div><h2>{t("clients.whatsapp.connection")}</h2><p>{t(state.copy)}</p></div></div>
         {channel?.status === "qr" && channel.qr_code && <div className="wa-qr"><img src={channel.qr_code} alt={t("clients.whatsapp.qrAlt")} /><div><span><QrCode size={18} /> {t("clients.whatsapp.scanFromPhone")}</span><ol><li>{t("clients.whatsapp.qrStep1")}</li><li>{t("clients.whatsapp.qrStep2Prefix")}<strong>{t("clients.whatsapp.qrStep2Bold")}</strong>.</li><li>{t("clients.whatsapp.qrStep3Prefix")}<strong>{t("clients.whatsapp.qrStep3Bold")}</strong>{t("clients.whatsapp.qrStep3Suffix")}</li></ol><small>{t("clients.whatsapp.qrHint")}</small></div></div>}
         {channel?.status === "connected" && <div className="wa-connected"><div className="wa-phone"><Smartphone size={24} /><span><small>{t("clients.whatsapp.connectedNumber")}</small><strong>{channel.phone_number ? `+${channel.phone_number}` : t("clients.whatsapp.linkedNumber")}</strong>{channel.display_name && <em>{channel.display_name}</em>}</span></div><div className="wa-ready"><CheckCircle2 size={18} /> {t("clients.whatsapp.readyForMessages")}</div></div>}
-        {channel?.last_error && <Alert>{channel.last_error}</Alert>}
+        {channel?.last_error && <Alert>{apiError(channel.last_error)}</Alert>}
         <div className="wa-actions">{channel && <button className="button quiet" onClick={() => setRemoving(true)} disabled={busy}><Trash2 size={16} /> {t("clients.whatsapp.removeLine")}</button>}{channel?.status === "connected" ? <button className="button danger" onClick={() => setDisconnecting(true)} disabled={busy}><Power size={17} /> {t("clients.whatsapp.disconnectAccount")}</button> :<button className="button primary" onClick={saveAndConnect} disabled={!canConnect}>{busy || ["connecting", "reconnecting"].includes(channel?.status || "") ? <LoaderCircle className="spin" size={17} /> : <QrCode size={17} />} {channel?.has_session ? t("clients.whatsapp.recoverConnection") : t("clients.whatsapp.connectWithQr")}</button>}</div>
       </section>
     </main><aside className="wa-side"><ShieldCheck size={22} /><h3>{t("clients.whatsapp.separationTitle")}</h3><p>{t("clients.whatsapp.separationCopy")}<strong>{client.name}</strong>.</p><hr /><h3>{t("clients.whatsapp.humanControlTitle")}</h3><p>{t("clients.whatsapp.humanControlCopy")}</p></aside></div>}

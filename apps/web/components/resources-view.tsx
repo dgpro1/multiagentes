@@ -7,7 +7,7 @@ import { ConfirmModal } from "@/components/confirm-modal";
 import { StorageConnectForm } from "@/components/storage-connect-form";
 import { useToast } from "@/components/toast";
 import { api, apiUrl, messageFrom } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, useApiError } from "@/lib/i18n";
 import type { ClientResource, StorageConnection, StorageConnectPayload } from "@/types";
 
 type Draft = {
@@ -302,6 +302,7 @@ function StoragePanel({ apiBase, storage, canManage, onChange, friendly }: {
   friendly: (err: unknown) => string;
 }) {
   const t = useT();
+  const apiError = useApiError();
   const toast = useToast();
   const [replacing, setReplacing] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
@@ -378,7 +379,7 @@ function StoragePanel({ apiBase, storage, canManage, onChange, friendly }: {
       </div>}
     </div>
 
-    {storage.last_error && <Alert><AlertTriangle size={14} /> {storage.last_error}</Alert>}
+    {storage.last_error && <Alert><AlertTriangle size={14} /> {apiError(storage.last_error)}</Alert>}
 
     {connected && <div className="storage-summary">
       <div><small>{t("resources.storage.bucket")}</small><strong><CheckCircle2 size={14} /> {storage.bucket}</strong></div>

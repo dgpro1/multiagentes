@@ -7,7 +7,7 @@ import { ConfirmModal } from "@/components/confirm-modal";
 import { ListRowsSkeleton } from "@/components/skeleton";
 import { useToast } from "@/components/toast";
 import { api as rawApi, messageFrom } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, useApiError } from "@/lib/i18n";
 import type { ApiIntegration, ApiScopes, ApiTokenIssued, Client, WebhookDelivery, WebhookSecret, WebhookSubscription } from "@/types";
 
 const EXPIRY_OPTIONS = [7, 30, 90, 365, 1825];
@@ -357,6 +357,7 @@ function WebhookSection({ item }: { item: ApiIntegration }) {
 function WebhookLog({ integrationId, subscription }: { integrationId: string; subscription: WebhookSubscription }) {
   const api = useIntegrationsApi();
   const t = useT();
+  const apiError = useApiError();
   const toast = useToast();
   const [filter, setFilter] = useState("");
   const [rows, setRows] = useState<WebhookDelivery[] | null>(null);
@@ -391,7 +392,7 @@ function WebhookLog({ integrationId, subscription }: { integrationId: string; su
         {rows.map((row) => <li key={row.id}>
           <code>{row.event}</code>
           <small className="soft">{row.status} · {row.attempts} · {new Date(row.created_at).toLocaleString()}
-            {row.last_error ? ` · ${row.last_error}` : ""}</small>
+            {row.last_error ? ` · ${apiError(row.last_error)}` : ""}</small>
           {row.status !== "sent" && <button type="button" className="text-button" onClick={() => replay(row)}>
             {t("settings.integrations.webhookReplay")}</button>}
         </li>)}

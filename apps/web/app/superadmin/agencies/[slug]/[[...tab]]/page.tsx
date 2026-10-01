@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { Building2, LoaderCircle, UserRound } from "lucide-react";
 import { api, messageFrom } from "@/lib/api";
-import { useLanguage, useT } from "@/lib/i18n";
+import { useLanguage, useT, useApiError } from "@/lib/i18n";
 import { PlatformShell } from "@/components/platform-shell";
 import { Alert, EmptyState, PageHead } from "@/components/ui";
 import { SectionTabs } from "@/components/section-tabs";
@@ -415,6 +415,7 @@ function UsageTab({ agency }: { agency: PlatformAgency }) {
 
 function InfrastructureTab({ agency }: { agency: PlatformAgency }) {
   const t = useT();
+  const apiError = useApiError();
   const [clients, setClients] = useState<PlatformInfrastructureClient[] | null>(null);
 
   useEffect(() => {
@@ -449,7 +450,7 @@ function InfrastructureTab({ agency }: { agency: PlatformAgency }) {
                 {client.datastore ? (
                   <>
                     <StatusPill status={client.datastore.status} />
-                    {client.datastore.last_error && <small style={{ display: "block", color: "var(--red-text)" }}>{client.datastore.last_error}</small>}
+                    {client.datastore.last_error && <small style={{ display: "block", color: "var(--red-text)" }}>{apiError(client.datastore.last_error)}</small>}
                   </>
                 ) : t("platform.detail.none")}
               </td>

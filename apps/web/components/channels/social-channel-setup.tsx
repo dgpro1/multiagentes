@@ -9,7 +9,7 @@ import { AccountList } from "@/components/account-list";
 import { ApiError, messageFrom } from "@/lib/api";
 import { ChannelsScopeProvider, useBackToChannels, useChannelClient, useChannelsApi, useChannelsScope, type ChannelHrefs } from "@/components/channels/scope";
 import { accountName, accountTitle, rememberLine, requestedLine } from "@/lib/channels";
-import { useLanguage } from "@/lib/i18n";
+import { useLanguage, useApiError } from "@/lib/i18n";
 import type { Client, SocialChannel, SocialConfig, SocialHistoryJob, SocialProvider } from "@/types";
 
 /** A client's accounts on one provider. The page opens on the list of them;
@@ -22,6 +22,7 @@ export function SocialChannelSetup({ provider, apiBase, hrefFor, client }: { pro
 
 function SocialScreen({ provider }: { provider: SocialProvider }) {
   const { t } = useLanguage();
+  const apiError = useApiError();
   const { hrefFor, portal, modules } = useChannelsScope();
   const { api } = useChannelsApi();
   const { clientId: id, loadClient } = useChannelClient();
@@ -243,7 +244,7 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
       <section className="wa-panel"><div className="wa-panel-head"><span><Plug size={19} /></span><div><h2>{t("social.accountTitle")}</h2><p>{t("social.accountCopy")}</p></div></div>
         <p>{t(`social.${provider}.requirement`)}</p>
         {channel && <div className="social-account"><Icon size={24} /><div><strong>{channel.display_name || channel.username || channel.external_account_id}</strong>{channel.username && <small>@{channel.username.replace(/^@/, "")}</small>}<small>{channel.external_account_id}</small>{connected && <small>{t("social.connectedCopy")}</small>}</div></div>}
-        {channel?.last_error && <Alert>{channel.last_error}</Alert>}
+        {channel?.last_error && <Alert>{apiError(channel.last_error)}</Alert>}
         {pendingApproval && <p className="social-meta" role="status">{t("social.approvalPending")}</p>}
         {!config.oauth_ready && <p className="social-setup-notice">{t(portal ? "social.providerNotReadyPortal" : "social.providerNotReady")}</p>}
         <div className="wa-actions"><button className="button primary" onClick={authorize} disabled={!config.oauth_ready || !agentId || busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <Plug size={17} />} {t(channel ? "social.reconnect" : "social.connect")}</button>{channel && <button className="button secondary" disabled={busy} onClick={verifySaved}>{t(connected ? "social.verify" : "social.connectSaved")}</button>}{channel && <button className="button danger" onClick={() => setDisconnectOpen(true)} disabled={busy}><Power size={17} /> {t("social.disconnect")}</button>}</div>
@@ -254,7 +255,7 @@ function SocialScreen({ provider }: { provider: SocialProvider }) {
           </div>
         </Modal>
       </section>
-      {channel && (connected || historyJob) && <section className="wa-panel"><div className="wa-panel-head"><span><History size={19} /></span><div><h2>{t("social.historyTitle")}</h2><p>{t("social.importHistoryCopy")}</p></div></div>{provider === "instagram" && <p className="social-meta">{t("social.instagramHistoryLimit")}</p>}{historyJob && <div className="social-history-status" role="status"><strong>{t(historyJob.status === "pending" ? "social.historyPending" : historyJob.status === "processing" ? "social.historyProcessing" : historyJob.status === "completed" ? "social.historyCompleted" : "social.historyFailed")}</strong><small>{t("social.historyCounts", { conversations: historyJob.conversations_count, messages: historyJob.messages_count })}</small></div>}{historyJob?.last_error && <Alert>{historyJob.last_error}</Alert>}{historyPollFailed && <p className="social-meta" role="status">{t("social.historyPollError")}</p>}<div className="wa-actions"><button className="button secondary" onClick={importHistory} disabled={!connected || importing || busy}>{importing ? <LoaderCircle className="spin" size={17} /> : <History size={17} />} {t("social.importHistory")}</button></div></section>}
+      {channel && (connected || historyJob) && <section className="wa-panel"><div className="wa-panel-head"><span><History size={19} /></span><div><h2>{t("social.historyTitle")}</h2><p>{t("social.importHistoryCopy")}</p></div></div>{provider === "instagram" && <p className="social-meta">{t("social.instagramHistoryLimit")}</p>}{historyJob && <div className="social-history-status" role="status"><strong>{t(historyJob.status === "pending" ? "social.historyPending" : historyJob.status === "processing" ? "social.historyProcessing" : historyJob.status === "completed" ? "social.historyCompleted" : "social.historyFailed")}</strong><small>{t("social.historyCounts", { conversations: historyJob.conversations_count, messages: historyJob.messages_count })}</small></div>}{historyJob?.last_error && <Alert>{apiError(historyJob.last_error)}</Alert>}{historyPollFailed && <p className="social-meta" role="status">{t("social.historyPollError")}</p>}<div className="wa-actions"><button className="button secondary" onClick={importHistory} disabled={!connected || importing || busy}>{importing ? <LoaderCircle className="spin" size={17} /> : <History size={17} />} {t("social.importHistory")}</button></div></section>}
     </main><aside className="wa-side"><ShieldCheck size={22} /><h3>{t("social.rulesTitle")}</h3><p>{t("social.rulesCopy")}</p><hr /><h3>{t("social.historyTitle")}</h3><p>{t("social.historyCopy")}</p></aside></div>}
   </div>;
 }

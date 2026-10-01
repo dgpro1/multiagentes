@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { en } from "./en";
 import { es } from "./es";
+import { apiErrorInSpanish } from "./api-errors";
 import type { Dictionary } from "./en";
 
 export type Lang = "en" | "es";
@@ -111,4 +112,11 @@ export function useLanguage(): LanguageContextValue {
 // Convenience hook when only the translate function is needed.
 export function useT(): TranslateFn {
   return useLanguage().t;
+}
+
+/** An error the API stored on a record (a line's last failure, a sync error),
+ * shown in the screen's language like the errors of a failed request. */
+export function useApiError(): (message: string) => string {
+  const { lang } = useLanguage();
+  return useCallback((message: string) => (lang === "es" ? apiErrorInSpanish(message) : message), [lang]);
 }

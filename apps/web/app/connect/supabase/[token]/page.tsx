@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Database, LoaderCircle, XCircle } from "lucide-react";
 import { api, ApiError, messageFrom } from "@/lib/api";
-import { useT } from "@/lib/i18n";
+import { useT, useApiError } from "@/lib/i18n";
 import type { DataStoreConnectInfo, SupabaseProject } from "@/types";
 
 type Result = "authorized" | "denied" | "error" | "expired" | null;
@@ -14,6 +14,7 @@ type Result = "authorized" | "denied" | "error" | "expired" | null;
  * OpenLivery provisions its own role there. Everything rides on the token. */
 export default function SupabaseConnectPage() {
   const t = useT();
+  const apiError = useApiError();
   const { token } = useParams<{ token: string }>();
   const result = useSearchParams().get("result") as Result;
   const [info, setInfo] = useState<DataStoreConnectInfo | null>(null);
@@ -75,7 +76,7 @@ export default function SupabaseConnectPage() {
     <h1>{t("dataStore.connect.title")}</h1>
     <p>{t("dataStore.connect.intro", { agency: info.agency_name || "HunterAI", client: info.client_name })}</p>
     {banner && <div className="connect-banner connect-banner-warn"><AlertTriangle size={16} /> {banner}</div>}
-    {(error || info.last_error) && <div className="connect-banner connect-banner-warn"><AlertTriangle size={16} /> {error || info.last_error}</div>}
+    {(error || info.last_error) && <div className="connect-banner connect-banner-warn"><AlertTriangle size={16} /> {error || apiError(info.last_error ?? "")}</div>}
 
     {info.status === "authorized" || projects ? <div style={{ width: "100%", textAlign: "left" }}>
       <strong>{t("dataStore.connect.pickTitle")}</strong>
