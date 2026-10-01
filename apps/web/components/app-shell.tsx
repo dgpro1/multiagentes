@@ -193,17 +193,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className="sidebar-bottom">
-          {!collapsed && (
-            <div className="sidebar-assist-card">
-              <div className="sidebar-assist-head">
-                <Sparkles size={14} className="text-teal-600" />
-                <span>Agente Asistente</span>
-              </div>
-              <p className="sidebar-assist-desc">
-                Agentes en producción y operando al 100%.
-              </p>
-            </div>
-          )}
           <div className="sidebar-foot">
             <div className="user-avatar">{user.name.slice(0, 1).toUpperCase()}</div>
             <div className="user-meta"><strong>{user.name}</strong><span>{user.email}</span></div>
