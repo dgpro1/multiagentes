@@ -620,6 +620,17 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
                                 />
                                 <span className="stitch-time-tag">OUT</span>
                               </div>
+                              {ranges.length > 1 && (
+                                <button
+                                  type="button"
+                                  className="stitch-day-btn danger"
+                                  onClick={() => setDayHours(day, ranges.filter((_, at) => at !== index))}
+                                  title={t("professionals.form.removeRange")}
+                                  aria-label={t("professionals.form.removeRange")}
+                                >
+                                  <X size={14} />
+                                </button>
+                              )}
                             </div>
                           ))
                         )}
@@ -640,7 +651,7 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
                             <Plus size={14} />
                           </button>
                         )}
-                        {ranges.length > 0 && (
+                        {ranges.length === 1 && (
                           <button
                             type="button"
                             className="stitch-day-btn danger"
@@ -755,21 +766,34 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
                                 />
                                 <span className="stitch-time-tag">OUT</span>
                               </div>
+                              {ranges.length > 1 && (
+                                <button
+                                  type="button"
+                                  className="stitch-day-btn danger"
+                                  onClick={() => setDayHours(day, ranges.filter((_, at) => at !== index))}
+                                  title={t("professionals.form.removeRange")}
+                                  aria-label={t("professionals.form.removeRange")}
+                                >
+                                  <X size={14} />
+                                </button>
+                              )}
                             </div>
                           ))}
                         </div>
 
                         <div className="stitch-day-meta-actions">
                           <span className="stitch-hours-badge">{dayHours} hrs</span>
-                          <button
-                            type="button"
-                            className="stitch-day-btn danger"
-                            onClick={() => setDayHours(day, [])}
-                            title={t("professionals.form.removeRange")}
-                            aria-label={t("professionals.form.removeRange")}
-                          >
-                            <X size={14} />
-                          </button>
+                          {ranges.length === 1 && (
+                            <button
+                              type="button"
+                              className="stitch-day-btn danger"
+                              onClick={() => setDayHours(day, [])}
+                              title={t("professionals.form.removeRange")}
+                              aria-label={t("professionals.form.removeRange")}
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
