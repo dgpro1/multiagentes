@@ -370,7 +370,7 @@ function StoragePanel({ apiBase, storage, canManage, onChange, friendly }: {
             <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--ink)" }}>{t("resources.storage.title")}</h2>
             <span className={`mini-badge ${connected ? "human" : storage.status === "error" ? "danger" : "resolved"}`}>{statusLabel}</span>
           </div>
-          <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--muted)" }}>{t("resources.storage.subtitle")}</p>
+          <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--muted)" }}>{hostedByAgency ? t("resources.storage.hostedSubtitle") : t("resources.storage.subtitle")}</p>
         </div>
       </div>
       {canManage && connected && !hostedByAgency && <div className="header-actions">

@@ -232,4 +232,5 @@ Las escrituras que crean filas aceptan `Idempotency-Key: <uuid>`: la primera gua
 
 - [api-coverage.md](../api-coverage.md) — cada pantalla del panel y la ruta API detrás, vigilado por un test.
 - [Bandeja de entrada](inbox.md) — el lado panel de las conversaciones de arriba.
+- [Backend de la agencia](agency-backend.md) — el proyecto de Supabase y el bucket de R2 propios de una agencia para los datos y archivos de sus clientes.
 - [Reportes](reports.md) — el lado panel de costos, respuestas y operaciones.

@@ -232,4 +232,5 @@ Writes that create rows accept `Idempotency-Key: <uuid>`: the first request stor
 
 - [api-coverage.md](../api-coverage.md) — every panel screen and the API route behind it, enforced by a test.
 - [Inbox](inbox.md) — the panel side of the conversations above.
+- [Agency backend](agency-backend.md) — an agency's own Supabase project and R2 bucket for its clients' data and files.
 - [Reports](reports.md) — the panel side of costs, replies and operations.
