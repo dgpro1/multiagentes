@@ -7,8 +7,10 @@ an invitee opens are the only public part and live in
 import re
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel
 from sqlalchemy import Date, cast, func, select
 from sqlalchemy.orm import Session
 
@@ -366,6 +368,41 @@ def set_agency_features(
     db.commit()
     db.refresh(agency)
     return platform_service.agency_out(db, agency)
+
+
+class PlatformDataSwitch(BaseModel):
+    target: Literal["supabase", "agency", "central"]
+
+
+@router.post("/agencies/{agency_id}/clients/{client_id}/datastore/switch")
+async def agency_client_data_switch(
+    agency_id: uuid.UUID,
+    client_id: uuid.UUID,
+    payload: PlatformDataSwitch,
+    db: Session = Depends(get_db),
+    admin: PlatformAdmin = Depends(get_current_platform_admin),
+):
+    """Take a client's data to its own project, its agency's project or the
+    central database, on the platform's own authority: the same verified move
+    the agency makes from its panel, recorded in the audit log with where it
+    came from and where it went."""
+    from ..services import agency_backend, tenant_switch
+
+    agency = db.get(Agency, agency_id)
+    client = db.scalar(select(Client).where(Client.id == client_id, Client.agency_id == agency_id))
+    if agency is None or client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if payload.target == "agency":
+        agency_backend.ensure_module(agency)
+    before = client.data_mode
+    result = await tenant_switch.move(db, client, payload.target)
+    platform_service.record_audit(
+        db, admin, "client.data_moved", target_agency_id=agency.id,
+        resource_type="client", resource_id=str(client.id),
+        details={"from": before, "to": payload.target, "counts": result["counts"]},
+    )
+    db.commit()
+    return {"data_mode": result["data_mode"], "counts": result["counts"]}
 
 
 @router.get("/features", response_model=PlatformFeaturesOut)

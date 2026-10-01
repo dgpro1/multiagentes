@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from ..api_scopes import DATASTORE_MANAGE, DATASTORE_READ
 from ..database import get_db, use_client
 from ..deps import confined_client_id, get_current_user, require
-from ..models import Client, User
+from ..models import Agency, Client, User
 from ..ratelimit import storage_connect_rate_limit
 from ..services import data_store
 
@@ -31,7 +31,16 @@ class DataStoreOut(BaseModel):
     status: Literal["none", "pending", "authorized", "connected", "error"]
     oauth_ready: bool
     recommended_region: str = ""
-    data_mode: Literal["central", "supabase", "switching"] = "central"
+    data_mode: Literal["central", "supabase", "agency", "switching"] = "central"
+    # Whether the client may be moved into the agency's own Supabase project:
+    # the platform allowed the module and the agency connected its project.
+    agency_backend_ready: bool = False
+    # The client's schema in the agency's project, once it has one. ``retired_at``
+    # is set while the client is elsewhere and the schema is only a safety copy.
+    agency_schema_status: Literal["none", "pending", "connected", "error"] = "none"
+    agency_schema_version: str = ""
+    agency_schema_retired_at: datetime | None = None
+    agency_schema_last_error: str | None = None
     schema_version: str = ""
     schema_head: str = ""
     project_ref: str = ""
@@ -69,7 +78,7 @@ class SupabaseProjectOut(BaseModel):
 
 
 class SwitchRequest(BaseModel):
-    target: Literal["supabase", "central"]
+    target: Literal["supabase", "agency", "central"]
 
 
 class SwitchOut(DataStoreOut):
@@ -78,6 +87,21 @@ class SwitchOut(DataStoreOut):
 
 class ProjectChoice(BaseModel):
     ref: str = Field(min_length=20, max_length=20)
+
+
+def _out(db: Session, client: Client) -> dict:
+    from ..services import agency_backend
+
+    agency = db.get(Agency, client.agency_id)
+    placed = client.agency_schema
+    return {
+        **data_store.out(client),
+        "agency_backend_ready": agency_backend.ready(db, agency),
+        "agency_schema_status": placed.status if placed else "none",
+        "agency_schema_version": placed.schema_version if placed else "",
+        "agency_schema_retired_at": placed.retired_at if placed else None,
+        "agency_schema_last_error": placed.last_error if placed else None,
+    }
 
 
 def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
@@ -93,7 +117,7 @@ def _client(db: Session, user: User, client_id: uuid.UUID) -> Client:
 
 @router.get("/clients/{client_id}/datastore", response_model=DataStoreOut, dependencies=[Depends(require(DATASTORE_READ))])
 def client_data_store(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return data_store.out(_client(db, user, client_id))
+    return _out(db, _client(db, user, client_id))
 
 
 @router.post("/clients/{client_id}/datastore/link", response_model=DataStoreLinkOut, dependencies=[Depends(require(DATASTORE_MANAGE))])
@@ -106,7 +130,7 @@ def client_data_store_link(client_id: uuid.UUID, db: Session = Depends(get_db), 
 async def client_data_store_check(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     await data_store.recheck(db, client)
-    return data_store.out(client)
+    return _out(db, client)
 
 
 @router.post("/clients/{client_id}/datastore/schema", response_model=DataStoreOut, dependencies=[Depends(require(DATASTORE_MANAGE))])
@@ -116,32 +140,34 @@ def client_data_store_schema(client_id: uuid.UUID, db: Session = Depends(get_db)
 
     client = _client(db, user, client_id)
     tenant_schema.upgrade(db, client)
-    return data_store.out(client)
+    return _out(db, client)
 
 
 @router.post("/clients/{client_id}/datastore/switch", response_model=SwitchOut, dependencies=[Depends(require(DATASTORE_MANAGE))])
 async def client_data_store_switch(
     client_id: uuid.UUID, payload: SwitchRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    """Move the client's data to its own database, or back to the central one.
-    The client's channels pause for the few seconds the verified copy takes;
-    what arrives meanwhile is kept and processed right after."""
-    from ..services import tenant_switch
+    """Move the client's data to its own database, to its agency's project, or
+    back to the central one, from wherever it is now. The client's channels
+    pause for the few seconds the verified copy takes; what arrives meanwhile
+    is kept and processed right after."""
+    from ..services import agency_backend, tenant_switch
 
     client = _client(db, user, client_id)
-    if payload.target == "supabase":
-        result = await tenant_switch.to_own_database(db, client)
-    else:
-        result = await tenant_switch.back_to_central(db, client)
+    if payload.target == "agency":
+        # Leaving the agency's project is always allowed; entering it needs the
+        # module and the agency's connection.
+        agency_backend.ensure_module(user.agency)
+    result = await tenant_switch.move(db, client, payload.target)
     db.refresh(client)
-    return {**data_store.out(client), "counts": result["counts"]}
+    return {**_out(db, client), "counts": result["counts"]}
 
 
 @router.delete("/clients/{client_id}/datastore", response_model=DataStoreOut, dependencies=[Depends(require(DATASTORE_MANAGE))])
 def client_data_store_disconnect(client_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
     data_store.disconnect(db, client)
-    return data_store.out(client)
+    return _out(db, client)
 
 
 # The public link (no session: opened by the business owner) and Supabase's OAuth callback.

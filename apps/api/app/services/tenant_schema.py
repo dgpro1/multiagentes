@@ -64,38 +64,49 @@ logger = logging.getLogger(__name__)
 
 def upgrade_all(db: Session) -> list:
     """Bring every connected client database to the latest revision, one at a
-    time; returns the ids of clients using their own database that were
-    brought up to date (their kept webhooks can be replayed). A failure is
-    recorded on that client's connection and the rest go on."""
+    time; returns the ids of clients using their own database (their own
+    project or a schema of their agency's) that were brought up to date, so
+    their kept webhooks can be replayed. A failure is recorded on that client's
+    connection and the rest go on."""
     from sqlalchemy import select
 
-    from ..models import ClientDataStore
+    from ..database import OWN_DATABASE_MODES
+    from ..models import ClientAgencySchema, ClientDataStore
 
     updated = []
     stores = list(db.scalars(select(ClientDataStore).where(ClientDataStore.status == "connected")))
+    stores += list(db.scalars(
+        select(ClientAgencySchema).where(ClientAgencySchema.status == "connected", ClientAgencySchema.retired_at.is_(None))
+    ))
     for store in stores:
         if store.schema_version == head():
             continue
         client = db.get(Client, store.client_id)
         try:
-            upgrade(db, client)
-            if client.data_mode == "supabase":
+            upgrade_store(db, store)
+            if client.data_mode in OWN_DATABASE_MODES:
                 updated.append(client.id)
-        except Exception:  # noqa: BLE001 - recorded on the store by upgrade()
+        except Exception:  # noqa: BLE001 - recorded on the store by upgrade_store()
             logger.warning("Tenant schema update failed for client %s", store.client_id)
             db.rollback()
     return updated
 
 
 def upgrade(db: Session, client: Client) -> str:
-    """Bring the client's own database to the latest tenant revision."""
-    from .data_store import SCHEMA
-
+    """Bring the client's own Supabase database to the latest tenant revision."""
     store = client.data_store
     if not store or store.status != "connected" or not store.encrypted_dsn:
         raise HTTPException(status_code=409, detail="Connect the client's Supabase project first")
+    return upgrade_store(db, store)
+
+
+def upgrade_store(db: Session, store) -> str:
+    """Bring the database a connection record points at (a client's own project
+    or its schema in the agency's) to the latest tenant revision."""
+    if not store or store.status != "connected" or not store.encrypted_dsn:
+        raise HTTPException(status_code=409, detail="This client's database is not connected")
     try:
-        upgrade_engine(tenant_engine(decrypt_secret(store.encrypted_dsn), SCHEMA))
+        upgrade_engine(tenant_engine(decrypt_secret(store.encrypted_dsn), store.schema_name))
     except Exception as exc:  # noqa: BLE001 - reported to the panel, never the DSN
         store.last_error = f"The schema update failed: {type(exc).__name__}"
         db.commit()

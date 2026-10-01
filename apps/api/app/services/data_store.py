@@ -106,7 +106,7 @@ def disconnect(db: Session, client: Client) -> None:
     store = client.data_store
     if not store:
         return
-    if client.data_mode != "central":
+    if client.data_mode in ("supabase", "switching"):
         # Its conversations live there: forgetting the credentials would cut the client off from them.
         raise HTTPException(status_code=409, detail="Move the client's data back to HunterAI before disconnecting its database")
     store.encrypted_refresh_token = store.encrypted_access_token = store.encrypted_dsn = None
@@ -172,6 +172,10 @@ async def finish_connection(db: Session, raw_state: str, code: str | None, error
         return f"{_frontend()}/connect/supabase/expired?result=expired"
     state.used_at = now_utc()
     db.commit()
+    if state.agency_data_store_id is not None:
+        from . import agency_backend
+
+        return await agency_backend.finish_connection(db, state, code, error)
     back = f"{_frontend()}/connect/supabase/{state.connect_token}"
     store = db.get(ClientDataStore, state.data_store_id)
     if not store or store.connect_token != state.connect_token or store.connect_expires_at <= now_utc():
@@ -252,14 +256,14 @@ ALTER ROLE {ROLE} SET search_path = {SCHEMA};
 """
 
 
-def build_dsn(ref: str, pooler: dict, password: str) -> str:
+def build_dsn(ref: str, pooler: dict, password: str, role: str = ROLE) -> str:
     host = str(pooler.get("db_host") or "").strip().lower()
     if not host.endswith(_ALLOWED_HOSTS):
         raise HTTPException(status_code=502, detail="Supabase returned an unexpected database host")
     port = int(pooler.get("db_port") or 6543)
     name = str(pooler.get("db_name") or "postgres")
     # The shared pooler routes by "role.project"; a direct host takes the bare role.
-    user = f"{ROLE}.{ref}" if host.endswith(".pooler.supabase.com") else ROLE
+    user = f"{role}.{ref}" if host.endswith(".pooler.supabase.com") else role
     return f"postgresql://{quote(user)}:{password}@{host}:{port}/{quote(name)}?{urlencode({'sslmode': 'require'})}"
 
 

@@ -1,6 +1,6 @@
 // Which modules an agency may use. The platform switches each one per agency
-// (the Plan tab of the platform panel); every module that exists today defaults
-// to on. The catalog below mirrors apps/api/app/agency_features.py: a test
+// (the Plan tab of the platform panel); every module that existed when this
+// landed defaults to on, and agency_backend ships off. The catalog below mirrors apps/api/app/agency_features.py: a test
 // compares the two lists, so change both together.
 
 export const AGENCY_FEATURES = [
@@ -28,6 +28,7 @@ export const AGENCY_FEATURES = [
   { key: "reports", default: true },
   { key: "integrations", default: true },
   { key: "branding", default: true },
+  { key: "agency_backend", default: false },
 ] as const;
 
 export type AgencyFeature = (typeof AGENCY_FEATURES)[number]["key"];
@@ -37,7 +38,7 @@ export const AGENCY_PRESETS: Record<"starter" | "pro" | "full", readonly AgencyF
     "clients", "agents", "inbox", "playground", "teams", "templates", "canned",
     "channels.webchat", "pipeline", "calendar", "reports", "knowledge",
   ],
-  pro: AGENCY_FEATURES.filter((entry) => entry.key !== "storage" && entry.key !== "data_store").map((entry) => entry.key),
+  pro: AGENCY_FEATURES.filter((entry) => entry.key !== "storage" && entry.key !== "data_store" && entry.key !== "agency_backend").map((entry) => entry.key),
   full: AGENCY_FEATURES.map((entry) => entry.key),
 };
 

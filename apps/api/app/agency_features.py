@@ -6,8 +6,8 @@ when the agency's module is on AND the client's own switch is on. The web app
 keeps a typed mirror in ``apps/web/lib/agency-features.ts`` and a test keeps
 the two lists equal.
 
-Every module that exists today defaults to on, so no existing agency changes
-behaviour when this lands. An agency stores only what the platform changed;
+Every module that existed when this landed defaults to on, so no existing
+agency changed behaviour; a module added later may ship off (``agency_backend``). An agency stores only what the platform changed;
 a missing key reads as its default, and presets are named snapshots applied
 at creation or from the panel.
 """
@@ -48,6 +48,10 @@ CATALOG: tuple[tuple[str, bool], ...] = (
     ("reports", True),
     ("integrations", True),
     ("branding", True),
+    # The one module that ships off: the agency looks after its clients' data
+    # in its own Supabase project (app/services/agency_backend.py), which only
+    # the platform owner can allow.
+    ("agency_backend", False),
 )
 
 KEYS: tuple[str, ...] = tuple(key for key, _ in CATALOG)
@@ -86,7 +90,7 @@ PRESETS: dict[str, tuple[str, ...]] = {
         "clients", "agents", "inbox", "playground", "teams", "templates", "canned",
         "channels.webchat", "pipeline", "calendar", "reports", "knowledge",
     ),
-    "pro": tuple(key for key in KEYS if key not in ("storage", "data_store")),
+    "pro": tuple(key for key in KEYS if key not in ("storage", "data_store", "agency_backend")),
     "full": KEYS,
 }
 

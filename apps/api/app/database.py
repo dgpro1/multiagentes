@@ -66,6 +66,23 @@ class CrossPlaneQuery(RuntimeError):
 ACTIVE_CLIENT_KEY = "hunterai_data_client"
 DEFAULT_CLIENT_KEY = "hunterai_default_data_client"
 
+# The two places outside the central database where a client's data may live:
+# its own Supabase project, or a schema of its agency's project.
+OWN_DATABASE_MODES = ("supabase", "agency")
+
+
+def store_of(client):
+    """The record holding the connection to where ``client``'s data lives now
+    (its own Supabase project, or its schema in the agency's), or None while it
+    is in the central database. Both kinds answer to ``encrypted_dsn``,
+    ``schema_name``, ``schema_version``, ``status`` and ``last_error``."""
+    mode = getattr(client, "data_mode", "central") if client is not None else "central"
+    if mode == "supabase":
+        return client.data_store
+    if mode == "agency":
+        return client.agency_schema
+    return None
+
 
 class DataMoving(HTTPException):
     """The client's data is being moved between databases (a switch in
@@ -94,15 +111,16 @@ def mark_unreachable(session: Session, client_id) -> None:
     """Record, for the panel, that a client's own database stopped answering."""
     from sqlalchemy import update
 
-    from .models import ClientDataStore, now_utc
+    from .models import ClientAgencySchema, ClientDataStore, now_utc
 
     session.rollback()
-    session.execute(
-        update(ClientDataStore).where(ClientDataStore.client_id == client_id).values(
-            last_error="The client's database did not answer; messages are kept and will be processed when it is back",
-            last_checked_at=now_utc(),
+    for table in (ClientDataStore, ClientAgencySchema):
+        session.execute(
+            update(table).where(table.client_id == client_id).values(
+                last_error="The client's database did not answer; messages are kept and will be processed when it is back",
+                last_checked_at=now_utc(),
+            )
         )
-    )
     session.commit()
 
 
@@ -117,7 +135,7 @@ def not_moving(session: Session, client_column):
     if session.info.get(ACTIVE_CLIENT_KEY) is None:
         # Sweeping the central database: clients whose data lives in their own
         # are swept there, never here (defence in depth; they keep no rows here).
-        ids += list(session.scalars(select(Client.id).where(Client.data_mode == "supabase")))
+        ids += list(session.scalars(select(Client.id).where(Client.data_mode.in_(OWN_DATABASE_MODES))))
     return client_column.notin_(ids) if ids else true()
 
 
@@ -230,8 +248,8 @@ def use_client(session: Session, client) -> None:
     contacts or messages. A central client clears the mark."""
     if client is not None and getattr(client, "data_mode", "central") == "switching":
         raise DataMoving(client.id)
-    store = getattr(client, "data_store", None) if client is not None else None
-    if client is None or getattr(client, "data_mode", "central") != "supabase" or not store or not store.encrypted_dsn:
+    store = store_of(client)
+    if store is None or not store.encrypted_dsn:
         session.info.pop(ACTIVE_CLIENT_KEY, None)
         # Only the test suite sets a default (sessions it opens itself; see conftest).
         if DEFAULT_CLIENT_KEY in session.info:
@@ -245,9 +263,10 @@ def use_client(session: Session, client) -> None:
         # kept and replayed then).
         raise DataMoving(client.id)
     from .security import decrypt_secret
-    from .services.data_store import SCHEMA
 
-    session.info[ACTIVE_CLIENT_KEY] = {"client_id": client.id, "dsn": decrypt_secret(store.encrypted_dsn), "schema": SCHEMA}
+    session.info[ACTIVE_CLIENT_KEY] = {
+        "client_id": client.id, "dsn": decrypt_secret(store.encrypted_dsn), "schema": store.schema_name,
+    }
 
 
 def new_client_session(client_id):
@@ -262,13 +281,14 @@ def new_client_session(client_id):
 
 
 def own_database_clients(session: Session, *, agency_id=None, client_id=None) -> list:
-    """Clients whose data lives in their own database right now (optionally of
-    one agency, or just one client)."""
+    """Clients whose data lives outside the central database right now, in
+    their own project or the agency's (optionally of one agency, or just one
+    client)."""
     from sqlalchemy import select
 
     from .models import Client
 
-    query = select(Client).where(Client.data_mode == "supabase")
+    query = select(Client).where(Client.data_mode.in_(OWN_DATABASE_MODES))
     if agency_id is not None:
         query = query.where(Client.agency_id == agency_id)
     if client_id is not None:

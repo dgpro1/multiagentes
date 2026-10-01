@@ -44,22 +44,21 @@ def _reference_map() -> dict[str, list[tuple[str, str]]]:
 
 
 def _clear_in_client_database(mapper, connection, target) -> None:
-    from ..database import tenant_engine
+    from ..database import store_of, tenant_engine
     from ..models import Client
     from ..security import decrypt_secret
-    from .data_store import SCHEMA
 
     client_id = getattr(target, "client_id", None)
     session = object_session(target)
     if client_id is None or session is None:
         return
     client = session.get(Client, client_id)
-    store = client.data_store if client is not None else None
-    if client is None or client.data_mode != "supabase" or not store or not store.encrypted_dsn:
+    store = store_of(client)
+    if store is None or not store.encrypted_dsn:
         return
     refs = _REFS.get(mapper.local_table.name, [])
     try:
-        with tenant_engine(decrypt_secret(store.encrypted_dsn), SCHEMA).begin() as conn:
+        with tenant_engine(decrypt_secret(store.encrypted_dsn), store.schema_name).begin() as conn:
             for table, column in refs:
                 conn.execute(text(f'UPDATE {table} SET "{column}" = NULL WHERE "{column}" = :id'), {"id": target.id})
     except Exception:  # noqa: BLE001 - a dangling id is harmless; never block the delete

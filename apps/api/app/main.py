@@ -11,6 +11,7 @@ from .config import get_settings
 from .database import each_database, new_session
 from .services.conversation_state import resolve_idle_ai_conversations
 from .routers import (    agency,
+    agency_backend,
     agent_tools,
     agents,
     api_v1,
@@ -247,6 +248,7 @@ async def v1_validation_exception_handler(request: Request, exc: RequestValidati
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(agency.router, prefix="/api")
+app.include_router(agency_backend.router, prefix="/api")
 app.include_router(clients.router, prefix="/api")
 app.include_router(channel_quotas.router, prefix="/api")
 app.include_router(industries.router, prefix="/api")

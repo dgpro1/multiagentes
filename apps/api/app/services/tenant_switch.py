@@ -1,8 +1,10 @@
-"""Moving a client's data between the central database and its own.
+"""Moving a client's data between the central database and another place.
 
-``to_own_database`` copies the client's data plane into its connected
-Supabase project and switches it there; ``back_to_central`` does the reverse
-with whatever the client's database holds by then. While either runs the
+That place is the client's own Supabase project (``to_own_database``) or a
+schema of its agency's project (``to_agency``). ``move`` goes from any place to
+any other, through the central database when neither end is central:
+``back_to_central`` copies everything back from wherever the client's data
+lives by then, and the second hop copies it out again. While any of them runs the
 client is "switching": requests answer 503 (``database.DataMoving``), sweeps
 skip it, and webhooks are kept in ``hunterai_pending_inbound`` and replayed
 here once the move ends, whichever way it ends.
@@ -24,7 +26,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..database import new_session, tenant_engine, use_client
+from ..database import OWN_DATABASE_MODES, new_session, store_of, tenant_engine, use_client
 from ..models import Client, PendingInbound, now_utc
 from ..security import decrypt_secret
 from . import tenant_schema
@@ -45,13 +47,20 @@ def register_replayer(source: str, replay: Replayer) -> None:
     _replayers[source] = replay
 
 
-def _client_engine(client: Client):
-    from .data_store import SCHEMA
-
-    store = client.data_store
+def _engine(store, missing: str):
     if not store or store.status != "connected" or not store.encrypted_dsn:
-        raise HTTPException(status_code=409, detail="Connect the client's Supabase project first")
-    return tenant_engine(decrypt_secret(store.encrypted_dsn), SCHEMA)
+        raise HTTPException(status_code=409, detail=missing)
+    return tenant_engine(decrypt_secret(store.encrypted_dsn), store.schema_name)
+
+
+def _client_engine(client: Client):
+    """The engine of the client's own Supabase project (connected, possibly not in use yet)."""
+    return _engine(client.data_store, "Connect the client's Supabase project first")
+
+
+def _current_engine(client: Client):
+    """The engine of wherever the client's data lives right now."""
+    return _engine(store_of(client), "This client's database is not connected")
 
 
 def _mark(db: Session, client: Client, mode: str) -> None:
@@ -96,8 +105,6 @@ async def retry_kept() -> int:
     answering, once it answers again. Run periodically from main.py."""
     from sqlalchemy import text
 
-    from ..models import ClientDataStore
-
     with new_session() as db:
         waiting = list(db.scalars(
             select(PendingInbound.client_id).where(PendingInbound.processed_at.is_(None)).distinct()
@@ -106,14 +113,14 @@ async def retry_kept() -> int:
     for client_id in waiting:
         with new_session() as db:
             client = db.get(Client, client_id)
-            if client is None or client.data_mode != "supabase":
+            if client is None or client.data_mode not in OWN_DATABASE_MODES:
                 continue  # a switch in progress replays its own when it ends
             try:
-                with _client_engine(client).connect() as conn:
+                with _current_engine(client).connect() as conn:
                     conn.execute(text("SELECT 1"))
             except Exception:  # noqa: BLE001 - still down; next sweep
                 continue
-            store = db.scalar(select(ClientDataStore).where(ClientDataStore.client_id == client_id))
+            store = store_of(client)
             if store is not None:
                 store.last_error = None
                 store.last_checked_at = now_utc()
@@ -122,11 +129,11 @@ async def retry_kept() -> int:
     return replayed
 
 
-async def to_own_database(db: Session, client: Client) -> dict:
+async def _move_in(db: Session, client: Client, mode: str, store, engine) -> dict:
+    """Copy the client's central data into ``engine`` and switch it to ``mode``.
+    Whichever way it ends the client's kept webhooks are replayed."""
     if client.data_mode != "central":
         raise HTTPException(status_code=409, detail="The client is not using the central database")
-    store = client.data_store
-    engine = _client_engine(client)
     if (store.schema_version or "") != tenant_schema.head():
         raise HTTPException(status_code=409, detail="Prepare the client's database first (its tables are not up to date)")
     _mark(db, client, "switching")
@@ -147,7 +154,7 @@ async def to_own_database(db: Session, client: Client) -> dict:
         # same transaction that switches the mode.
         use_client(db, None)
         delete_rows(central_connection(db), _central, client.id)
-        client.data_mode = "supabase"
+        client.data_mode = mode
         db.commit()
     except Exception:
         db.rollback()
@@ -156,13 +163,35 @@ async def to_own_database(db: Session, client: Client) -> dict:
         await replay_pending(client.id)
         raise
     await replay_pending(client.id)
-    return {"data_mode": "supabase", "counts": result.counts}
+    return {"data_mode": mode, "counts": result.counts}
+
+
+async def to_own_database(db: Session, client: Client) -> dict:
+    if client.data_mode != "central":
+        raise HTTPException(status_code=409, detail="The client is not using the central database")
+    engine = _client_engine(client)
+    return await _move_in(db, client, "supabase", client.data_store, engine)
+
+
+async def to_agency(db: Session, client: Client) -> dict:
+    """Move a central client into a schema of its agency's Supabase project,
+    creating the schema and its role first if the client has none yet."""
+    from . import agency_backend
+
+    if client.data_mode != "central":
+        raise HTTPException(status_code=409, detail="The client is not using the central database")
+    schema = await agency_backend.provision_client(db, client)
+    result = await _move_in(db, client, "agency", schema, _engine(schema, "This client's agency schema is not ready"))
+    schema.retired_at = None
+    db.commit()
+    return result
 
 
 async def back_to_central(db: Session, client: Client) -> dict:
-    if client.data_mode != "supabase":
-        raise HTTPException(status_code=409, detail="The client is not using its own database")
-    engine = _client_engine(client)
+    if client.data_mode not in OWN_DATABASE_MODES:
+        raise HTTPException(status_code=409, detail="The client's data is already in the central database")
+    leaving = client.data_mode
+    engine = _current_engine(client)
     _mark(db, client, "switching")
     try:
         await asyncio.sleep(SETTLE_SECONDS)
@@ -170,9 +199,36 @@ async def back_to_central(db: Session, client: Client) -> dict:
         db.commit()
     except Exception:
         db.rollback()
-        _mark(db, client, "supabase")
+        _mark(db, client, leaving)
         await replay_pending(client.id)
         raise
     _mark(db, client, "central")
+    if leaving == "agency" and client.agency_schema is not None:
+        # The rows stay in the agency's schema as a safety copy until it is dropped.
+        client.agency_schema.retired_at = now_utc()
+        db.commit()
     await replay_pending(client.id)
     return {"data_mode": "central", "counts": result.counts}
+
+
+async def move(db: Session, client: Client, target: str) -> dict:
+    """Take the client's data to ``target`` ("central", "supabase" or "agency")
+    from wherever it is. Between two places that are not the central database
+    it goes through it; if the second hop fails the client simply stays central,
+    with all its data."""
+    if target not in ("central", "supabase", "agency"):
+        raise HTTPException(status_code=422, detail="Unknown data location")
+    if client.data_mode == "switching":
+        raise HTTPException(status_code=409, detail="This client's data is already being moved")
+    if client.data_mode == target:
+        raise HTTPException(status_code=409, detail="The client's data is already there")
+    result: dict = {"data_mode": client.data_mode, "counts": {}}
+    if client.data_mode in OWN_DATABASE_MODES:
+        result = await back_to_central(db, client)
+        if target == "central":
+            return result
+    if target == "supabase":
+        return await to_own_database(db, client)
+    if target == "agency":
+        return await to_agency(db, client)
+    return result

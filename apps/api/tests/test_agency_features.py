@@ -31,7 +31,12 @@ def test_the_migration_writes_out_the_same_defaults_the_catalog_has():
     match = re.search(r"DEFAULTS = \(([^)]*)\)", source, re.DOTALL)
     assert match, "the migration must write its defaults out as a literal"
     literal = "".join(re.findall(r"'([^']*)'", match.group(1)))
-    assert json.loads(literal) == dict(agency_features.CATALOG)
+    written = json.loads(literal)
+    # A module added after the migration is not in its literal: an agency's row
+    # simply lacks it and reads the catalog default. What the migration did
+    # write must still agree with the catalog.
+    catalog = dict(agency_features.CATALOG)
+    assert written and all(catalog.get(key) == value for key, value in written.items())
 
 
 def test_the_presets_only_offer_real_modules():

@@ -178,11 +178,15 @@ class Client(Base):
         back_populates="client", cascade="all, delete-orphan", order_by="ClientResource.position, ClientResource.created_at"
     )
     # Where this client's data plane lives (see app/data_plane.py): "central",
-    # "supabase" for its own connected project, or "switching" while
+    # "supabase" for its own connected project, "agency" for a schema of the
+    # agency's own Supabase project, or "switching" while
     # services/tenant_switch.py moves it (requests wait; webhooks are kept in
     # hunterai_pending_inbound and replayed).
     data_mode: Mapped[str] = mapped_column(String(20), default="central", server_default="central")
     data_store: Mapped["ClientDataStore | None"] = relationship(
+        back_populates="client", cascade="all, delete-orphan", uselist=False
+    )
+    agency_schema: Mapped["ClientAgencySchema | None"] = relationship(
         back_populates="client", cascade="all, delete-orphan", uselist=False
     )
 
@@ -1457,6 +1461,74 @@ class ClientDataStore(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
     client: Mapped[Client] = relationship(back_populates="data_store")
 
+    @property
+    def schema_name(self) -> str:
+        from .services.data_store import SCHEMA
+
+        return SCHEMA
+
+
+class AgencyDataStore(Base):
+    """The agency's own Supabase project, shared by the clients whose data the
+    agency looks after (``Client.data_mode == "agency"``).
+
+    Connected once by an agency administrator through Supabase OAuth. Nothing
+    here is a database login: OpenLivery creates one role and one schema per
+    client through the Management API (see ``ClientAgencySchema``), so what this
+    row keeps is the OAuth grant (encrypted) and which project it points at.
+    Disconnecting forgets the grant and never touches the agency's project.
+    """
+
+    __tablename__ = "agency_data_stores"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), unique=True)
+    provider: Mapped[str] = mapped_column(String(20), default="supabase", server_default="supabase")
+    # pending: nothing yet; authorized: OAuth done, no project chosen;
+    # connected: project chosen and reachable; error: the last step failed.
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    project_ref: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    project_name: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    region: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    encrypted_refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+class ClientAgencySchema(Base):
+    """One client's place inside the agency's Supabase project: a schema of its
+    own and a database role that may use that schema and nothing else, so a
+    mistake in the application cannot read another client's rows.
+
+    The connection string of that role is kept encrypted, like a client's own
+    ``ClientDataStore``; the columns the move and upgrade code reads (``status``,
+    ``encrypted_dsn``, ``schema_version``, ``last_error``) carry the same
+    meaning there. ``retired_at`` is set when the client leaves for another
+    mode: the schema stays, read-only for nobody, until it is dropped.
+    """
+
+    __tablename__ = "client_agency_schemas"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    agency_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agencies.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), unique=True)
+    schema_name: Mapped[str] = mapped_column(String(63))
+    role_name: Mapped[str] = mapped_column(String(63))
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    encrypted_dsn: Mapped[str | None] = mapped_column(Text, nullable=True)
+    db_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    schema_version: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+    client: Mapped[Client] = relationship(back_populates="agency_schema")
+
 
 class PendingInbound(Base):
     """A webhook that arrived while its client's data was moving between
@@ -1481,7 +1553,13 @@ class DataStoreOAuthState(Base):
 
     __tablename__ = "data_store_oauth_states"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    data_store_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("client_data_stores.id", ondelete="CASCADE"), index=True)
+    # Exactly one of the two is set: a client's share link, or the agency's own connection.
+    data_store_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("client_data_stores.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    agency_data_store_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agency_data_stores.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     connect_token: Mapped[str] = mapped_column(String(64))
     encrypted_verifier: Mapped[str] = mapped_column(Text)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
