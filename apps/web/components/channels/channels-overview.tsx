@@ -6,7 +6,7 @@
 
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
-import { ExternalLink, Eye, EyeOff, Globe2, MessageCircle, QrCode, Radio, Send } from "lucide-react";
+import { ExternalLink, Eye, EyeOff, Globe2, MessageCircle, QrCode, Radio } from "lucide-react";
 import { moduleAllowed, moduleForChannel } from "@/lib/agency-modules";
 import { ApiError, messageFrom } from "@/lib/api";
 import { accountName, ChannelIcon } from "@/lib/channels";
@@ -350,43 +350,6 @@ function ChannelsOverview({
           );
         })}
 
-        {/* Telegram Bot Tile (Completing the 3x2 Stitch layout) */}
-        {clientData && (
-          <div className="stitch-channel-card dashed">
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div className="stitch-card-head">
-                <div className="stitch-card-identity">
-                  <div className="stitch-channel-icon-box">
-                    <Send size={18} />
-                  </div>
-                  <h3 className="stitch-card-title">Telegram Bot</h3>
-                </div>
-                <span className="stitch-badge disconnected">
-                  Desconectado
-                </span>
-              </div>
-
-              <div className="stitch-visibility-row disabled">
-                <div className="stitch-visibility-left muted">
-                  <EyeOff size={15} />
-                  <span>Visible en portal</span>
-                </div>
-                <label className="stitch-switch">
-                  <input type="checkbox" disabled />
-                  <span className="stitch-slider" />
-                </label>
-              </div>
-            </div>
-
-            <div className="stitch-card-foot">
-              <span className="stitch-card-detail">BotFather API</span>
-              <button type="button" className="stitch-config-btn disabled">
-                <span>{t("clients.detail.configure")}</span>
-                <ExternalLink size={13} />
-              </button>
-            </div>
-          </div>
-        )}
       </section>
     </div>
   );

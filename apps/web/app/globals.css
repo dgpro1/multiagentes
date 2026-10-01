@@ -5278,9 +5278,6 @@ select.lead-input { padding-right: 22px; cursor: pointer; }
   transform: translateY(-2px);
   box-shadow: 0 10px 24px -4px rgba(24, 24, 27, 0.08);
 }
-.stitch-channel-card.dashed {
-  border-style: dashed;
-}
 
 /* Cabecera Tarjeta */
 .stitch-card-head {
@@ -5353,10 +5350,6 @@ select.lead-input { padding-right: 22px; cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-.stitch-visibility-row.disabled {
-  opacity: 0.5;
-  pointer-events: none;
 }
 .stitch-visibility-left {
   display: flex;
@@ -5471,11 +5464,6 @@ select.lead-input { padding-right: 22px; cursor: pointer; }
   background: var(--surface-3);
   border-color: var(--line-strong);
   color: var(--ink);
-}
-.stitch-config-btn.disabled {
-  opacity: 0.6;
-  cursor: default;
-  pointer-events: none;
 }
 
 /* Cabecera del Cliente Stitch */
