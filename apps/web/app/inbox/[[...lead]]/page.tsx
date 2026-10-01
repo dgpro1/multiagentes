@@ -3,9 +3,10 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Ban, Inbox as InboxIcon, LoaderCircle, MapPin, Reply, Search, UserRound, X } from "lucide-react";
-import { Modal, PageHead } from "@/components/ui";
-import { AttachButton, PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
+import { ArrowLeft, Ban, Bot, Calendar as CalendarIcon, Check, ChevronDown, Clock, Filter, Inbox as InboxIcon, LoaderCircle, MapPin, Paperclip, Plus, Reply, Search, Smile, UserRound, X } from "lucide-react";
+import { EmptyState, Modal, PageHead } from "@/components/ui";
+import { EMOJIS } from "@/components/client-inbox";
+import { PendingAttachment, RecordButton, useFileDrop, type GalleryImage } from "@/components/attachments";
 import { LocationComposer } from "@/components/location-composer";
 import { LeadCard } from "@/components/lead-card/lead-card";
 import { MessageThread } from "@/components/messages/message-thread";
@@ -388,6 +389,31 @@ export default function InboxPage() {
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [variablesQuery, setVariablesQuery] = useState("");
   const [draft, setDraft] = useState("");
+  // The filter popover, its two pickers and the composer's "+" menu, as on a client's own inbox.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [picker, setPicker] = useState<null | "agent" | "channel">(null);
+  const [composerMenu, setComposerMenu] = useState<null | "plus" | "emoji">(null);
+  const filterRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!filtersOpen && !composerMenu) return;
+    const close = (event: PointerEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key === "Escape") { setFiltersOpen(false); setPicker(null); setComposerMenu(null); }
+        return;
+      }
+      const target = event.target as Node;
+      if (filterRef.current && !filterRef.current.contains(target)) { setFiltersOpen(false); setPicker(null); }
+      if (formRef.current && !formRef.current.contains(target)) setComposerMenu(null);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [filtersOpen, composerMenu]);
 
   function insertTextAtCursor(text: string, replaceTriggerChar?: string) {
     const field = composerRef.current;
@@ -572,70 +598,145 @@ export default function InboxPage() {
     [selected, attachmentUrl],
   );
 
+  const tabOptions: { value: typeof tab; label: string }[] = [
+    { value: "all", label: t("inbox.allStatus") },
+    { value: "pending", label: t("inbox.unanswered") },
+    { value: "human", label: t("inbox.statusHuman") },
+    { value: "ai", label: t("inbox.statusAi") },
+  ];
+  const agentName = agents.find((agent) => agent.id === agentId)?.name;
+
   return <div className="page">
     <PageHead eyebrow={t("inbox.eyebrow")} title={t("inbox.title")} description={t("inbox.description")} />
 
-    <div className="toolbar filters">
-      <div className="filter-select"><span>{t("inbox.filterAgent")}</span><select aria-label={t("inbox.filterAgent")} value={agentId} onChange={(e) => setAgentId(e.target.value)}><option value="">{t("inbox.allAgents")}</option>{agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
-      <div className="filter-select"><span>{t("inbox.filterChannel")}</span><select aria-label={t("inbox.filterChannel")} value={channel} onChange={(e) => setChannel(e.target.value)}><option value="">{t("inbox.allChannels")}</option>{INBOX_CHANNELS.map((value) => <option key={value} value={value}>{channelLabel(value)}</option>)}</select></div>
-    </div>
-
-    {/* On a phone the list and the thread take turns on screen (see the
-        .has-thread rules); a desktop shows both side by side and ignores it. */}
-    <div ref={attachLead} className={`inbox-layout${selected ? " has-thread" : ""}${leadOpen ? " has-lead" : ""}${leadOverlay ? " lead-overlay" : ""}`}>
-      <aside className="inbox-list" onScroll={onScroll}>
-        <div className="inbox-search"><Search size={16} /><input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder={t("inbox.searchPlaceholder")} /></div>
-        <div className="inbox-tabs">
-          <button className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>{t("inbox.tabAll")}</button>
-          <button className={tab === "pending" ? "active" : ""} onClick={() => setTab("pending")}>{t("inbox.tabPending")}</button>
-          <button className={tab === "human" ? "active" : ""} onClick={() => setTab("human")}>{t("inbox.statusHuman")}</button>
-          <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>{t("inbox.statusAi")}</button>
+    {/* The same inbox a client's page and the client portal show, over every
+        client of the agency. On a phone the list and the thread take turns on
+        screen (the .has-thread rules). */}
+    <div className="embedded-portal-view client-inbox-view" style={{ "--portal-color": "#00876c" } as React.CSSProperties}>
+    <div
+      ref={attachLead}
+      className={`portal-inbox${selected ? " has-thread" : ""}${leadOpen ? " has-lead" : ""}${leadOverlay ? " lead-overlay" : ""}`}
+      style={{ "--inbox-list-w": "360px", "--portal-color": "#00876c" } as React.CSSProperties}
+    >
+      <aside onScroll={onScroll}>
+        <div className="inbox-search">
+          <Search size={16} />
+          <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder={t("inbox.searchPlaceholder")} />
+          <div className="inbox-filter-wrap" ref={filterRef}>
+            <button
+              type="button"
+              className={`inbox-filter-toggle${filtersOpen ? " open" : ""}${agentId || channel || tab !== "all" ? " active" : ""}`}
+              onClick={() => { setFiltersOpen((v) => !v); setPicker(null); }}
+              title={t("inbox.filters")}
+              aria-label={t("inbox.filters")}
+              aria-haspopup="dialog"
+              aria-expanded={filtersOpen}
+            >
+              <Filter size={16} />
+            </button>
+            {filtersOpen && (
+              <div className="inbox-filter-pop" role="dialog" aria-label={t("inbox.filterTitle")}>
+                <h4>{t("inbox.filterTitle")}</h4>
+                <span className="pop-label">{t("inbox.filterChatState")}</span>
+                <div className="pop-options">
+                  {tabOptions.map((option) => (
+                    <button key={option.value} type="button" className={tab === option.value ? "selected" : ""} aria-pressed={tab === option.value} onClick={() => setTab(option.value)}>
+                      <span>{option.label}</span>
+                      {tab === option.value && <Check size={16} />}
+                    </button>
+                  ))}
+                </div>
+                <span className="pop-label">{t("inbox.filterAgent")}</span>
+                <div className="pop-select">
+                  <button type="button" className="pop-select-trigger" aria-haspopup="listbox" aria-expanded={picker === "agent"} onClick={() => setPicker(picker === "agent" ? null : "agent")}>
+                    <span>{agentName ?? t("inbox.allAgents")}</span>
+                    <ChevronDown size={16} />
+                  </button>
+                  {picker === "agent" && (
+                    <ul className="pop-select-list" role="listbox" aria-label={t("inbox.filterAgent")}>
+                      <li><button type="button" role="option" aria-selected={!agentId} onClick={() => { setAgentId(""); setPicker(null); }}><span>{t("inbox.allAgents")}</span>{!agentId && <Check size={15} />}</button></li>
+                      {agents.map((agent) => (
+                        <li key={agent.id}><button type="button" role="option" aria-selected={agentId === agent.id} onClick={() => { setAgentId(agent.id); setPicker(null); }}><span>{agent.name}</span>{agentId === agent.id && <Check size={15} />}</button></li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <span className="pop-label">{t("inbox.filterSources")}</span>
+                <div className="pop-select">
+                  <button type="button" className="pop-select-trigger" aria-haspopup="listbox" aria-expanded={picker === "channel"} onClick={() => setPicker(picker === "channel" ? null : "channel")}>
+                    <span>{channel ? channelLabel(channel) : t("inbox.allSources")}</span>
+                    <ChevronDown size={16} />
+                  </button>
+                  {picker === "channel" && (
+                    <ul className="pop-select-list" role="listbox" aria-label={t("inbox.filterSources")}>
+                      <li><button type="button" role="option" aria-selected={!channel} onClick={() => { setChannel(""); setPicker(null); }}><span>{t("inbox.allSources")}</span>{!channel && <Check size={15} />}</button></li>
+                      {INBOX_CHANNELS.map((value) => (
+                        <li key={value}><button type="button" role="option" aria-selected={channel === value} onClick={() => { setChannel(value); setPicker(null); }}><span className={`channel-dot ${value}`}>{channelIcon(value)}</span><span>{channelLabel(value)}</span>{channel === value && <Check size={15} />}</button></li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+
         {loading ? <ListRowsSkeleton rows={7} />
           : items.length ? <>
             {items.map((item) => (
-              <div key={item.id} className={`inbox-row ${selected?.id === item.id ? "active" : ""} ${item.unread ? "unread" : ""}`}>
-                <Link href={leadAddress(item)}>
-                  <span className="inbox-avatar">
-                    <span className="entity-avatar tiny"><UserRound size={15} /></span>
-                    <span className={`channel-badge ${item.channel}`} title={channelLabel(item.channel)}>{channelIcon(item.channel)}</span>
+              <div key={item.id} className="inbox-row">
+                <Link href={leadAddress(item)} className={`${selected?.id === item.id ? "active" : ""}${item.unread && selected?.id !== item.id ? " unread" : ""}`}>
+                  <span className="entity-avatar tiny"><UserRound size={15} /></span>
+                  <span>
+                    <span className="portal-inbox-row-top">
+                      <strong>{item.contact_name || item.title}</strong>
+                      {item.unread && selected?.id !== item.id ? (
+                        <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>
+                      ) : (
+                        <time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time>
+                      )}
+                    </span>
+                    <small className="portal-inbox-preview">{item.preview || t("inbox.noMessages")}</small>
+                    <small className="inbox-row-meta">
+                      {item.number !== undefined && <span className="lead-number">#{item.number}</span>}
+                      {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : <><span className={`channel-dot ${item.channel}`}>{channelIcon(item.channel)}</span> {channelLabel(item.channel)}</>}
+                      {item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>}
+                      {item.visitor_handle && <span className="lead-handle">{item.visitor_handle}</span>}
+                      <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : item.agent_name || t("inbox.modeAi")}</span>
+                    </small>
                   </span>
-                  <span className="inbox-row-body">
-                    <span className="inbox-row-top"><strong>{item.contact_name || item.title}</strong><time>{formatWhen(item.last_inbound_at ?? item.updated_at, lang)}</time></span>
-                    <small className="inbox-row-preview">{item.preview || t("inbox.noMessages")}</small>
-                    <small className="inbox-row-meta">{item.agent_name} · {leadChannels(item).length > 1 ? <ChannelDots channels={leadChannels(item)} t={t} /> : channelLabel(item.channel)}{item.account_label && <span className="account-badge" title={item.account_label}>{item.account_label}</span>}{item.visitor_handle && <span className="lead-handle">{item.visitor_handle}</span>} <span className={`mini-badge ${item.mode}`}>{item.mode === "human" ? t("inbox.modeHuman") : t("inbox.modeAi")}</span></small>
-                  </span>
-                  {item.unread_count > 0 && selected?.id !== item.id && <span className="inbox-unread-count" aria-label={t("inbox.unreadCount", { count: item.unread_count })}>{item.unread_count > 99 ? "99+" : item.unread_count}</span>}
                 </Link>
-                <LeadRowActions
-                  pinned={Boolean(item.pinned_at)}
-                  onResolve={() => resolveRow(item)}
-                  onTogglePin={() => togglePinRow(item)}
-                  href={leadAddress(item)}
-                />
+                <LeadRowActions pinned={Boolean(item.pinned_at)} onResolve={() => resolveRow(item)} onTogglePin={() => togglePinRow(item)} href={leadAddress(item)} />
               </div>
             ))}
             {loadingMore && <div className="no-conversations"><LoaderCircle className="spin" size={15} /></div>}
           </> : <div className="no-conversations">{t("inbox.empty")}</div>}
       </aside>
 
-      <section className="inbox-thread drop-target" {...dropProps}>
+      <section className="drop-target" {...dropProps}>
         {overlay}
-        {!selected ? <div className="empty-state"><div className="empty-icon"><InboxIcon /></div><h3>{t("inbox.empty")}</h3><p>{t("inbox.selectPrompt")}</p></div>
+        {!selected ? <EmptyState icon={<InboxIcon />} title={t("portal.inbox.empty.title")} description={t("portal.inbox.empty.description")} />
           : <>
             <header>
               <button type="button" className="icon-button inbox-back" onClick={closeThread} aria-label={t("common.back")} title={t("common.back")}><ArrowLeft size={16} /></button>
               <LeadHeaderButton channel={selected.channel} open={leadOpen} onClick={() => setLeadOpen(!leadPanelOpen)}>
-                <div><strong>{selected.contact_name || selected.title}</strong><small>{/* A lead reached through several channels says so here too, the way its row does, instead of naming only the first. */}{leadChannels(selected).length > 1 ? <ChannelDots channels={leadChannels(selected)} t={t} /> : channelLabel(selected.channel)}{selected.account_label && <> <span className="account-badge" title={selected.account_label}>{selected.account_label}</span></>}{selected.visitor_handle && <> <span className="lead-handle">{selected.visitor_handle}</span></>}</small></div>
+                <div>
+                  <strong>{selected.contact_name || selected.title}<span className="lead-number">#{selected.number}</span></strong>
+                  <small className="portal-channel-line">
+                    {replyVia.multi ? <ChannelDots channels={[...new Set(replyVia.threads.map((thread) => thread.channel))]} t={t} /> : <>{channelIcon(selected.channel)} {channelLabel(selected.channel)}</>}
+                    {selected.account_label && <span className="account-badge" title={selected.account_label}>{selected.account_label}</span>}
+                    {selected.visitor_handle && <span className="lead-handle">{selected.visitor_handle}</span>}
+                    {selected.channel === "whatsapp_cloud" && !selected.reply_window_open && (
+                      <span className="window-pill closed"><Clock size={11} /> {selected.reply_window_until ? t("portal.inbox.window.closed") : t("portal.inbox.window.neverWrote")}</span>
+                    )}
+                  </small>
+                </div>
               </LeadHeaderButton>
-              <div className="thread-actions">
-                
-                <button className={`mode-toggle ${selected.mode}`} onClick={() => toggleMode(selected.mode === "ai" ? "human" : "ai")}>{selected.mode === "ai" ? t("inbox.takeControl") : t("inbox.returnToAi")}</button>
-              </div>
+              <div className="thread-actions" />
             </header>
             <MessageThread
               messages={selected.messages}
-              surface="agency"
+              surface="portal"
               t={t}
               lang={lang}
               urlFor={attachmentUrl}
@@ -651,80 +752,57 @@ export default function InboxPage() {
                 },
               }}
               reactionPicker={(message) => reactingTo === message.id ? (
-                <ReactionPicker
-                  current={message.reaction}
-                  removeLabel={t("portal.inbox.conversation.removeReaction")}
-                  onPick={(emoji) => sendReaction(message, emoji)}
-                />
+                <ReactionPicker current={message.reaction} removeLabel={t("portal.inbox.conversation.removeReaction")} onPick={(emoji) => sendReaction(message, emoji)} />
               ) : null}
               containerRef={messagesRef}
             />
-            <PhonePauseNotice conversation={selected} onKeepManual={() => toggleMode("human")} /><SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
+            <PhonePauseNotice conversation={selected} onKeepManual={() => toggleMode("human")} />
+            <SocialReplyNotice conversation={selected} blocked={policy.blocked} humanOnly={policy.humanOnly} />
             {pendingFile && <PendingAttachment file={pendingFile} onCancel={() => setPendingFile(null)} />}
             {locating && <LocationComposer busy={busy} disabled={!policy.canReply} onCancel={() => setLocating(false)} onSend={sendLocation} />}
-            <div style={{ margin: "0 16px" }}>
-              <ScheduledMessagesBanner messages={scheduledMessages} onCancel={handleCancelScheduledMessage} />
-            </div>
-            <div className={`composer-box${composerMode === "note" ? " note-mode" : ""}`} style={{ position: "relative", margin: "10px 16px 14px" }}>
-              <UnifiedComposerTop
-                mode={composerMode}
-                onModeChange={setComposerMode}
-                threads={replyVia.threads}
-                channel={replyVia.thread?.channel ?? selected.channel}
-                via={replyVia.via}
-                onViaChange={replyVia.setVia}
-                onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
-                onOpenAppointmentModal={() => setAppointmentModalOpen(true)}
-                onOpenScheduleModal={() => setScheduledModalOpen(true)}
-              />
-              <VariablesPopover
-                open={variablesOpen}
-                onClose={() => { setVariablesOpen(false); setVariablesQuery(""); }}
-                onSelect={(val) => insertTextAtCursor(val)}
-                query={variablesQuery}
-                contactValues={{
-                  contact_name: selected.contact_name || selected.title,
-                  contact_phone: selected.contact_phone || (isSocialChannel(selected.channel) ? "" : (selected.external_chat_id || "").split("@")[0]),
-                  contact_email: selected.contact_email,
-                }}
-                leadNumber={selected.number}
-                dealValue={selected.deal_value}
-                channel={selected.channel}
-              />
-              {quoting && (
-                <div className="composer-quote">
-                  <Reply size={14} />
-                  <span>
-                    <strong>{t("portal.inbox.conversation.replyingTo", {
-                      name: quoting.sender_name || (quoting.role === "assistant" ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor")),
-                    })}</strong>
-                    <small>{(quoting.content || "").slice(0, 140)}</small>
-                  </span>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={() => setQuoting(null)}
-                    aria-label={t("portal.inbox.conversation.cancelReply")}
-                    title={t("portal.inbox.conversation.cancelReply")}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              )}
-              <form className="inbox-composer" style={{ border: "none", padding: "8px 12px 10px", margin: 0 }} onSubmit={reply}>
-                {(replyVia.thread?.channel ?? selected.channel) === "whatsapp" && composerMode !== "note" && <button type="button" className="icon-button" title={t("inbox.locationSend")} aria-label={t("inbox.locationSend")} disabled={!policy.canReply || busy} onClick={() => setLocating((open) => !open)}><MapPin size={17} /></button>}
-                {composerMode !== "note" && <AttachButton onFile={setPendingFile} disabled={!policy.canAttach || busy} title={t("chat.attachFile")} />}
-                {composerMode !== "note" && <RecordButton onRecorded={sendAttachment} onError={() => toast.error(t("chat.micDenied"))} disabled={!policy.canRecord || busy} title={t("chat.recordAudio")} titleStop={t("chat.stopRecording")} />}
+            {quoting && (
+              <div className="composer-quote">
+                <Reply size={14} />
+                <span>
+                  <strong>{t("portal.inbox.conversation.replyingTo", { name: quoting.sender_name || (quoting.role === "assistant" ? t("portal.inbox.conversation.agent") : t("portal.inbox.conversation.visitor")) })}</strong>
+                  <small>{(quoting.content || "").slice(0, 140)}</small>
+                </span>
+                <button type="button" onClick={() => setQuoting(null)} aria-label={t("portal.inbox.conversation.cancelReply")} title={t("portal.inbox.conversation.cancelReply")}><X size={14} /></button>
+              </div>
+            )}
+            <ScheduledMessagesBanner messages={scheduledMessages} onCancel={handleCancelScheduledMessage} />
+            <form ref={formRef} onSubmit={reply} onReset={() => { setDraft(""); setComposerMode("chat"); }} className="portal-composer composer-card">
+              <div className={`composer-box${composerMode === "note" ? " note-mode" : ""}`} style={{ position: "relative" }}>
+                <UnifiedComposerTop
+                  mode={composerMode}
+                  onModeChange={setComposerMode}
+                  threads={replyVia.threads}
+                  channel={replyVia.thread?.channel ?? selected.channel}
+                  via={replyVia.via}
+                  onViaChange={replyVia.setVia}
+                  onOpenVariables={() => { setVariablesQuery(""); setVariablesOpen((v) => !v); }}
+                  onOpenAppointmentModal={() => setAppointmentModalOpen(true)}
+                  onOpenScheduleModal={() => setScheduledModalOpen(true)}
+                />
+                <VariablesPopover
+                  open={variablesOpen}
+                  onClose={() => { setVariablesOpen(false); setVariablesQuery(""); }}
+                  onSelect={(val) => insertTextAtCursor(val)}
+                  query={variablesQuery}
+                  contactValues={{
+                    contact_name: selected.contact_name || selected.title,
+                    contact_phone: selected.contact_phone || (isSocialChannel(selected.channel) ? "" : (selected.external_chat_id || "").split("@")[0]),
+                    contact_email: selected.contact_email,
+                  }}
+                  leadNumber={selected.number}
+                  dealValue={selected.deal_value}
+                  channel={selected.channel}
+                />
                 <GrowingTextarea
                   ref={composerRef}
                   name="content"
-                  placeholder={
-                    composerMode === "note"
-                      ? (t("inbox.composerNotePlaceholder") || "Escribe una nota interna para el equipo...")
-                      : selected.mode === "human"
-                      ? t("inbox.composerHuman")
-                      : t("inbox.composerLocked")
-                  }
+                  autoComplete="off"
+                  placeholder={composerMode === "note" ? (t("inbox.composerNotePlaceholder") || "Escribe una nota interna para el equipo...") : t("portal.inbox.conversation.replyPlaceholder")}
                   disabled={composerMode === "note" ? busy : (!policy.canReply || busy)}
                   required={composerMode === "note" ? true : !pendingFile}
                   onChange={(e) => {
@@ -757,15 +835,64 @@ export default function InboxPage() {
                     }
                   }}
                 />
-                <button
-                  className={composerMode === "note" ? (draft.trim() ? "button primary small" : "button small") : ""}
-                  style={composerMode === "note" ? { backgroundColor: draft.trim() ? "#f59e0b" : undefined, borderColor: draft.trim() ? "#f59e0b" : undefined, color: draft.trim() ? "#fff" : undefined } : undefined}
-                  disabled={composerMode === "note" ? (busy || !draft.trim()) : (!policy.canReply || busy)}
-                >
-                  {composerMode === "note" ? (t("inbox.composerSaveNote") || "Guardar nota") : t("inbox.send")}
-                </button>
-              </form>
-            </div>
+                <div className="composer-bottom">
+                  <div className="composer-left">
+                    <button
+                      type="submit"
+                      className={`composer-send${composerMode === "note" ? (draft.trim() ? " note-ready" : "") : (draft.trim() || pendingFile ? " ready" : "")}`}
+                      disabled={composerMode === "note" ? (busy || !draft.trim()) : (!policy.canReply || busy || (!draft.trim() && !pendingFile))}
+                    >
+                      {busy ? <LoaderCircle className="spin" size={16} /> : composerMode === "note" ? (t("inbox.composerSaveNote") || "Guardar nota") : t("portal.inbox.composer.send")}
+                    </button>
+                    {composerMode !== "note" && <RecordButton onRecorded={sendAttachment} onError={() => toast.error(t("chat.micDenied"))} disabled={!policy.canRecord || busy} title={t("chat.recordAudio")} titleStop={t("chat.stopRecording")} />}
+                    {(draft.length > 0 || pendingFile || quoting || composerMode === "note") && (
+                      <button type="button" className="composer-cancel" onClick={(event) => { event.currentTarget.form?.reset(); setPendingFile(null); setQuoting(null); setComposerMode("chat"); }}>
+                        {t("portal.inbox.composer.cancel")}
+                      </button>
+                    )}
+                  </div>
+                  <div className="composer-right">
+                    {composerMode !== "note" && <>
+                      <button type="button" role="switch" aria-checked={selected.mode === "ai"} className={`ai-toggle${selected.mode === "ai" ? " on" : ""}`} title={t("portal.inbox.list.aiAgent")} onClick={() => toggleMode(selected.mode === "ai" ? "human" : "ai")}>
+                        <Bot size={15} /> <span>{t("portal.inbox.folders.ai")}</span>
+                      </button>
+                      <div className="composer-menu">
+                        <button
+                          type="button"
+                          className={`composer-icon plus${composerMenu ? " open" : ""}`}
+                          title={t("portal.inbox.composer.more")}
+                          aria-label={t("portal.inbox.composer.more")}
+                          aria-haspopup="menu"
+                          aria-expanded={Boolean(composerMenu)}
+                          onClick={() => setComposerMenu(composerMenu ? null : "plus")}
+                        >
+                          <Plus size={20} />
+                        </button>
+                        {composerMenu === "plus" && (
+                          <div className="composer-menu-list up" role="menu">
+                            <button type="button" role="menuitem" disabled={!policy.canReply || busy} onClick={() => setComposerMenu("emoji")}><Smile size={18} /><span>{t("portal.inbox.composer.emoji")}</span></button>
+                            <button type="button" role="menuitem" onClick={() => { setComposerMenu(null); setAppointmentModalOpen(true); }}><CalendarIcon size={18} /><span>{t("portal.inbox.composer.schedule")}</span></button>
+                            <button type="button" role="menuitem" onClick={() => { setComposerMenu(null); setScheduledModalOpen(true); }}><Clock size={18} /><span>{t("inbox.composerScheduleMessage") || "Programar mensaje"}</span></button>
+                            <button type="button" role="menuitem" disabled={!policy.canAttach || busy} onClick={() => { setComposerMenu(null); fileInputRef.current?.click(); }}><Paperclip size={18} /><span>{t("chat.attachFile")}</span></button>
+                            {(replyVia.thread?.channel ?? selected.channel) === "whatsapp" && (
+                              <button type="button" role="menuitem" disabled={!policy.canReply || busy} onClick={() => { setComposerMenu(null); setLocating(true); }}><MapPin size={18} /><span>{t("inbox.locationSend")}</span></button>
+                            )}
+                          </div>
+                        )}
+                        {composerMenu === "emoji" && (
+                          <div className="composer-emoji" role="menu">
+                            {EMOJIS.map((emoji) => (
+                              <button type="button" key={emoji} role="menuitem" onClick={() => { insertTextAtCursor(emoji); setComposerMenu(null); }}>{emoji}</button>
+                            ))}
+                          </div>
+                        )}
+                        <input ref={fileInputRef} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) setPendingFile(file); event.currentTarget.value = ""; }} />
+                      </div>
+                    </>}
+                  </div>
+                </div>
+              </div>
+            </form>
           </>}
       </section>
       {leadOpen && selected && leadScope && <LeadScopeProvider scope={leadScope}>
@@ -806,6 +933,7 @@ export default function InboxPage() {
           initialContent={draft}
         />
       )}
+    </div>
     </div>
   </div>;
 }

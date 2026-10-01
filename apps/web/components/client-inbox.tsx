@@ -65,7 +65,7 @@ function defaultListWidth(): number {
   return window.innerWidth <= LIST_WIDTH.narrowBelow ? LIST_WIDTH.narrow : LIST_WIDTH.wide;
 }
 
-const EMOJIS = [
+export const EMOJIS = [
   "😀", "😂", "😊", "😍", "😉", "🙂", "😅", "🤝",
   "🙏", "👍", "👏", "🎉", "❤️", "🔥", "✨", "😢",
   "😮", "🤔", "👌", "💪", "✅", "📅", "📍", "📞",
