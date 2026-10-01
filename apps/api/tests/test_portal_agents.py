@@ -51,7 +51,7 @@ EXPECTED_ROUTES = {
     ("POST", "/conversations/{conversation_id}/messages"), ("POST", "/conversations/{conversation_id}/media"),
     ("GET", "/conversations/{conversation_id}/attachments/{attachment_id}"),
     ("GET", "/catalog/available"), ("GET", "/catalog/models"), ("GET", "/catalog/embedding-models"),
-    ("GET", "/catalog/models/{model_id:path}"),
+    ("GET", "/catalog/models/{model_id:path}"), ("GET", "/catalog/prompt-variables"),
     ("GET", "/providers"),
 }
 

@@ -47,6 +47,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..models import Conversation, PortalUser, PushDevice
 from .lead_group import primary_of
+from .lead_view import name_parts
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +233,9 @@ async def notify_conversation(
     if not devices:
         return 0
     if title is None:
-        title = sender or thread.contact_name or _channel_label(thread.channel)
+        # A nameless web visitor is told apart by its handle, as the inbox does.
+        name, handle = name_parts(thread)
+        title = sender or name or (f"Visitor {handle}" if handle else None) or _channel_label(thread.channel)
     return await notify_devices(
         Notification(
             title=title,

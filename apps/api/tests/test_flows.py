@@ -264,7 +264,8 @@ def test_widget_public_chat_and_gating(authenticated_client: TestClient, monkeyp
     # A visitor message left unanswered (human mode) marks the conversation unread.
     first_row = client.get("/api/conversations/inbox").json()[0]
     conversation_id = first_row["id"]
-    assert first_row["contact_name"].startswith("Visitor ")  # a short handle from the browser session
+    # No name was given, so the row carries a short handle from the browser session instead.
+    assert first_row["contact_name"] is None and first_row["visitor_handle"] == "S1"
     client.patch(f"/api/conversations/{conversation_id}/mode", json={"mode": "human"})
     client.post(f"/api/widget/{public_id}/messages", json={"session_id": "s1", "content": "still there?"})
     inbox_row = next(row for row in client.get("/api/conversations/inbox").json() if row["id"] == conversation_id)

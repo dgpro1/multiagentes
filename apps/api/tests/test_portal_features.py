@@ -432,6 +432,7 @@ GATED = [
     ("GET", "/manage/catalog/models", ["agents"]),
     ("GET", "/manage/catalog/embedding-models", ["agents"]),
     ("GET", "/manage/catalog/models/{id}", ["agents"]),
+    ("GET", "/manage/catalog/prompt-variables", ["agents"]),
     ("GET", "/manage/providers", ["agents"]),
     # The agency's channel screens, one function per channel type (tests/test_portal_channels.py).
     ("GET", "/manage/whatsapp/clients/{id}/channels", ["channels.whatsapp"]),
