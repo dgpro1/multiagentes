@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Building2, LoaderCircle, UserRound } from "lucide-react";
 import { api, messageFrom } from "@/lib/api";
 import { useLanguage, useT, useApiError } from "@/lib/i18n";
 import { PlatformShell } from "@/components/platform-shell";
+import { useToast } from "@/components/toast";
 import { Alert, EmptyState, PageHead } from "@/components/ui";
 import { SectionTabs } from "@/components/section-tabs";
 import { PLATFORM_AGENCY_TABS, platformAgencyPath, tabFromSegments } from "@/lib/routes";
@@ -39,6 +40,8 @@ function PlanTab({ agency }: { agency: PlatformAgency }) {
   const [used, setUsed] = useState<Record<string, number>>(agency.channel_used);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  // Clients that keep their data in the agency's own project when the module is about to go off.
+  const [offWarning, setOffWarning] = useState<number | null>(null);
 
   function adopt(body: PlatformAgency) {
     setFeatures(body.features);
@@ -80,7 +83,15 @@ function PlanTab({ agency }: { agency: PlatformAgency }) {
     }
   }
 
-  function toggle(key: AgencyFeature, enabled: boolean) {
+  async function toggle(key: AgencyFeature, enabled: boolean) {
+    if (key === "agency_backend" && !enabled && features[key]) {
+      // Turning it off never cuts anyone off, but the platform should know who is inside.
+      try {
+        const rows = await api<PlatformInfrastructureClient[]>(`/platform/agencies/${agency.id}/infrastructure`);
+        const inside = rows.filter((row) => row.data_mode === "agency" || row.storage?.hosted_by === "agency").length;
+        if (inside > 0) { setOffWarning(inside); return; }
+      } catch (err) { setError(messageFrom(err)); return; }
+    }
     void put({ [key]: enabled });
   }
 
@@ -158,6 +169,14 @@ function PlanTab({ agency }: { agency: PlatformAgency }) {
         ))}
         {agency.plan && <small style={{ color: "var(--muted)" }}>{t("platform.detail.currentPlan", { plan: agency.plan })}</small>}
       </div>
+      {offWarning !== null && <Alert type="info">
+        <strong>{t("agencyBackend.platform.offWarningTitle", { count: offWarning })}</strong>
+        <p style={{ margin: "4px 0 8px" }}>{t("agencyBackend.platform.offWarningCopy")}</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" className="button danger small" disabled={busy !== null} onClick={() => { setOffWarning(null); void put({ agency_backend: false }); }}>{t("agencyBackend.platform.offConfirm")}</button>
+          <button type="button" className="button small" onClick={() => setOffWarning(null)}>{t("common.cancel")}</button>
+        </div>
+      </Alert>}
       {error && <Alert>{error}</Alert>}
     </section>
   );
@@ -416,15 +435,26 @@ function UsageTab({ agency }: { agency: PlatformAgency }) {
 function InfrastructureTab({ agency }: { agency: PlatformAgency }) {
   const t = useT();
   const apiError = useApiError();
+  const toast = useToast();
   const [clients, setClients] = useState<PlatformInfrastructureClient[] | null>(null);
+  const [moving, setMoving] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    api<PlatformInfrastructureClient[]>(`/platform/agencies/${agency.id}/infrastructure`)
-      .then((rows) => { if (active) setClients(rows); })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [agency.id]);
+  const load = useCallback(() => api<PlatformInfrastructureClient[]>(`/platform/agencies/${agency.id}/infrastructure`)
+    .then(setClients)
+    .catch(() => {}), [agency.id]);
+  useEffect(() => { void load(); }, [load]);
+
+  /** The platform's own move of a client's data or files: the same verified copy
+   * the agency makes, audited with who did it. */
+  async function move(client: PlatformInfrastructureClient, kind: "data" | "files", target: string) {
+    setMoving(`${client.client_id}:${kind}`);
+    try {
+      const path = kind === "data" ? "datastore" : "storage";
+      await api(`/platform/agencies/${agency.id}/clients/${client.client_id}/${path}/switch`, { method: "POST", body: JSON.stringify({ target }) });
+      toast.success(t("agencyBackend.platform.moved"));
+    } catch (err) { toast.error(messageFrom(err)); }
+    finally { setMoving(null); await load(); }
+  }
 
   if (clients === null) return null;
   if (clients.length === 0) {
@@ -445,7 +475,25 @@ function InfrastructureTab({ agency }: { agency: PlatformAgency }) {
           {clients.map((client) => (
             <tr key={client.client_id}>
               <td>{client.client_name}<small style={{ marginLeft: 8, color: "var(--muted)" }}>{client.portal_slug}</small></td>
-              <td>{client.data_mode}</td>
+              <td>
+                {client.data_mode === "central" ? t("agencyBackend.platform.modeCentral")
+                  : client.data_mode === "supabase" ? t("agencyBackend.platform.modeSupabase")
+                  : client.data_mode === "agency" ? t("agencyBackend.platform.modeAgency")
+                  : t("agencyBackend.platform.modeSwitching")}
+                {client.data_mode !== "switching" && <select
+                  style={{ display: "block", marginTop: 6 }}
+                  aria-label={t("agencyBackend.platform.move")}
+                  disabled={moving !== null}
+                  value=""
+                  onChange={(event) => { if (event.target.value) void move(client, "data", event.target.value); }}
+                >
+                  <option value="">{moving === `${client.client_id}:data` ? "…" : t("agencyBackend.platform.move")}</option>
+                  {client.data_mode !== "central" && <option value="central">{t("agencyBackend.platform.modeCentral")}</option>}
+                  {client.data_mode !== "agency" && <option value="agency">{t("agencyBackend.platform.modeAgency")}</option>}
+                  {client.data_mode !== "supabase" && <option value="supabase">{t("agencyBackend.platform.modeSupabase")}</option>}
+                </select>}
+                {client.agency_schema?.retired_at && client.data_mode !== "agency" && <small style={{ display: "block", color: "var(--muted)" }}>{t("agencyBackend.location.retiredCopy", { date: new Date(client.agency_schema.retired_at).toLocaleDateString() })}</small>}
+              </td>
               <td>
                 {client.datastore ? (
                   <>
@@ -458,7 +506,16 @@ function InfrastructureTab({ agency }: { agency: PlatformAgency }) {
                 {client.storage ? (
                   <>
                     <StatusPill status={client.storage.status} />
-                    {client.storage.bucket && <small style={{ display: "block", color: "var(--muted)" }}>{client.storage.bucket}</small>}
+                    {client.storage.hosted_by === "agency"
+                      ? <small style={{ display: "block", color: "var(--muted)" }}>{t("agencyBackend.platform.filesHosted")}</small>
+                      : client.storage.bucket && <small style={{ display: "block", color: "var(--muted)" }}>{client.storage.bucket}</small>}
+                    <button
+                      type="button"
+                      className="button small"
+                      style={{ marginTop: 6 }}
+                      disabled={moving !== null}
+                      onClick={() => void move(client, "files", client.storage?.hosted_by === "agency" ? "client" : "agency")}
+                    >{moving === `${client.client_id}:files` ? "…" : client.storage.hosted_by === "agency" ? t("agencyBackend.location.filesToClient") : t("agencyBackend.location.filesToAgency")}</button>
                   </>
                 ) : t("platform.detail.none")}
               </td>

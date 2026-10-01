@@ -5,6 +5,7 @@ import { CheckCircle2, Eye, EyeOff, ImagePlus, LoaderCircle, Save, ShieldCheck, 
 import { PageHead } from "@/components/ui";
 import { FormSkeleton } from "@/components/skeleton";
 import { ApiIntegrations } from "@/components/api-integrations";
+import { AgencyBackendSection } from "@/components/agency-backend-section";
 import { PreferencesSection } from "@/components/preferences-section";
 import { useToast } from "@/components/toast";
 import { api, messageFrom } from "@/lib/api";
@@ -73,6 +74,8 @@ export default function SettingsPage() {
     <section className="section-block"><div className="section-heading"><div><h2>{t("settings.integrations.title")}</h2><p>{t("settings.integrations.copy")}</p></div></div>
       <ApiIntegrations />
     </section>
+
+    <AgencyBackendSection />
 
     <PreferencesSection />
   </div>;

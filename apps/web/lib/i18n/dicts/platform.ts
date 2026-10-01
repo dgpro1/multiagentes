@@ -139,6 +139,7 @@ const en = {
       reports: "Reports",
       integrations: "Integrations",
       branding: "Branding",
+      agency_backend: "Agency backend (own Supabase and bucket)",
     },
   },
   audit: {
@@ -305,6 +306,7 @@ const es: typeof en = {
       reports: "Reportes",
       integrations: "Integraciones",
       branding: "Marca propia",
+      agency_backend: "Backend de la agencia (Supabase y bucket propios)",
     },
   },
   audit: {

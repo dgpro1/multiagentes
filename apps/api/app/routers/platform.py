@@ -546,9 +546,16 @@ def agency_infrastructure(
                 "last_checked_at": store.last_checked_at,
                 "connected_at": store.connected_at,
             } if store is not None else None,
+            "agency_schema": {
+                "status": client.agency_schema.status,
+                "schema_version": client.agency_schema.schema_version,
+                "retired_at": client.agency_schema.retired_at,
+                "last_error": client.agency_schema.last_error,
+            } if client.agency_schema is not None else None,
             "storage": {
                 "status": storage.status,
-                "bucket": storage.bucket,
+                "hosted_by": storage.hosted_by,
+                "bucket": storage.bucket if storage.hosted_by != "agency" else "",
                 "region": storage.region,
                 "quota_mb": storage.quota_mb,
                 "max_file_mb": storage.max_file_mb,

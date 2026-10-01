@@ -314,6 +314,7 @@ function StoragePanel({ apiBase, storage, canManage, onChange, friendly }: {
   if (!storage) return null;
 
   const connected = storage.status === "connected";
+  const hostedByAgency = storage.hosted_by === "agency";
 
   async function connect(payload: StorageConnectPayload) {
     onChange(await api<StorageConnection>(`${apiBase}/storage`, { method: "PUT", body: JSON.stringify(payload) }));
@@ -372,7 +373,7 @@ function StoragePanel({ apiBase, storage, canManage, onChange, friendly }: {
           <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--muted)" }}>{t("resources.storage.subtitle")}</p>
         </div>
       </div>
-      {canManage && connected && <div className="header-actions">
+      {canManage && connected && !hostedByAgency && <div className="header-actions">
         <button type="button" className="button secondary small" style={{ borderRadius: 9999 }} onClick={check} disabled={checking}>{checking ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} {t("resources.storage.check")}</button>
         <button type="button" className="button secondary small" style={{ borderRadius: 9999 }} onClick={() => setReplacing((v) => !v)}><Pencil size={14} /> {t("resources.storage.reconnect")}</button>
         <button type="button" className="button danger small" style={{ borderRadius: 9999 }} onClick={() => setConfirmDisconnect(true)}><Unplug size={14} /> {t("resources.storage.disconnect")}</button>
@@ -381,9 +382,11 @@ function StoragePanel({ apiBase, storage, canManage, onChange, friendly }: {
 
     {storage.last_error && <Alert><AlertTriangle size={14} /> {apiError(storage.last_error)}</Alert>}
 
+    {hostedByAgency && <Alert type="info"><HardDrive size={14} /> {t("resources.storage.hostedByAgency")}</Alert>}
+
     {connected && <div className="storage-summary">
-      <div><small>{t("resources.storage.bucket")}</small><strong><CheckCircle2 size={14} /> {storage.bucket}</strong></div>
-      <div><small>{t("resources.storage.key")}</small><strong>{storage.access_key_hint}</strong></div>
+      {!hostedByAgency && <div><small>{t("resources.storage.bucket")}</small><strong><CheckCircle2 size={14} /> {storage.bucket}</strong></div>}
+      {!hostedByAgency && <div><small>{t("resources.storage.key")}</small><strong>{storage.access_key_hint}</strong></div>}
       <div className="storage-usage">
         <small>{t("resources.storage.usage", { used: formatBytes(storage.used_bytes), quota: t("resources.storage.mb", { value: storage.quota_mb }) })}</small>
         <div className="storage-usage-bar"><div style={{ width: `${usedPct}%` }} /></div>
@@ -396,7 +399,7 @@ function StoragePanel({ apiBase, storage, canManage, onChange, friendly }: {
       <button className="button secondary small">{t("resources.storage.saveLimits")}</button>
     </form>}
 
-    {canManage && (!connected || replacing) && <>
+    {canManage && !hostedByAgency && (!connected || replacing) && <>
       <StorageConnectForm onConnect={connect} />
       <div className="storage-share">
         <button type="button" className="button secondary small" onClick={shareLink}><Copy size={14} /> {t("resources.storage.shareLink")}</button>

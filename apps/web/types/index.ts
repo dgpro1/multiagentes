@@ -806,6 +806,9 @@ export type ClientResource = {
 /** The client's own Cloudflare R2 bucket. Credentials are never returned, only a hint of the key. */
 export type StorageConnection = {
   status: "none" | "pending" | "connected" | "error";
+  /** Whose bucket holds the files: the client's own, or the agency's. */
+  hosted_by?: "client" | "agency";
+  agency_storage_ready?: boolean;
   provider: string;
   account_id: string;
   bucket: string;
@@ -831,7 +834,15 @@ export type DataStore = {
   status: "none" | "pending" | "authorized" | "connected" | "error";
   oauth_ready: boolean;
   recommended_region: string;
-  data_mode: "central" | "supabase" | "switching";
+  data_mode: "central" | "supabase" | "agency" | "switching";
+  /** The platform allowed the module and the agency connected its project. */
+  agency_backend_ready?: boolean;
+  /** The client's schema in the agency's project, once it has one; `retired_at`
+   * is set while the client is elsewhere and the schema is only a safety copy. */
+  agency_schema_status?: "none" | "pending" | "connected" | "error";
+  agency_schema_version?: string;
+  agency_schema_retired_at?: string | null;
+  agency_schema_last_error?: string | null;
   schema_version?: string;
   schema_head: string;
   project_ref?: string;
@@ -1109,6 +1120,12 @@ export type PlatformInfrastructureClient = {
   client_name: string;
   portal_slug: string;
   data_mode: string;
+  agency_schema?: {
+    status: string;
+    schema_version: string;
+    retired_at: string | null;
+    last_error: string | null;
+  } | null;
   datastore: {
     status: string;
     schema_version: string;
@@ -1121,6 +1138,7 @@ export type PlatformInfrastructureClient = {
   } | null;
   storage: {
     status: string;
+    hosted_by?: "client" | "agency";
     bucket: string;
     region: string;
     quota_mb: number;
@@ -1131,3 +1149,33 @@ export type PlatformInfrastructureClient = {
   } | null;
 };
 
+
+/** The agency's own Supabase project (Settings). Credentials never leave the server. */
+export type AgencyBackend = {
+  status: "none" | "pending" | "authorized" | "connected" | "error";
+  module_enabled: boolean;
+  oauth_ready: boolean;
+  recommended_region: string;
+  clients_in_agency: number;
+  project_ref?: string;
+  project_name?: string;
+  region?: string;
+  last_error?: string | null;
+  last_checked_at?: string | null;
+  connected_at?: string | null;
+};
+
+export type AgencyProject = { ref: string; name: string; region: string; status: string };
+
+/** The agency's own R2 bucket (Settings). Only a hint of the key is returned. */
+export type AgencyStorage = {
+  status: "none" | "pending" | "connected" | "error";
+  module_enabled: boolean;
+  clients_hosted: number;
+  account_id?: string;
+  bucket?: string;
+  access_key_hint?: string;
+  last_error?: string | null;
+  last_checked_at?: string | null;
+  connected_at?: string | null;
+};

@@ -14,6 +14,7 @@ import { ClientInbox } from "@/components/client-inbox";
 import { ProfessionalsView } from "@/components/professionals-view";
 import { ServicesView } from "@/components/services-view";
 import { ResourcesView } from "@/components/resources-view";
+import { DataLocationPanel } from "@/components/data-location-panel";
 import { DataStorePanel } from "@/components/data-store-panel";
 import { TeamsView } from "@/app/portal/[slug]/teams";
 import { TagsView } from "@/app/portal/[slug]/tags";
@@ -248,7 +249,7 @@ export default function ClientDetailPage() {
     {tab === "teams" && <div className="embedded-portal-view"><TeamsView base={`/clients/${client.id}`} /></div>}
     {tab === "professionals" && <div className="embedded-portal-view"><ProfessionalsView apiBase={`/clients/${client.id}`} canManage timezone={client.timezone} /></div>}
     {tab === "services" && <div className="embedded-portal-view"><ServicesView apiBase={`/clients/${client.id}`} canManage currency={client.currency} /></div>}
-    {tab === "database" && <div className="embedded-portal-view"><DataStorePanel clientId={client.id} /></div>}
+    {tab === "database" && <div className="embedded-portal-view"><DataLocationPanel clientId={client.id} /><DataStorePanel clientId={client.id} /></div>}
     {tab === "library" && <div className="embedded-portal-view"><ResourcesView apiBase={`/clients/${client.id}`} canManage /></div>}
     {tab === "tags" && <div className="embedded-portal-view"><TagsView base={`/clients/${client.id}/contact-tags`} canManage /></div>}
     {tab === "templates" && <div className="embedded-portal-view"><TemplatesView base={`/clients/${client.id}`} /></div>}

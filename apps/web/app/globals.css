@@ -7289,3 +7289,21 @@ select.lead-input { padding-right: 22px; cursor: pointer; }
   border-color: var(--line);
 }
 
+
+/* The agency's own backend (Settings) and the choice of where a client's data lives. */
+.agency-backend .storage-panel { margin-top: 14px; }
+.agency-backend h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; }
+.agency-project-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.agency-project-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.agency-project-list small { color: var(--muted); }
+.data-location { margin-bottom: 18px; }
+.data-location-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.data-location-option { text-align: left; display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
+.data-location-option strong { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.data-location-option span { font-size: 12.5px; color: var(--muted); }
+.data-location-option:hover:not(:disabled):not(.current) { border-color: var(--accent-line); }
+.data-location-option.current { border-color: var(--accent); background: var(--accent-soft); cursor: default; }
+.data-location-option:disabled { opacity: .55; cursor: not-allowed; }
+.data-location-option .why { color: var(--amber-text, #b45309); }
+.data-location-files { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 12px; }
+@media (max-width: 760px) { .data-location-options { grid-template-columns: 1fr; } }

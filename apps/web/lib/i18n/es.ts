@@ -18,6 +18,7 @@ import { professionals } from "./dicts/professionals";
 import { services } from "./dicts/services";
 import { resources } from "./dicts/resources";
 import { dataStore } from "./dicts/dataStore";
+import { agencyBackend } from "./dicts/agencyBackend";
 import { lead } from "./dicts/lead";
 import { platform } from "./dicts/platform";
 
@@ -43,6 +44,7 @@ export const es: Dictionary = {
   services: services.es,
   resources: resources.es,
   dataStore: dataStore.es,
+  agencyBackend: agencyBackend.es,
   lead: lead.es,
   platform: platform.es,
 };

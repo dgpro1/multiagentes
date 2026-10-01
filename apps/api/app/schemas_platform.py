@@ -208,6 +208,7 @@ class PlatformInfrastructureClient(BaseModel):
     portal_slug: str
     data_mode: str
     datastore: dict | None
+    agency_schema: dict | None = None
     storage: dict | None
 
 
