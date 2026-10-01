@@ -2899,7 +2899,15 @@ textarea[data-overflow="true"]::-webkit-scrollbar-thumb { border-radius: 8px; ba
      column, and every label gives way to its icon. */
   .app-layout.nav-collapsed .sidebar { width: var(--nav-rail); padding-inline: 12px; }
   .app-layout.nav-collapsed .main-content { margin-left: var(--nav-rail); }
-  .app-layout.nav-collapsed .brand-row { flex-direction: column; gap: 10px; padding: 0 0 14px; }
+  .app-layout.nav-collapsed .brand-row { position: relative; flex-direction: column; gap: 10px; padding: 0 0 14px; }
+  /* Folded, the control hides under the logo and takes its place on hover or
+     focus, so the rail starts with the logo alone. */
+  .app-layout.nav-collapsed .sidebar-toggle { position: absolute; top: 0; left: 50%; transform: translateX(-50%); opacity: 0; transition: opacity .12s ease; }
+  .app-layout.nav-collapsed .brand .hunterai-icon { transition: opacity .12s ease; }
+  .app-layout.nav-collapsed .brand-row:hover .sidebar-toggle,
+  .app-layout.nav-collapsed .brand-row:focus-within .sidebar-toggle { opacity: 1; }
+  .app-layout.nav-collapsed .brand-row:hover .brand .hunterai-icon,
+  .app-layout.nav-collapsed .brand-row:focus-within .brand .hunterai-icon { opacity: 0; }
   .app-layout.nav-collapsed .brand > span:last-of-type,
   .app-layout.nav-collapsed .nav-label,
   .app-layout.nav-collapsed .sidebar nav a > span,
