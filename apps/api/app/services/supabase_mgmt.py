@@ -134,6 +134,17 @@ async def run_query(access_token: str, ref: str, query: str) -> object:
     return await _call("POST", f"/v1/projects/{ref}/database/query", access_token, json={"query": query})
 
 
+async def ping_api(ref: str) -> None:
+    """Knock on the project's public API. Any answer, even a refusal, is traffic that
+    reaches the project, which together with the SQL the check runs counts as activity
+    for a plan that pauses an idle project. Never raises."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.get(f"https://{ref}.supabase.co/rest/v1/")
+    except httpx.HTTPError:
+        pass
+
+
 async def pooler_config(access_token: str, ref: str) -> dict:
     """The primary database's pooler settings (the API answers a list, one per database)."""
     payload = await _call("GET", f"/v1/projects/{ref}/config/database/pooler", access_token)

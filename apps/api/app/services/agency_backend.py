@@ -222,6 +222,7 @@ async def _probe_project(db: Session, store: AgencyDataStore) -> None:
     """Ask the project a trivial question. The query is also the activity that keeps a free project awake."""
     try:
         await supabase.run_query(await _access(db, store), store.project_ref, "select 1")
+        await supabase.ping_api(store.project_ref)
         store.status, store.last_error = "connected", None
     except (supabase.SupabaseError, HTTPException):
         store.status = "error"

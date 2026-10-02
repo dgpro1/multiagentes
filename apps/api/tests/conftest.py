@@ -111,6 +111,17 @@ def immediate_replies(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_supabase_pings(monkeypatch):
+    """The keep-alive knock on an agency's project never leaves the machine."""
+    from app.services import supabase_mgmt
+
+    async def quiet(ref):
+        return None
+
+    monkeypatch.setattr(supabase_mgmt, "ping_api", quiet)
+
+
+@pytest.fixture(autouse=True)
 def fixed_model_catalog():
     """A known catalog, so no test reads OpenRouter and the prices the cost
     reports are asserted against stay put."""

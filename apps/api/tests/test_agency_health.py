@@ -21,7 +21,14 @@ def test_a_project_and_a_bucket_that_stop_answering_are_flagged_and_recover(auth
     _module(client, True)
     _connect_project(client)
     assert client.put("/api/agency/storage", json=AGENCY).status_code == 200
+    knocked: list[str] = []
+
+    async def knock(ref):
+        knocked.append(ref)
+
+    monkeypatch.setattr(supabase, "ping_api", knock)
     assert _sweep() == 0
+    assert knocked == ["a" * 20]  # the project's own API is knocked on as well as its database
 
     answer = supabase.run_query
 

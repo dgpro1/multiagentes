@@ -116,7 +116,7 @@ async def _update_client_schemas() -> None:
 
 KEPT_WEBHOOK_RETRY_SECONDS = 60
 PURGE_AGENCY_COPIES_SECONDS = 24 * 60 * 60
-CHECK_AGENCY_BACKENDS_SECONDS = 6 * 60 * 60
+CHECK_AGENCY_BACKENDS_SECONDS = 24 * 60 * 60
 
 
 async def _purge_agency_copies_loop() -> None:
@@ -136,7 +136,7 @@ async def _purge_agency_copies_loop() -> None:
 
 
 async def _check_agency_backends_loop() -> None:
-    """Probe each agency's own project and bucket every few hours, which flags a
+    """Probe each agency's own project and bucket once a day, which flags a
     disconnection on the agency's screen and keeps a free project from being paused."""
     from .services import agency_backend
 
