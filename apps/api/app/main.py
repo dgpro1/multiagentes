@@ -169,6 +169,8 @@ async def _retry_kept_webhooks_loop() -> None:
 async def lifespan(_: FastAPI):
     from .services.social_worker import start_worker, stop_worker
     start_worker()
+    if settings.frontend_url.startswith("https://") and not settings.cookie_secure:
+        logger.warning("FRONTEND_URL is https but COOKIE_SECURE is false: session cookies travel without the Secure flag")
     # Every task this boot starts is held and cancelled on shutdown. Three of
     # them write to the database (the Evolution restore commits per channel, the
     # tenant upgrade_all migrates), and a task that outlives the app keeps

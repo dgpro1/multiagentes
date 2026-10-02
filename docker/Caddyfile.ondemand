@@ -13,8 +13,23 @@
 	}
 }
 
+# Headers every response carries. Only the widget page (/widget/*) may be framed,
+# by the customer sites that embed it; everything else refuses to sit in a frame.
+(security_headers) {
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), geolocation=(), microphone=(self)"
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	@framable not path /widget/*
+	header @framable Content-Security-Policy "frame-ancestors 'self'; base-uri 'self'; object-src 'none'"
+}
+
 # The primary domain (agency dashboard, playground, API) — normal managed cert.
 {$PRIMARY_DOMAIN} {
+	import security_headers
 	handle /api/* {
 		reverse_proxy api:8000
 	}
@@ -27,6 +42,7 @@
 # is issued on demand (gated by the ask endpoint) and the request is routed the
 # same way — proxy.ts in the frontend rewrites it to that client's portal.
 https:// {
+	import security_headers
 	tls {
 		on_demand
 	}
