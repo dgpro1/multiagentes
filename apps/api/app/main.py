@@ -116,6 +116,7 @@ async def _update_client_schemas() -> None:
 
 KEPT_WEBHOOK_RETRY_SECONDS = 60
 PURGE_AGENCY_COPIES_SECONDS = 24 * 60 * 60
+CHECK_AGENCY_BACKENDS_SECONDS = 6 * 60 * 60
 
 
 async def _purge_agency_copies_loop() -> None:
@@ -132,6 +133,22 @@ async def _purge_agency_copies_loop() -> None:
                 logger.info("Dropped %s safety copies from agency projects", dropped)
         except Exception:  # noqa: BLE001 - a sweep must never stop the app
             logger.exception("The safety copy sweep failed")
+
+
+async def _check_agency_backends_loop() -> None:
+    """Probe each agency's own project and bucket every few hours, which flags a
+    disconnection on the agency's screen and keeps a free project from being paused."""
+    from .services import agency_backend
+
+    while True:
+        await asyncio.sleep(CHECK_AGENCY_BACKENDS_SECONDS)
+        try:
+            with new_session() as db:
+                failing = await agency_backend.check_all(db)
+            if failing:
+                logger.warning("%s agency backend connections are failing", failing)
+        except Exception:  # noqa: BLE001 - a sweep must never stop the app
+            logger.exception("The agency backend check failed")
 
 
 async def _retry_kept_webhooks_loop() -> None:
@@ -163,6 +180,7 @@ async def lifespan(_: FastAPI):
         asyncio.create_task(_update_client_schemas()),
         asyncio.create_task(_retry_kept_webhooks_loop()),
         asyncio.create_task(_purge_agency_copies_loop()),
+        asyncio.create_task(_check_agency_backends_loop()),
     ]
     if settings.auto_resolve_after_hours > 0:
         background.append(asyncio.create_task(_auto_resolve_loop()))

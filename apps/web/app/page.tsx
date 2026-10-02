@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Bot, Building2, Calendar, MessageSquareText, MessagesSquare, Plus, Radio, Sparkles, UserRound, X } from "lucide-react";
+import { AlertTriangle, Bot, Building2, Calendar, MessageSquareText, MessagesSquare, Plus, Radio, Sparkles, UserRound, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useLanguage } from "@/lib/i18n";
 import { useAgencyModules } from "@/lib/agency-modules";
 import { PanelSkeleton, Skeleton } from "@/components/skeleton";
+import { Alert } from "@/components/ui";
 import type { Agent, AgentSummary, AgencyBackend, AgencyStorage, Conversation, Provider, User } from "@/types";
 
 type Dashboard = {
@@ -62,10 +63,14 @@ export default function HomePage() {
   const modules = useAgencyModules(true);
   const backendOn = modules?.includes("agency_backend") === true;
   const [backendReady, setBackendReady] = useState(false);
+  const [backendDown, setBackendDown] = useState(false);
   useEffect(() => {
     if (!backendOn) return;
     Promise.all([api<AgencyBackend>("/agency/backend"), api<AgencyStorage>("/agency/storage")])
-      .then(([project, bucket]) => setBackendReady(project.status === "connected" && bucket.status === "connected"))
+      .then(([project, bucket]) => {
+        setBackendReady(project.status === "connected" && bucket.status === "connected");
+        setBackendDown(project.status === "error" || bucket.status === "error");
+      })
       .catch(() => setBackendReady(false));
   }, [backendOn]);
 
@@ -176,6 +181,11 @@ export default function HomePage() {
       </header>
 
       <div className="bento-content-container">
+        {backendDown && (
+          <div style={{ marginBottom: 10 }}>
+            <Alert><AlertTriangle size={14} /> {t("home.backendDown")} <Link href="/settings#backend">{t("home.backendDownLink")}</Link></Alert>
+          </div>
+        )}
         {showSteps && (
           <section className="panel next-steps home-next-steps" style={{ marginBottom: 10 }}>
             <div className="panel-head">

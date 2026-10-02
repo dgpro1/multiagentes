@@ -6,6 +6,8 @@ const en = {
     greeting: "Hello, {name} 👋",
     description: "Everything happening with your clients and agents, in one place.",
   },
+  backendDown: "Your Supabase project or Cloudflare bucket is not answering. New clients start in HunterAI until it is back.",
+  backendDownLink: "Check it",
   nextSteps: {
     title: "First steps",
     subtitle: "Get your workspace ready to start chatting",
@@ -66,6 +68,8 @@ const es: typeof en = {
     greeting: "Hola, {name} 👋",
     description: "Todo lo que ocurre con tus clientes y agentes, en un solo lugar.",
   },
+  backendDown: "Tu proyecto de Supabase o tu bucket de Cloudflare no responde. Los clientes nuevos empiezan en HunterAI hasta que vuelva.",
+  backendDownLink: "Revisarlo",
   nextSteps: {
     title: "Primeros pasos",
     subtitle: "Deja tu espacio de trabajo listo para empezar a conversar",

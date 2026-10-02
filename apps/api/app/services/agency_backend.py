@@ -218,21 +218,48 @@ async def choose_project(db: Session, agency: Agency, ref: str) -> AgencyDataSto
     return store
 
 
-async def recheck(db: Session, agency: Agency) -> AgencyDataStore:
-    ensure_module(agency)
-    store = db.scalar(select(AgencyDataStore).where(AgencyDataStore.agency_id == agency.id))
-    if not store or not store.project_ref:
-        raise HTTPException(status_code=409, detail="This agency has not connected a Supabase project")
+async def _probe_project(db: Session, store: AgencyDataStore) -> None:
+    """Ask the project a trivial question. The query is also the activity that keeps a free project awake."""
     try:
         await supabase.run_query(await _access(db, store), store.project_ref, "select 1")
         store.status, store.last_error = "connected", None
-    except supabase.SupabaseError:
+    except (supabase.SupabaseError, HTTPException):
         store.status = "error"
         store.last_error = "Could not reach the Supabase project (paused, deleted or the authorization was revoked?)"
     store.last_checked_at = now_utc()
     db.commit()
     db.refresh(store)
+
+
+async def recheck(db: Session, agency: Agency) -> AgencyDataStore:
+    ensure_module(agency)
+    store = db.scalar(select(AgencyDataStore).where(AgencyDataStore.agency_id == agency.id))
+    if not store or not store.project_ref:
+        raise HTTPException(status_code=409, detail="This agency has not connected a Supabase project")
+    await _probe_project(db, store)
     return store
+
+
+async def check_all(db: Session) -> int:
+    """Probe every connected project and bucket of the agencies that may use them, so a
+    disconnection shows on the agency's screen before a client is created into it.
+    Returns how many are failing."""
+    failing = 0
+    for agency in db.scalars(select(Agency)).all():
+        if not agency_features.is_enabled(agency, MODULE):
+            continue
+        store = db.scalar(select(AgencyDataStore).where(AgencyDataStore.agency_id == agency.id))
+        if store and store.project_ref:
+            await _probe_project(db, store)
+            failing += store.status != "connected"
+        conn = _storage(db, agency)
+        if conn and conn.encrypted_access_key_id:
+            error = await asyncio.to_thread(_bucket_error, conn)
+            conn.status, conn.last_error = ("error", error) if error else ("connected", None)
+            conn.last_checked_at = now_utc()
+            db.commit()
+            failing += bool(error)
+    return failing
 
 
 def disconnect(db: Session, agency: Agency) -> None:
@@ -441,19 +468,24 @@ def storage_connect_cloudflare(db: Session, agency: Agency, payload: CloudflareC
     raise AssertionError("unreachable")
 
 
-def storage_recheck(db: Session, agency: Agency) -> AgencyStorageConnection:
-    ensure_module(agency)
-    conn = _storage(db, agency)
-    if not conn or not conn.encrypted_access_key_id:
-        raise HTTPException(status_code=409, detail="This agency has not connected a Cloudflare bucket")
+def _bucket_error(conn: AgencyStorageConnection) -> str | None:
     try:
         storage.Storage(
             conn.account_ref, decrypt_secret(conn.encrypted_access_key_id), decrypt_secret(conn.encrypted_secret or ""),
             conn.bucket, conn.region,
         ).probe()
-        conn.status, conn.last_error = "connected", None
     except storage.StorageError as exc:
-        conn.status, conn.last_error = "error", str(exc)
+        return str(exc)
+    return None
+
+
+def storage_recheck(db: Session, agency: Agency) -> AgencyStorageConnection:
+    ensure_module(agency)
+    conn = _storage(db, agency)
+    if not conn or not conn.encrypted_access_key_id:
+        raise HTTPException(status_code=409, detail="This agency has not connected a Cloudflare bucket")
+    error = _bucket_error(conn)
+    conn.status, conn.last_error = ("error", error) if error else ("connected", None)
     conn.last_checked_at = now_utc()
     db.commit()
     db.refresh(conn)
