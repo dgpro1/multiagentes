@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+import uuid
+
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
@@ -9,7 +11,7 @@ from ..deps import get_current_user
 from ..models import Agency, PlatformAdmin, User
 from ..ratelimit import login_rate_limit
 from ..schemas import LoginRequest, RegisterRequest, UserOut
-from ..security import create_access_token, hash_password, verify_password
+from ..security import access_token_version, create_access_token, decode_access_token, hash_password, verify_password
 from ..services.access_policy import ensure_agency_active
 from ..slugs import unique_slug
 
@@ -45,7 +47,7 @@ def _set_session_cookie(response: Response, user: User) -> None:
     settings = get_settings()
     response.set_cookie(
         key="access_token",
-        value=create_access_token(str(user.id)),
+        value=create_access_token(str(user.id), user.session_version),
         httponly=True,
         secure=settings.cookie_secure,
         samesite=settings.cookie_samesite,
@@ -120,7 +122,16 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response):
+def logout(response: Response, access_token: str | None = Cookie(default=None), db: Session = Depends(get_db)):
+    """End the session here and on every device: a session someone else copied stops working too."""
+    user_id = decode_access_token(access_token) if access_token else None
+    try:
+        user = db.get(User, uuid.UUID(user_id)) if user_id else None
+    except ValueError:
+        user = None
+    if user and access_token_version(access_token) == user.session_version:
+        user.session_version += 1
+        db.commit()
     response.delete_cookie("access_token", path="/")
 
 

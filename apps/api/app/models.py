@@ -71,6 +71,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(30), default="admin")
+    # Raised on sign-out: a session issued under an older number is refused.
+    session_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
     agency: Mapped[Agency] = relationship(back_populates="users")

@@ -17,10 +17,22 @@ def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode(), password_hash.encode())
 
 
-def create_access_token(user_id: str) -> str:
+def create_access_token(user_id: str, session_version: int = 1) -> str:
     settings = get_settings()
     expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_minutes)
-    return jwt.encode({"sub": user_id, "type": "agency", "exp": expires}, settings.secret_key, algorithm="HS256")
+    return jwt.encode(
+        {"sub": user_id, "type": "agency", "ver": session_version, "exp": expires},
+        settings.secret_key, algorithm="HS256",
+    )
+
+
+def access_token_version(token: str) -> int:
+    """The session version a token was issued under; one issued before versions existed is 1."""
+    try:
+        payload = jwt.decode(token, get_settings().secret_key, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return 1
+    return int(payload.get("ver") or 1)
 
 
 def decode_access_token(token: str) -> str | None:

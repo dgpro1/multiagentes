@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from .database import get_db
 from .models import Agency, ApiToken, PlatformAdmin, User
 from .ratelimit import api_token_rate_limit
-from .security import decode_access_token, decode_platform_token
+from .security import access_token_version, decode_access_token, decode_platform_token
 from .services.access_policy import ensure_agency_active
 from .services.api_credentials import digest
 
@@ -121,6 +121,8 @@ def _session_user(access_token: str | None, db: Session) -> User:
     user = db.get(User, parsed_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if access_token_version(access_token) != user.session_version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="The session expired")
     ensure_agency_active(db.get(Agency, user.agency_id))
     return user
 
