@@ -30,11 +30,14 @@ function Connections() {
   const [backend, setBackend] = useState<AgencyBackend | null>(null);
   const [storage, setStorage] = useState<AgencyStorage | null>(null);
   const [projects, setProjects] = useState<AgencyProject[] | null>(null);
-  const [busy, setBusy] = useState<"" | "connect" | "token" | "projects" | "project" | "check" | "bucketCheck">("");
+  const [busy, setBusy] = useState<"" | "connect" | "token" | "projects" | "project" | "check" | "bucketCheck" | "cloudflare">("");
   const [token, setToken] = useState("");
   const anchor = useRef<HTMLElement>(null);
   const [asking, setAsking] = useState<"" | "project" | "bucket">("");
   const [replacing, setReplacing] = useState(false);
+  const [manual, setManual] = useState(false);
+  const [cfToken, setCfToken] = useState("");
+  const [cfAccount, setCfAccount] = useState("");
   const announced = useRef(false);
 
   const load = useCallback(async () => {
@@ -112,6 +115,18 @@ function Connections() {
     setStorage(await api<AgencyStorage>("/agency/storage", { method: "PUT", body: JSON.stringify(payload) }));
     setReplacing(false);
     toast.success(t("agencyBackend.settings.bucketConnected"));
+  }
+
+  async function connectCloudflare(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy("cloudflare");
+    try {
+      setStorage(await api<AgencyStorage>("/agency/storage/cloudflare", { method: "PUT", body: JSON.stringify({ token: cfToken.trim(), account_id: cfAccount.trim() }) }));
+      setCfToken("");
+      setReplacing(false);
+      toast.success(t("agencyBackend.settings.bucketConnected"));
+    } catch (err) { toast.error(messageFrom(err)); }
+    finally { setBusy(""); }
   }
 
   async function checkBucket() {
@@ -218,7 +233,20 @@ function Connections() {
         <div><small>{t("agencyBackend.settings.keyHint")}</small><strong>{storage.access_key_hint}</strong></div>
         <div><small>{t("agencyBackend.settings.clientsHosted")}</small><strong>{storage.clients_hosted}</strong></div>
       </div>}
-      {(storage.status !== "connected" || replacing) && <StorageConnectForm onConnect={connectBucket} exampleBucket="agency-client-files" />}
+      {(storage.status !== "connected" || replacing) && <>
+        <form className="storage-share" onSubmit={connectCloudflare} autoComplete="off">
+          <strong>{t("agencyBackend.settings.cfTitle")}</strong>
+          <span className="field-help">{t("agencyBackend.settings.cfCopy")}</span>
+          <label>{t("agencyBackend.settings.cfToken")}<PasswordInput name="cloudflare_token" value={cfToken} onChange={(event) => setCfToken(event.target.value)} required minLength={20} maxLength={400} autoComplete="new-password" /></label>
+          <label>{t("agencyBackend.settings.cfAccount")}<input name="cloudflare_account" value={cfAccount} onChange={(event) => setCfAccount(event.target.value)} maxLength={32} autoComplete="off" /></label>
+          <div className="header-actions">
+            <button className="button primary small" disabled={busy === "cloudflare" || cfToken.trim().length < 20}>{busy === "cloudflare" ? <LoaderCircle className="spin" size={14} /> : <PlugZap size={14} />} {t("agencyBackend.settings.cfConnect")}</button>
+            <a className="button secondary small" href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer"><ExternalLink size={14} /> {t("agencyBackend.settings.cfOpen")}</a>
+          </div>
+        </form>
+        <button type="button" className="button secondary small" onClick={() => setManual((v) => !v)}>{t("agencyBackend.settings.cfManual")}</button>
+        {manual && <StorageConnectForm onConnect={connectBucket} exampleBucket="agency-client-files" />}
+      </>}
     </div>
 
     {asking === "project" && <ConfirmModal title={t("agencyBackend.settings.disconnectTitle")} message={t("agencyBackend.settings.disconnectCopy")} confirmLabel={t("agencyBackend.settings.disconnect")} cancelLabel={t("common.cancel")} confirmIcon={<Unplug size={15} />} danger onConfirm={disconnectProject} onClose={() => setAsking("")} />}

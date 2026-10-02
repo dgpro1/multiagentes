@@ -11,7 +11,7 @@ The platform owner switches it on per agency (module `agency_backend`, off by de
 In **Settings → Agency backend**:
 
 - **Supabase.** Create an access token in your Supabase account (Account → Access Tokens), paste it and pick the project from the list. If the platform owner registered a Supabase OAuth app, you can authorize through Supabase's consent screen instead. Either way HunterAI never needs the project's password: it creates a database role per client through the Management API. The token is stored encrypted and you can revoke it in Supabase whenever you like. Use a plan that does not pause the project for inactivity, and a region close to the HunterAI servers (Settings warns when it is not).
-- **Cloudflare R2.** Enter the account ID, a bucket, and an S3 API token. The bucket is probed with a write, a read and a delete before anything is kept, and the secret is never shown again.
+- **Cloudflare R2.** Paste one Cloudflare API token with the permissions Workers R2 Storage: Edit and API Tokens: Edit. HunterAI creates the bucket and a second key that can use only that bucket; the token you paste is used once and not kept. If you prefer, enter the account ID, a bucket and an S3 API token by hand. Either way the bucket is probed with a write, a read and a delete before anything is kept, and the secret is never shown again.
 
 ## New clients start here
 

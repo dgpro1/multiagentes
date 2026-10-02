@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import User
-from ..schemas_resources import StorageConnect
+from ..schemas_resources import CloudflareConnect, StorageConnect
 from ..services import agency_backend
 
 router = APIRouter(prefix="/agency", tags=["Agency backend"])
@@ -111,6 +111,12 @@ def get_storage(db: Session = Depends(get_db), user: User = Depends(get_current_
 @router.put("/storage", response_model=AgencyStorageOut)
 def connect_storage(payload: StorageConnect, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     agency_backend.storage_connect(db, user.agency, payload)
+    return agency_backend.storage_out(db, user.agency)
+
+
+@router.put("/storage/cloudflare", response_model=AgencyStorageOut)
+def connect_storage_cloudflare(payload: CloudflareConnect, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    agency_backend.storage_connect_cloudflare(db, user.agency, payload)
     return agency_backend.storage_out(db, user.agency)
 
 

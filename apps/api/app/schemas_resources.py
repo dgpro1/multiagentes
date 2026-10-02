@@ -26,6 +26,19 @@ class StorageConnect(BaseModel):
         return _clean(value)
 
 
+class CloudflareConnect(BaseModel):
+    """One Cloudflare API token from which the bucket and its keys are created."""
+
+    token: str = Field(min_length=20, max_length=400)
+    account_id: str = Field(default="", max_length=32)
+    bucket: str = Field(default="", max_length=63)
+
+    @field_validator("token", "account_id", "bucket")
+    @classmethod
+    def _strip(cls, value: str) -> str:
+        return _clean(value)
+
+
 class StorageLimitsUpdate(BaseModel):
     max_file_mb: int | None = Field(default=None, ge=1, le=20)
     quota_mb: int | None = Field(default=None, ge=1, le=10240)

@@ -18,6 +18,7 @@ import hashlib
 import logging
 import re
 import secrets
+import time
 from datetime import timedelta
 
 from fastapi import HTTPException
@@ -36,9 +37,9 @@ from ..models import (
     DataStoreOAuthState,
     now_utc,
 )
-from ..schemas_resources import StorageConnect
+from ..schemas_resources import CloudflareConnect, StorageConnect
 from ..security import decrypt_secret, encrypt_secret
-from . import data_store, resource_storage as storage, supabase_mgmt as supabase, tenant_schema
+from . import cloudflare_mgmt, data_store, resource_storage as storage, supabase_mgmt as supabase, tenant_schema
 
 logger = logging.getLogger(__name__)
 
@@ -347,6 +348,10 @@ def _clients_hosted(db: Session, agency_id) -> int:
     ) or 0
 
 
+PROPAGATION_TRIES = 4
+PROPAGATION_WAIT = 3.0
+
+
 def storage_ready(db: Session, agency: Agency) -> bool:
     """Whether a client of this agency may be moved into the agency's bucket."""
     conn = _storage(db, agency)
@@ -410,6 +415,30 @@ def storage_connect(db: Session, agency: Agency, payload: StorageConnect) -> Age
     db.commit()
     db.refresh(conn)
     return conn
+
+
+def storage_connect_cloudflare(db: Session, agency: Agency, payload: CloudflareConnect) -> AgencyStorageConnection:
+    """Create the bucket and a bucket-only key pair from one Cloudflare token, then connect them."""
+    ensure_module(agency)
+    bucket = payload.bucket or f"hunterai-{agency.id.hex[:12]}"
+    if not storage.valid_bucket(bucket):
+        raise HTTPException(status_code=422, detail="That is not a valid bucket name")
+    if payload.account_id and not storage.valid_account_id(payload.account_id):
+        raise HTTPException(status_code=422, detail="The Cloudflare account id must be 32 hexadecimal characters")
+    try:
+        account_id, key_id, secret = cloudflare_mgmt.provision(payload.token, bucket, payload.account_id)
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    keys = StorageConnect(account_id=account_id, access_key_id=key_id, secret_access_key=secret, bucket=bucket)
+    # A key Cloudflare has just minted can take a few seconds to be accepted.
+    for attempt in range(PROPAGATION_TRIES):
+        try:
+            return storage_connect(db, agency, keys)
+        except HTTPException as exc:
+            if exc.status_code != 422 or attempt == PROPAGATION_TRIES - 1:
+                raise
+            time.sleep(PROPAGATION_WAIT)
+    raise AssertionError("unreachable")
 
 
 def storage_recheck(db: Session, agency: Agency) -> AgencyStorageConnection:

@@ -323,6 +323,10 @@ export const API_ERRORS_ES: Record<string, string> = {
   "features must be an object of switches": "features debe ser un objeto de interruptores",
   "portal_features must be an object of switches": "portal_features debe ser un objeto de interruptores",
   // The agency's own backend.
+  "Cloudflare did not answer": "Cloudflare no respondió",
+  "Cloudflare did not accept that token or it lacks permissions": "Cloudflare no aceptó ese token o le faltan permisos",
+  "Cloudflare could not complete that request": "Cloudflare no pudo completar la petición",
+  "That token sees several Cloudflare accounts: enter the account id": "Ese token ve varias cuentas de Cloudflare: escribe el ID de cuenta",
   "Supabase did not accept that token": "Supabase no aceptó ese token",
   "That does not look like a Supabase access token": "Eso no parece un token de acceso de Supabase",
   "Connect the agency's Cloudflare bucket first": "Primero conecta el bucket de Cloudflare de la agencia",
