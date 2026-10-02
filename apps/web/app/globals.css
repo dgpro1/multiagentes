@@ -7307,3 +7307,26 @@ select.lead-input { padding-right: 22px; cursor: pointer; }
 .data-location-option .why { color: var(--amber-text, #b45309); }
 .data-location-files { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 12px; }
 @media (max-width: 760px) { .data-location-options { grid-template-columns: 1fr; } }
+
+/* Agency sidebar: a tighter rail when folded, slightly smaller type when open. */
+@media (min-width: 901px) {
+  .app-layout.nav-collapsed .sidebar { width: 60px; padding: 14px 8px; }
+  .app-layout.nav-collapsed .main-content { margin-left: 60px; }
+  .app-layout.nav-collapsed .brand-row { gap: 6px; padding: 0 0 10px; }
+  .app-layout.nav-collapsed .brand .hunterai-icon, .app-layout.nav-collapsed .brand .openlivery-icon { width: 28px !important; height: 28px !important; min-width: 28px; }
+  .app-layout.nav-collapsed .sidebar nav { gap: 2px; }
+  .app-layout.nav-collapsed .sidebar nav a { height: 36px; border-radius: 10px; }
+  .app-layout.nav-collapsed .sidebar nav a svg { width: 17px; height: 17px; }
+  .app-layout.nav-collapsed .sidebar-theme-row { padding-top: 6px; }
+  .app-layout.nav-collapsed .sidebar-foot { gap: 6px; padding-top: 10px; }
+  .app-layout.nav-collapsed .sidebar-foot .icon-button { width: 30px; height: 30px; }
+
+  .app-layout:not(.nav-collapsed) .sidebar nav a { height: 38px; font-size: 13px; gap: 10px; }
+  .app-layout:not(.nav-collapsed) .sidebar nav a svg { width: 17px; height: 17px; }
+  .app-layout:not(.nav-collapsed) .nav-label { font-size: 10px; }
+  .app-layout:not(.nav-collapsed) .brand { font-size: 15px; }
+  .sidebar .user-avatar { width: 28px; height: 28px; font-size: 12px; }
+  .sidebar .user-meta { gap: 0; line-height: 1.25; }
+  .sidebar .user-meta strong { font-size: 12px; }
+  .sidebar .user-meta span { font-size: 11px; }
+}
