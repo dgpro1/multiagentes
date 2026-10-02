@@ -47,7 +47,7 @@ type DeletionPreview = {
   portal_users: number;
 };
 
-type Editable = PortalClientDetails & { is_active?: boolean };
+type Editable = PortalClientDetails & { is_active?: boolean; ai_daily_cap_usd?: number | null; ai_paused?: boolean };
 
 type Props<T extends Editable> = {
   /** The client as last saved. */
@@ -102,6 +102,7 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
   });
   const [timezone, setTimezone] = useState(client.timezone || "UTC");
   const [currency, setCurrency] = useState(client.currency || "USD");
+  const [aiCap, setAiCap] = useState(client.ai_daily_cap_usd != null ? String(client.ai_daily_cap_usd) : "");
   const [address, setAddress] = useState(client.address ?? "");
   const [googleMapsUrl, setGoogleMapsUrl] = useState(client.google_maps_url ?? "");
   const [businessHours, setBusinessHours] = useState<WeeklyHours>(() => cloneHours(client.business_hours));
@@ -197,7 +198,10 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
       google_maps_url: googleMapsUrl.trim() || null,
       business_hours: hasAnyHours ? weekly_hours : null,
     };
-    if (agency) body.is_active = isActive;
+    if (agency) {
+      body.is_active = isActive;
+      body.ai_daily_cap_usd = aiCap.trim() ? Number(aiCap) : null;
+    }
     try {
       onChange(await api<T>(apiBase, { method: "PATCH", body: JSON.stringify(body) }));
       toast.success(t("clients.detail.detailsSaved"));
@@ -205,6 +209,15 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
       toast.error(messageFrom(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function resumeAi() {
+    try {
+      onChange(await api<T>(apiBase, { method: "PATCH", body: JSON.stringify({ resume_ai: true }) }));
+      toast.success(t("clients.detail.aiResumed"));
+    } catch (err) {
+      toast.error(messageFrom(err));
     }
   }
 
@@ -361,6 +374,16 @@ export function ClientDetails<T extends Editable>(props: Props<T>) {
                 </div>
                 <span className="stitch-field-help">{t("clients.detail.ownerHint")}</span>
               </div>
+
+              {agency && <div className="stitch-field-group">
+                <label className="stitch-field-label">{t("clients.detail.aiCapLabel")}</label>
+                <input name="ai_daily_cap" type="number" min="0.01" step="0.01" inputMode="decimal" value={aiCap} onChange={(e) => setAiCap(e.target.value)} placeholder="10" />
+                <span className="stitch-field-help">{t("clients.detail.aiCapHint")}</span>
+                {client.ai_paused && <div className="alert alert-error" style={{ marginTop: 8 }}>
+                  {t("clients.detail.aiPausedNotice")}{" "}
+                  <button type="button" className="button secondary small" onClick={resumeAi}>{t("clients.detail.aiResume")}</button>
+                </div>}
+              </div>}
 
               {/* Moneda & Zona Horaria */}
               <div className="stitch-form-grid-2">

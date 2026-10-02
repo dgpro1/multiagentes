@@ -21,10 +21,11 @@ from ..database import DataMoving, new_client_session, new_session
 from .contacts import contact_is_blocked, display_name, phone_from_chat_id, previous_conversation_recap, rename_conversations, resolve_contact
 from . import lead_group
 from .conversation_state import exchanged_only, note_inbound, note_reply, set_pipeline_stage
-from ..models import Agent, Conversation, Message, MessageAttachment, now_utc
+from ..models import Agent, Client, Conversation, Message, MessageAttachment, now_utc
 from .attachments import llm_text, store_attachment, store_visitor_attachment
 from .knowledge import contact_context, build_system_prompt, llm_turns, retrieve_knowledge
 from .media import audio_filename, describe_image, transcribe_audio
+from . import ai_budget
 from .notifications import notify_needs_human
 from .routing import route_new_conversation_by_tags
 from .model_catalog import DEFAULT_AUDIO_MODEL
@@ -450,6 +451,10 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
     db.refresh(conversation)
     if conversation.mode == "human" or conversation.status == "resolved" or not channel.is_enabled:
         return InboundResult(accepted=True, conversation_id=conversation.id, mode=conversation.mode)
+    owner = db.get(Client, conversation.client_id)
+    if owner is not None and owner.ai_paused:
+        # The client's daily cap switched the AI off: nothing is spent until tomorrow or a manual resume.
+        return InboundResult(accepted=True, conversation_id=conversation.id, mode=conversation.mode)
     if conversation.channel == "whatsapp_cloud" and channel.coexistence:
         from .whatsapp_coexistence import require_reply
         try:
@@ -629,6 +634,9 @@ async def _reply_with_ai(db: Session, channel, conversation: Conversation, retri
         else:
             attachment_message_ids = [str(media.id) for media, _ in stored]
     record_usage(db, agent.agency_id, agent.id, agent.provider, agent.model.strip(), completion, conversation=conversation, message=outbound)
+    if owner is not None:
+        db.flush()
+        ai_budget.enforce(db, owner)
     conversation.updated_at = now_utc()
     channel.last_error = None
     if commercial_effects:

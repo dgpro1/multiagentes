@@ -25,6 +25,7 @@ from ..services.attachments import (
 from ..services.tools import run_completion
 from ..services.knowledge import contact_context, build_system_prompt, llm_turns, retrieve_knowledge
 from ..services.providers import resolve_agent_credentials
+from ..services import ai_budget
 from ..services.usage import record_usage
 from ..services.notifications import notify_needs_human
 from ..services.whatsapp_inbound import InboundMessage, resolve_inbound_content
@@ -281,6 +282,9 @@ async def _widget_ai_reply(db: Session, agent: Agent, conversation: Conversation
     agent is not ready or the completion fails."""
     if conversation.mode == "human":
         return None
+    owner = db.get(Client, conversation.client_id)
+    if owner is not None and owner.ai_paused:
+        return None  # the client's daily cap switched the AI off (services/ai_budget.py)
     credentials = resolve_agent_credentials(db, agent)
     if not agent.is_active or not credentials or not agent.model.strip():
         return None
@@ -314,6 +318,9 @@ async def _widget_ai_reply(db: Session, agent: Agent, conversation: Conversation
     reply = Message(conversation_id=conversation.id, role="assistant", content=completion.text, sources=knowledge.sources, tool_calls=completion.tool_calls, sender_type="ai", sender_name=agent.name)
     db.add(reply)
     record_usage(db, agent.agency_id, agent.id, agent.provider, agent.model.strip(), completion, conversation=conversation, message=reply)
+    if owner is not None:
+        db.flush()
+        ai_budget.enforce(db, owner)
     if completion.attachments:
         # Files a tool returned are stored as their own assistant messages; the
         # widget renders them as document cards on the next poll.

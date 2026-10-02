@@ -1,8 +1,9 @@
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy import event, text
 from sqlalchemy.orm import object_session, Mapped, mapped_column, relationship
 
@@ -134,8 +135,23 @@ class Client(Base):
     google_maps_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Business operating hours (weekday to ["HH:MM", "HH:MM"] ranges map).
     business_hours: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict, server_default="{}")
+    # What the AI of this client may spend per local day (null: no cap), and the
+    # day on which that cap switched it off (see services/ai_budget.py).
+    ai_daily_cap_usd: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    ai_paused_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+    @property
+    def ai_paused(self) -> bool:
+        """Whether the daily cap has the AI switched off today, in the client's own timezone."""
+        if self.ai_paused_on is None:
+            return False
+        try:
+            zone = ZoneInfo(self.timezone or "UTC")
+        except Exception:  # noqa: BLE001
+            zone = ZoneInfo("UTC")
+        return self.ai_paused_on == datetime.now(zone).date()
 
     agents: Mapped[list["Agent"]] = relationship(back_populates="client", cascade="all, delete-orphan")
     whatsapp_channels: Mapped[list["WhatsAppChannel"]] = relationship(

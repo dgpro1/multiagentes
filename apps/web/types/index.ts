@@ -50,6 +50,9 @@ export type Client = {
   address: string | null;
   google_maps_url: string | null;
   business_hours: WeeklyHours | null;
+  /** Daily spending cap on the client's AI in USD (null: none), and whether it has switched the AI off today. */
+  ai_daily_cap_usd?: number | null;
+  ai_paused?: boolean;
   agents: AgentSummary[];
   created_at: string;
   updated_at: string;

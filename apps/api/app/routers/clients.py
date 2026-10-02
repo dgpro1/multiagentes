@@ -149,7 +149,12 @@ def get_client(client_id: uuid.UUID, db: Session = Depends(get_db), user: User =
 @router.patch("/{client_id}", response_model=ClientOut, dependencies=[Depends(require(CLIENTS_WRITE))])
 def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _client(db, user, client_id)
-    apply_details(db, client, payload.model_dump(exclude_unset=True))
+    values = payload.model_dump(exclude_unset=True)
+    if "ai_daily_cap_usd" in values:
+        client.ai_daily_cap_usd = values.pop("ai_daily_cap_usd")
+    if values.pop("resume_ai", None):
+        client.ai_paused_on = None
+    apply_details(db, client, values)
     return _client(db, user, client_id)
 
 

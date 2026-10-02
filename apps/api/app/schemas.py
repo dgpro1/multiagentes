@@ -116,6 +116,9 @@ class ClientUpdate(BaseModel):
     address: str | None = None
     google_maps_url: str | None = Field(default=None, max_length=500)
     business_hours: dict[str, list[list[str]]] | None = None
+    # A daily spending cap on the client's AI in USD; null removes it. resume_ai switches the AI back on after the cap paused it.
+    ai_daily_cap_usd: float | None = Field(default=None, gt=0, le=100000)
+    resume_ai: bool | None = None
 
     @field_validator("timezone")
     @classmethod
@@ -258,6 +261,8 @@ class ClientOut(ORMModel):
     address: str | None = None
     google_maps_url: str | None = None
     business_hours: dict[str, list[list[str]]] | None = None
+    ai_daily_cap_usd: float | None = None
+    ai_paused: bool = False
     is_active: bool
     portal_slug: str
     portal_enabled: bool
