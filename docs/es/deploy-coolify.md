@@ -85,6 +85,18 @@ El trabajo aterriza en `main`, pero el servidor nunca lo ve directamente. En cad
 
 Las migraciones corren al arrancar. Antes de un despliegue que agregue una (el changelog lo indica), toma un snapshot de Hetzner o confirma que existe el volcado de anoche de `db-backup`.
 
+## Actualizar sin cortar WhatsApp
+
+Las sesiones QR de WhatsApp viven en Evolution API (con su propia base de datos y Redis), no en la API ni en el panel. Actualizar esos dos no las toca; reiniciar o recrear Evolution sí.
+
+- Mantén Evolution como un servicio propio en Coolify, con su versión fija (hoy `evoapicloud/evolution-api:v2.3.7`). Actualízalo solo a propósito, nunca como efecto de redesplegar el resto.
+- Nunca borres ni recrees los volúmenes de `evolution`, `evolution-db` o `evolution-redis`: ahí están las sesiones. Respáldalos igual que la base principal.
+- Despliega en una hora tranquila. Mientras la API se reinicia (segundos), un mensaje entrante puede perderse y una respuesta que esperaba su ventana de silencio puede no salir.
+- Deja que Coolify arranque el contenedor nuevo y espere su health check antes de apagar el viejo.
+- Las migraciones solo añaden (una columna, una tabla); renombrar o borrar va en una versión posterior, para que la anterior siga funcionando si hay que volver atrás.
+- Toma un snapshot o un volcado antes de cualquier despliegue con migración, y prueba antes en una copia de los datos cuando mueva datos.
+- Despliega solo un commit cuyo `Tests` esté en verde (la rama `production` ya lo garantiza).
+
 ## Volver atrás
 
 Si un despliegue falla, vuelves atrás en minutos: en Coolify pon `OPENLIVERY_VERSION=sha-<primeros 7 caracteres de un commit bueno>` (las imágenes de cada commit en verde se conservan en el registro) y vuelve a desplegar. Si la versión mala aplicó una migración, restaura el snapshot o el volcado tomado antes. Cuando haya un commit corregido en `production`, vuelve la variable a `latest` (o bórrala).

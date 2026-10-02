@@ -82,6 +82,18 @@ Work lands on `main`, but the server never sees it directly. On every push to `m
 
 Migrations run on start. Before a deploy that adds one (the changelog says so), take a Hetzner snapshot or make sure last night's `db-backup` dump exists.
 
+## Updating without cutting WhatsApp
+
+WhatsApp QR sessions live in Evolution API (its own database and Redis), not in the API or the web. Updating those two does not touch them; restarting or recreating Evolution does.
+
+- Keep Evolution as a service of its own in Coolify, with its version pinned (`evoapicloud/evolution-api:v2.3.7` today). Update it only on purpose, never as a side effect of redeploying the rest.
+- Never delete or recreate the volumes of `evolution`, `evolution-db` or `evolution-redis`: the sessions are in them. Back them up like the main database.
+- Deploy at a quiet hour. While the API restarts (seconds), an inbound message can be missed and a reply waiting for its quiet window can be lost.
+- Let Coolify start the new container and wait for its health check before stopping the old one.
+- Migrations only add (a column, a table); renaming or dropping goes in a later release, so the previous version keeps working if you roll back.
+- Take a snapshot or dump before any deploy that carries a migration, and try the change on a copy of the data first when it moves data.
+- Deploy only a commit whose `Tests` run is green (the `production` branch already guarantees it).
+
 ## Rolling back
 
 If a deploy misbehaves, go back in minutes: in Coolify set `OPENLIVERY_VERSION=sha-<first 7 characters of a good commit>` (the images of every green commit stay in the registry) and redeploy. If the bad version applied a migration, restore the snapshot or dump taken before it instead. Set the variable back to `latest` (or delete it) once a fixed commit is on `production`.

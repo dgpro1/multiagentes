@@ -62,6 +62,10 @@ Several agents and worktrees work on this repo, so `main` is the single source o
   `python scripts/ci-status.py <sha> --wait 30`. To roll back, set `OPENLIVERY_VERSION=sha-<7 chars of a good commit>`
   on the server and redeploy.
 
+## Deploying without cutting WhatsApp
+
+QR lines live in Evolution API, which has its own database and Redis; updating the API or web does not touch them, restarting or recreating Evolution does. Keep Evolution a service of its own in Coolify with its version pinned, never delete its volumes, deploy at quiet hours, let the new container pass its health check before the old one stops, keep migrations additive, and take a snapshot before any deploy that carries one. The full list is in `docs/en/deploy-coolify.md`.
+
 ## Commands
 
 ### Docker (recommended)
